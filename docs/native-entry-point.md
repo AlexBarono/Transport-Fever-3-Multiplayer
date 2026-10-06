@@ -137,3 +137,18 @@ Weitere Einträge auf oberster Ebene: `api\`, `base\`, `mods\`, `vscode-template
 1. Proxy-`alut.dll` bauen, die alle 20 Exporte an die Original-DLL weiterleitet und in `DllMain` nur eine Logzeile schreibt.
 2. Testen, ob TF3 mit der Proxy-DLL normal startet (SteamStub, Signaturprüfung).
 3. Erst danach Netzwerk-Code in die DLL einbauen.
+
+## Testergebnis Proxy-DLL (06.10.2026)
+
+Quelltext: `native/alut_proxy`. Installiert als `alut.dll`, Original als `alut_orig.dll`.
+
+- TF3 startet und läuft normal mit dem Proxy (Spielstand geladen, Ton funktioniert).
+- Im laufenden Prozess sind `alut.dll` (Proxy) und `alut_orig.DLL` geladen. Die Weiterleitung funktioniert.
+- SteamStub und die Signaturen verhindern den Austausch nicht.
+- `DllMain` läuft: Proxy v2 hat `loaded` und `unloaded` in `alut_proxy.log` im Spielordner geschrieben.
+- Im Spielprozess fehlt offenbar `LOCALAPPDATA` (v1 konnte dorthin nicht loggen). Eigene Dateien deshalb relativ zur DLL ablegen.
+
+```
+2026-10-06 13:51:41 alut proxy v2 loaded pid=29388
+2026-10-06 13:51:59 alut proxy v2 unloaded pid=29388
+```
