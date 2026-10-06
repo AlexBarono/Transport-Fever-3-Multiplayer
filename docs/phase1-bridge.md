@@ -293,3 +293,21 @@ Der Nutzer hat mit `Start.bat` → „Allein testen“ installiert (`alut_proxy.
 - Gleis (erstmals): Spur-Teil `27.777,4,0.53,1,16512,0`, `replay #40024.2: 2 nodes, 1 segments` → `BUILT, costs 1983`.
 - Vom Bau bis zur Kopie vergehen etwa 3–4 s, also ein bis zwei Bridge-Ticks.
 - Auffällig: Die DLL setzt `TF3MP_IN=line …` zweimal, bevor sie `the mod has line …` sieht. Gebaut wurde aber nur einmal, die Erkennung doppelter Zeilen über das Token wirkt.
+
+## Ergebnis Lauf 12 bestätigt, Plan für Probe v13 (Schritt 1: Anschlüsse und Gebäude)
+
+Der Nutzer will vor dem Test mit dem zweiten PC alles übertragen: Anschlüsse an bestehende Straßen, Gebäude, Abriss, Linien, Fahrzeuge, Geld/Datum/Tempo. Referenz, wie die TF2-Mod das löst: `docs/tf2mp-reference.md` (aus github.com/silver2127/tpf2-multiplayer, MIT).
+
+Geplantes Zeilenformat B4 (Felder mit `;`, Text mit %-Kodierung für Leerzeichen, `;`, `|`, `%`):
+
+- `n-<i>;x,y,z` neuer Knoten, `f<k>;x,y,z` bestehender Knoten (Empfänger sucht ihn im Umkreis 1,5 m, nur waagerecht)
+- `s…` wie B3, Knoten auch als `f<k>`; 13. Feld: Kantenobjekte `o<k>/<side>|…` oder `-`
+- `o<k>;<segment>;param;left;oneWay;model;name` neue Haltestelle/Signal
+- `r;x,y,z;x,y,z;type` entfernte Kante (Empfänger sucht die Kante zwischen den beiden Knoten; fehlt eine, wird der ganze Bau übersprungen)
+- `x;x,y,z` entfernter Knoten
+- `c;file;name;t1,…,t16;params` neues Gebäude über `SimpleProposal.ConstructionEntity` (params als Lua-Literal, eigener Parser statt `load`)
+- `d;file;x,y,z` abgerissenes Gebäude (Empfänger: gleiche Datei im Umkreis 2 m). Da `onPostBuildProposal` erst nach dem Abriss kommt, merkt sich der Mod Datei und Position aller Spieler-Gebäude im Skript-Zustand.
+
+Bei Bauten mit Gebäude fallen Kanten weg, die einen eingefrorenen Knoten berühren (`frozenNodes` sind 0-basierte Indizes in `addedNodes`, Lauf 5); die erzeugt das Gebäude selbst. Bestehende Haltestellen auf einer geänderten Kante werden in v13 noch nicht unterstützt (Bau wird mit Hinweis übersprungen).
+
+Allein-Test: `loop`-Zeilen werden immer um (0, 40 m) verschoben statt quer zur ersten Kante, damit Anschlüsse und Abriss die 40 m versetzte Kopie treffen. Testablauf: erst eine freie Straße A bauen (Kopie A'), dann an A anschließen, Haltestelle, Depot, Bahnhof an A, zum Schluss etwas abreißen.
