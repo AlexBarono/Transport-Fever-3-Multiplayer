@@ -1208,9 +1208,9 @@ test("a construction travels with file, name, transf, params and its access segm
 		logged = {}
 		local state = mock_state()
 		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", depot_param())
-		assert(contains(logged, "capture player build nodes=2 segments=1 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
+		-- Run 18: the construction's entrance street (one frozen end) is the construction's own.
+		assert(contains(logged, "capture player build nodes=0 segments=0 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
 			table.concat(logged, "\n"))
-		-- Run 17: the access segment (one frozen end) travels in the same line, marked with "a".
 		assert(contains(logged, "access_segments=1"), table.concat(logged, "\n"))
 		local line = state:get().last_build
 		assert(line and line:find(" c;%3A%3A%2Fdepots%2Froad%2Froad_depot%2Froad_depot.con;Rehna%20Strassendepot%20S%C3%BCd;1,0,0,0,0,1,0,0,0,0,1,0,-2970.633,-3889.26,3.18,1;{", 1, true), line)
@@ -1226,13 +1226,51 @@ test("a construction travels with file, name, transf, params and its access segm
 		assert(sent.fileName == c.file and sent.name == c.name and sent.playerEntity == 29125)
 		assert(sent.transf[13] == -2970.633 and sent.params.modules[3] == "a b;c")
 		local _, edges = sent_lists(t.sent[1].proposal)
-		assert(#edges == 1, "the access segment is built together with the depot")
-		assert(data.access[-1], "the line marks segment 1 as access segment")
-		-- Without it, if the game refuses the pair, the depot still comes.
-		data = assert(build.deserialize(line))
-		build.drop_access(data)
-		assert(#data.segments == 0 and #data.nodes == 0 and #data.constructions == 1)
+		assert(#edges == 0, "the construction builds its entrance itself")
 	end)
+end)
+
+test("a depot joined to a road travels as construction line, then street line (run 18)", function()
+	-- Run 18 capture: road split at n1, entrance n1 -> n2 (n2 frozen), removed road segment.
+	local road = run5_street().addedSegments[1]
+	local function seg(entity, a, b, template)
+		local s = { entity = entity, type = 0, comp = {} }
+		for k, v in pairs(road.comp) do s.comp[k] = v end
+		s.comp.node0, s.comp.node1 = a, b
+		if template then s.comp.roadTemplate = template end
+		s.params, s.streetEdge = road.params, road.streetEdge
+		return s
+	end
+	local proposal = {
+		addedNodes = {
+			{ entity = 101, comp = { position = { x = -2861.231, y = -3962.21, z = 2.673 } } },
+			{ entity = 102, comp = { position = { x = -2866.509, y = -3979.147, z = 2.673 } } },
+		},
+		frozenNodes = { 1 },
+		addedSegments = {
+			seg(201, 101, 102, "::/infrastructure/street/constructions/entrance_new.street_template"),
+			seg(202, 11, 101), seg(203, 101, 12),
+		},
+		removedSegments = { { entity = 300, type = 0, comp = { node0 = 11, node1 = 12,
+			position0 = { x = -2903.335, y = -3949.088, z = 2.071 }, position1 = { x = -2821.038, y = -3974.736, z = 2.964 } } } },
+	}
+	local positions = { [11] = { x = -2903.335, y = -3949.088, z = 2.071 }, [12] = { x = -2821.038, y = -3974.736, z = 2.964 },
+		[101] = { x = -2861.231, y = -3962.21, z = 2.673 } }
+	local opts = {
+		node_position = function(id) return positions[id] end,
+		to_add = { { fileName = "::/depots/road/road_depot/road_depot.con", name = "Depot", params = { seed = 0 },
+			transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -2872.5, -3998.5, 2.67, 1 } } },
+	}
+	local line, info = build.serialize(proposal, opts)
+	assert(info.access == 1 and info.segments == 2 and info.constructions == 1, line)
+	opts.part = "constructions"
+	local con_line, con_info = build.serialize(proposal, opts)
+	assert(con_info.segments == 0 and con_info.removed_segments == 0 and con_info.constructions == 1, con_line)
+	opts.part = "streets"
+	local street_line, street_info = build.serialize(proposal, opts)
+	assert(street_info.constructions == 0 and street_info.segments == 2 and street_info.removed_segments == 1, street_line)
+	assert(street_info.nodes == 0 and street_info.foreign_nodes == 3, "the split node is the entrance's free end: " .. street_line)
+	assert(street_line:find("f2;-2861.231,-3962.21,2.673", 1, true), street_line)
 end)
 
 test("world finds nodes, edges and constructions of the running game by position", function()

@@ -27,7 +27,7 @@ local function mock()
 	local t = { ComponentType = ct, Context = { new = new },
 		SimpleProposal = { new = proposal, ConstructionEntity = { new = new } },
 		Line = { new = new, Stop = { new = new }, StopConfig = { new = new } },
-		LineVehicleInfo = { new = new }, VehiclePart = { new = new },
+		LineVehicleInfo = { new = new }, VehiclePart = { new = new }, LoadConfig = { new = new },
 		TransportVehiclePart = { new = new }, TransportVehicleConfig = { new = new },
 		EdgeId = { new = new }, EdgePos = { new = new }, Waypoint = { new = new },
 		StationTerminal = { new = function(s, terminal) return { station = s, terminal = terminal } end },

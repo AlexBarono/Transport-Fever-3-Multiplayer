@@ -480,7 +480,17 @@ local function make_vehicle(env, value)
 		assert(model_id and model_id >= 0, "vehicle model missing: " .. v.model)
 		local part = env.api.type.VehiclePart.new()
 		part.modelId, part.reversed = model_id, v.reversed
-		part.compartment2loadConfig = v.compartment2loadConfig
+		-- Run 18: the game wants api.type.LoadConfig entries, not plain tables.
+		local configs = {}
+		for j, c in ipairs(v.compartment2loadConfig or {}) do
+			local lc = env.api.type.LoadConfig.new()
+			if type(c) == "table" then
+				if c.loadConfigIndex ~= nil then lc.loadConfigIndex = c.loadConfigIndex end
+				if c.cargoTypeId ~= nil then lc.cargoTypeId = c.cargoTypeId end
+			end
+			configs[j] = lc
+		end
+		part.compartment2loadConfig = configs
 		part.color = env.api.type.Vec3f.new(v.color.x, v.color.y, v.color.z)
 		local tv = env.api.type.TransportVehiclePart.new()
 		tv.part, tv.autoLoadConfig = part, v.autoLoadConfig

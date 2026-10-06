@@ -375,3 +375,10 @@ Token `o;<segment>;<side>;<param>;x,y,z;<model>;<name>;<flags>` hinter dem Segme
 - Depot: das Zufahrtsstück kam als eigene Zeile, das Spiel lehnte es ab („Bau nicht möglich“, Knoten 50968→49688, Vorlage `entrance_new.street_template`). v18 schickt es in derselben Zeile wie das Gebäude (Token `a;<segment>`), der eingefrorene Knoten ist ein neuer Knoten des Vorschlags. Lehnt das Spiel das Paar ab, baut der Mod das Gebäude ohne Zufahrt (`build.drop_access`).
 - `vehicle_create` meldete einen Fehler als Tabelle; v18 schreibt deren Felder ins Log.
 - Allein-Test: Kopie jetzt 100 m nördlich (Wunsch des Nutzers).
+
+### Lauf 18 (v18) und Probe v19
+
+- Logs: `logs/run18-*`, Bild der Depot-Kopie `logs/run18-depot-copy.png`. Depot mit Zufahrt im selben Vorschlag gebaut (Kosten 94891), aber die Kopie zeigt zwei Sackgassen-Wendeschleifen zwischen Straße und Tor.
+- Deutung: Das Segment mit einem eingefrorenen Ende (Vorlage `entrance_new.street_template`) ist die eigene Zufahrt des Gebäudes. Das Bauwerkzeug schweißt ihr freies Ende an die Straße. Ein Skript-Vorschlag schweißt nicht (wie in TF2, siehe `docs/tf2mp-reference.md`, `MergeTemplateStreet`), und unsere zweite Zufahrt lag doppelt daneben.
+- v19: Zuerst eine Zeile nur mit dem Gebäude (`opts.part = "constructions"`), dann eine Zeile mit den Straßen (`"streets"`), in der der Teilungsknoten der Straße das freie Ende der Gebäudezufahrt ist (`f`-Knoten über die Position). So wird die Straße am Knoten des Gebäudes geteilt.
+- Bus im neuen Depot: `{1={cargoTypeId=-1, loadConfigIndex=0}}` abgelehnt. v19 baut `api.type.LoadConfig`-Einträge.

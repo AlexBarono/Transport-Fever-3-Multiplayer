@@ -295,24 +295,32 @@ function build.serialize(proposal, opts)
 		if frozen[i] then frozen_ids[node.entity] = true end
 	end
 
-	-- A segment with both ends frozen belongs to the construction. One with a single frozen end
-	-- joins the construction to the network (a depot's access road). Run 17: built on its own after
-	-- the construction the game refused it ("Bau nicht möglich"), so it travels in the same line,
-	-- marked with an "a" token, and the receiver builds it together with the construction.
-	local segments, used, access = {}, {}, {}
+	-- A segment with both ends frozen belongs to the construction. So does one with a single frozen
+	-- end: it is the construction's own entrance street, whose free end the build tool welded onto
+	-- the road (run 18: built again by us, it lay twice beside the construction's own one). The
+	-- receiver gets the construction first (opts.part = "constructions") and then the streets
+	-- (opts.part = "streets"), in which the entrance's free end is an existing node: the road is
+	-- then split at the construction's own node, which welds it.
+	local part = opts.part
+	local segments, used, access_ends = {}, {}, {}
+	info.access = 0
 	for _, seg in ipairs(list_items(proposal.addedSegments)) do
 		local comp = seg.comp
 		local f0, f1 = frozen_ids[comp.node0] == true, frozen_ids[comp.node1] == true
-		if f0 and f1 then
+		if f0 or f1 then
 			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (part of a construction)"
-		else
+			if not (f0 and f1) then
+				info.access = info.access + 1
+				access_ends[f0 and comp.node1 or comp.node0] = true
+			end
+		elseif part ~= "constructions" then
 			segments[#segments + 1] = seg
 			used[comp.node0], used[comp.node1] = true, true
-			if f0 or f1 then access[#segments] = true end
 		end
 	end
-	info.access = 0
-	for _ in pairs(access) do info.access = info.access + 1 end
+	if part == "streets" then
+		for id in pairs(access_ends) do used[id] = nil end
+	end
 	local added_position = {}
 	for _, node in ipairs(nodes) do
 		pcall(function()
@@ -413,8 +421,9 @@ function build.serialize(proposal, opts)
 		end
 	end
 	info.foreign_nodes = foreign_count
-	for i in pairs(access) do parts[#parts + 1] = "a;" .. i end
 
+	if part == "constructions" then goto constructions end
+	do
 	-- Removed nodes: their positions are only in the proposal, the entities are gone.
 	local removed_position = {}
 	for _, node in ipairs(list_items(proposal.removedNodes)) do
@@ -448,6 +457,9 @@ function build.serialize(proposal, opts)
 		info.removed_segments = info.removed_segments + 1
 		parts[#parts + 1] = "r;" .. vec_to_string(p0) .. ";" .. vec_to_string(p1) .. ";" .. tostring(seg.type)
 	end
+	end
+	::constructions::
+	if part == "streets" then return table.concat(parts, " "), info end
 
 	for _, con in ipairs(list_items(opts.to_add)) do
 		local m, how = (opts.read_transf or build.read_transf)(con.transf)

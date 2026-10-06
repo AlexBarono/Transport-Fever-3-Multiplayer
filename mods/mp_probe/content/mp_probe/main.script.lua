@@ -13,7 +13,7 @@ local actions = require("/mp_probe/actions.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 18
+main.PROBE_VERSION = 19
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -525,11 +525,36 @@ function main.capture_build(state, s, param, label)
 	for _, what in ipairs(info.dropped) do logger.info("capture leaves out " .. what) end
 	logger.info("capture line " .. line)
 	if info.segments + info.removed_segments + info.constructions + info.demolished > 0 then
-		s.last_build = line
+		local lines = { line }
+		if info.access > 0 and info.constructions > 0 then
+			-- Run 18: the construction first, then the streets that weld its entrance to the road.
+			local ok_c, con_line = pcall(build.serialize, param[1].proposal, main.with_part(opts, "constructions"))
+			local ok_s, street_line, street_info = pcall(build.serialize, param[1].proposal, main.with_part(opts, "streets"))
+			if ok_c and ok_s then
+				lines = { con_line }
+				if street_info.segments + street_info.removed_segments + street_info.removed_nodes > 0 then
+					lines[2] = street_line
+				end
+				logger.info("capture split: construction line " .. con_line)
+				logger.info("capture split: street line " .. street_line)
+			else
+				logger.info("capture split failed (" .. tostring(ok_c and street_line or con_line) .. "), sending one line")
+			end
+		end
+		s.last_build = lines[1]
 		state:set(s)
-		logger.info("capture stored for replay (" .. #line .. " characters)")
-		logger.info(main.SEND_MARKER .. line)
+		for _, l in ipairs(lines) do
+			logger.info("capture stored for replay (" .. #l .. " characters)")
+			logger.info(main.SEND_MARKER .. l)
+		end
 	end
+end
+
+function main.with_part(opts, part)
+	local copy = {}
+	for k, v in pairs(opts) do copy[k] = v end
+	copy.part = part
+	return copy
 end
 
 --- Keeps file and position of every construction in the script state, because a demolish event
