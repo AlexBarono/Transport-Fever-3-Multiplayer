@@ -59,3 +59,7 @@ powershell -ExecutionPolicy Bypass -File uninstall.ps1
 - Die DLL liest `stdout.txt` des Spiels mit und meldet jede Zeile `bridge out seq=N` des Mods `mp_probe` (v5) in `alut_proxy.log`.
 - Danach setzt sie die Umgebungsvariable `TF3MP_IN=ack N` über `_putenv_s` aus `ucrtbase.dll`. Der Mod liest sie mit `os.getenv` und schreibt `bridge in TF3MP_IN=ack N` ins Spiel-Log.
 - Gleich beim Start setzt die DLL `TF3MP_IN=hello`.
+
+### Wiederaufbau-Test (v5)
+
+Sobald der Mod `capture stored for replay` ins Log schreibt (also eine Straße oder ein Gleis aufgezeichnet hat), setzt die DLL beim nächsten Tick `TF3MP_IN=replay <seq>`. Der Mod baut daraufhin denselben Bau erneut auf. Im Spiel-Log steht dann `replay: ok, ...` mit dem Layout und der Signatur, die funktioniert hat, oder `replay: failed, ...` mit allen Fehlermeldungen.
