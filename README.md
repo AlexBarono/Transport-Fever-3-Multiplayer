@@ -8,7 +8,7 @@ Der Umsetzungsplan steht in [docs/plan.md](docs/plan.md). Aktuell läuft **Phase
 
 ```
 docs/plan.md        Machbarkeit und Umsetzungsplan
-mods/mp_probe/      Phase-0-Erkundungsmod (verändert das Spiel nicht, schreibt nur ins Log)
+mods/mp_probe/      Phase-0-Erkundungsmod, Anleitung in docs/probe-mod.md
 tests/              Offline-Tests der Lua-Mods gegen eine Mini-Attrappe der Engine
 tools/run_lua.py    Startet Lua-Dateien mit lupa, falls kein Lua installiert ist
 ```

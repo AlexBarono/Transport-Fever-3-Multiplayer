@@ -1,0 +1,15 @@
+{
+    "authors": [
+        {
+            "name": "AlexBarono",
+            "role": "CREATOR"
+        }
+    ],
+    "description": "Developer tool for the TF3 multiplayer project. Logs which Lua functions the game script sandbox allows, lists the visible engine API, logs every event type once and writes periodic simulation snapshots to stdout.txt. Does not change the game.",
+    "name": "Multiplayer Probe (dev)",
+    "summary": "Logs the TF3 Lua sandbox and engine API for multiplayer research.",
+    "tags": [
+        "Script Mod"
+    ],
+    "url": "https://github.com/AlexBarono/Transport-Fever-3-Multiplayer"
+}
