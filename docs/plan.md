@@ -53,6 +53,8 @@ Konsequenz: Architektur wie bei tpf2-multiplayer, also **native Komponente für 
 
 ## 5. Umsetzungsplan
 
+**Aktuelle Priorität (06.10.2026):** Auf Wunsch des Benutzers zuerst Bahnhöfe, Depots, Abriss, Fahrzeuge und Linien ergänzen, anschließend zwischen zwei PCs testen. Die Umsetzung in Probe v13 und die Übergabe für Claude stehen in [phase2-actions.md](phase2-actions.md). Die zusätzlichen Aktionen sind offline geprüft; ein Spielnachweis steht aus.
+
 ### Phase 0: Erkundung (2–4 Wochen)
 Ziel: Klären, ob die Annahmen für TF3 gelten. Entscheidet über Go/No-Go.
 1. tpf2-multiplayer komplett lesen und in TF2 ausprobieren (zeigt, welche Teile übertragbar sind).

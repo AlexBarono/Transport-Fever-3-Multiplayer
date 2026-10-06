@@ -5,7 +5,7 @@
             "role": "CREATOR"
         }
     ],
-    "description": "Developer tool for the TF3 multiplayer project. Logs which Lua functions the game script sandbox allows, lists the visible engine API, logs every event type once and writes periodic simulation snapshots to stdout.txt. Does not change the game.",
+    "description": "Experimental TF3 multiplayer prototype. Logs the Lua sandbox and engine API and captures/replays infrastructure, construction, line and vehicle actions through the native bridge. Probe v14 (B4 builds plus polled lines and vehicles) is offline tested; in-game validation is pending.",
     "name": "Multiplayer Probe (dev)",
     "summary": "Logs the TF3 Lua sandbox and engine API for multiplayer research.",
     "tags": [

@@ -318,3 +318,13 @@ Allein-Test: `loop`-Zeilen werden immer um (0, 40 m) verschoben statt quer zur e
 - `world.lua`: Knoten-Raster (16 m Zellen) über `forEachEntityWithComponent(BASE_NODE)`, Kante zwischen zwei Knoten (`streetSystem.getNodeSegments`, sonst alle Kanten), Gebäude gleicher Datei im Umkreis 2 m, Spieler-Gebäude-Liste.
 - `main.script.lua`: Gebäude werden nicht mehr übersprungen; Haltestellen/Signale werden noch weggelassen und im Log genannt. Allein-Test verschiebt immer um (0, +40 m). Bei Abriss-Ereignissen merkt sich der Mod Gebäude im Skript-Zustand (einmaliger Scan pro Spielstand, danach aus den Bau-Ereignissen).
 - Bisher unbekannt und deshalb im Log: wie TF3 `transf` lesen und setzen lässt, ob ein Abriss als `onPostBuildProposal` mit `isPlayerBuild=true` kommt, welche Felder Kantenobjekte haben (die Dumps zeigen jetzt `edgeEntity`, `param`, `left`, `oneWay`, `model`).
+## ChatGPT-Erweiterung: zusätzliche Aktionen (06.10.2026, in Probe v14 übernommen)
+
+Aufbauend auf v12 wurde Code für vollständige Konstruktionen (Bahnhöfe/Depots und Änderungen), reinen Abriss, Linien und Fahrzeuge ergänzt. Neue A1-Daten nutzen die vorhandene DLL v7. 53 bestehende und 35 neue Offline-Tests sind erfolgreich; die neuen Aktionen sind noch nicht im echten Spiel bestätigt. Details, Grenzen und Übergabe an Claude: [phase2-actions.md](phase2-actions.md). Der Benutzer hat den Zwei-PC-Test ausdrücklich nach diese Erweiterungen eingeordnet.
+
+### Probe v14: beides zusammengeführt
+
+- Straßen, Gleise, Gebäude und Abriss kommen weiter als B4-Zeile aus dem Bau-Ereignis (`build.lua`, `world.lua`).
+- Aus `actions.lua` (ChatGPT) werden nur Linien und Fahrzeuge abgefragt (`main.ACTION_KINDS = { "line", "vehicle" }`), damit Gebäude und Kanten nicht doppelt kopiert werden.
+- Der Allein-Test verschiebt bei beiden um (0, +40 m); `edge_loop_offsets` entfällt, `actions.resolve` nutzt dann genau diesen Versatz.
+- Tests: 56 (`run_tests.lua`) und 35 (`run_actions.lua`), unter Lua 5.4 und 5.2.

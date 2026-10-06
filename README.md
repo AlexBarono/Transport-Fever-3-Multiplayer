@@ -2,7 +2,7 @@
 
 Ziel: Mehrere Spieler bauen gleichzeitig in derselben Transport-Fever-3-Welt. TF3 hat keinen offiziellen Multiplayer; dieses Projekt versucht es als Community-Mod (nur PC).
 
-Der Umsetzungsplan steht in [docs/plan.md](docs/plan.md). Aktuell läuft **Phase 0: Erkundung**.
+Der Umsetzungsplan steht in [docs/plan.md](docs/plan.md). Aktuell läuft **Phase 1: Befehle spiegeln**. Priorität: zusätzliche Spielaktionen ergänzen; der Zwei-PC-Spieltest folgt danach.
 
 ## Aufbau
 
@@ -20,6 +20,7 @@ lua tests/run_tests.lua
 # oder ohne Lua-Installation:
 pip install lupa
 python3 tools/run_lua.py tests/run_tests.lua
+python3 tools/run_lua.py tests/run_actions.lua
 ```
 
 ## Hinweis
@@ -36,4 +37,6 @@ Dieses Projekt ist nicht mit Urban Games oder Paradox Interactive verbunden. Tra
 
 Das Fenster installiert die fertige DLL aus `launcher/bin/alut.dll` (kein Visual Studio nötig), schreibt `alut_proxy.ini` und kopiert den Mod `mods/mp_probe` in den lokalen Mod-Ordner von TF3. Übers Internet braucht der Gastgeber eine UDP-Portfreigabe (Standard 47800) oder beide ein gemeinsames VPN wie Tailscale oder ZeroTier.
 
-Stand: Gebaute Straßen werden zum Partner geschickt und dort an derselben Stelle nachgebaut (Gleise, Bahnhöfe und Straßen, die an bestehende Straßen anschließen, noch nicht). Beide müssen denselben Spielstand laden. Mit „Allein testen“ kommt jede eigene Straße 40 m daneben zurück, so lässt sich alles auf einem PC prüfen.
+Letzter Spielnachweis (v12): Straßen und Gleise wurden im Loopback erfolgreich kopiert. Die Übertragung zum Partner ist implementiert; beide müssen denselben Spielstand laden. Mit „Allein testen“ kommt jede eigene Straße bzw. jedes Gleis 40 m daneben zurück. Straßenanschlüsse bleiben offen.
+
+**Aktualisierung Probe v13 (06.10.2026):** Der letzte tatsächliche Spieltest mit v12 hat auch Gleise im Loopback bestätigt. V13 ergänzt Code für Bahnhöfe/Depots samt modularen Parametern, Konstruktionserweiterungen, reinen Abriss, Linien (Anlegen, Änderungen, Löschen) und Fahrzeuge (Kauf, Konfiguration ersetzen, Verkauf, Linienzuordnung, Name, Start/Stopp und manuelle Abfahrt). Die neuen Aktionen sind bisher **offline getestet, noch nicht im Spiel bestätigt**. Straßenanschlüsse und gemischte Straßenumbauten bleiben offen. Anleitung, Grenzen und Übergabe für Claude: [docs/phase2-actions.md](docs/phase2-actions.md).
