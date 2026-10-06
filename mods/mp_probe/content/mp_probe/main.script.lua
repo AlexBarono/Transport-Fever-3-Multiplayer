@@ -13,7 +13,7 @@ local actions = require("/mp_probe/actions.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 16
+main.PROBE_VERSION = 17
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -476,7 +476,7 @@ end
 function main.capture_build(state, s, param, label)
 	local env = _G
 	local cons = s.constructions or {}
-	local ok, line, info = pcall(build.serialize, param[1].proposal, {
+	local opts = {
 		node_position = function(id) return world.node_position(env, id) end,
 		to_add = param[1].toAdd,
 		to_remove = param[1].toRemove,
@@ -498,7 +498,8 @@ function main.capture_build(state, s, param, label)
 			end
 			return m, how
 		end,
-	})
+	}
+	local ok, line, info = pcall(build.serialize, param[1].proposal, opts)
 	if not ok then
 		logger.info("capture failed (" .. label .. "): " .. tostring(line))
 		return
@@ -514,6 +515,18 @@ function main.capture_build(state, s, param, label)
 		state:set(s)
 		logger.info("capture stored for replay (" .. #line .. " characters)")
 		logger.info(main.SEND_MARKER .. line)
+	end
+	if info.deferred and info.deferred > 0 then
+		-- Segments joining a new construction (a depot's access road) follow in their own line, so
+		-- the other game builds them once the construction stands (run 16).
+		opts.after_constructions = true
+		local ok_a, after_line, after_info = pcall(build.serialize, param[1].proposal, opts)
+		if not ok_a then
+			logger.info("capture of the access segments failed: " .. tostring(after_line))
+			return
+		end
+		logger.info("capture access segments=" .. after_info.segments .. " line " .. after_line)
+		logger.info(main.SEND_MARKER .. after_line)
 	end
 end
 

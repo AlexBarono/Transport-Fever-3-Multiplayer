@@ -359,3 +359,12 @@ Token `o;<segment>;<side>;<param>;x,y,z;<model>;<name>;<flags>` hinter dem Segme
 - Gelesene Daten: `edgeObjectConstruction` ist eine `.con` (`::/stations/street/small_stops/small_old.con`, `::/infrastructure/signal/signal_path_a.con`), Seite 1 für Haltestellen, 2 für Signale.
 - Depot-Abriss: das Zufahrtsstück des Depots stand zusätzlich in `removedSegments` und wurde doppelt entfernt (`StreetProposal::RemoveSegment` Assertion), bzw. in der Kopie nicht gefunden. v16: Segmente, die zu einem abgerissenen Gebäude gehören (`streetConnectorSystem.getConstructionEntityForEdge`), oder die dabei nicht gefunden werden, überlässt der Mod dem Spiel; doppelte Segmente/Knoten werden nur einmal genannt.
 - `actions.lua`: `LoadConfig` hat kein `asTable`; v16 liest bekannte Felder.
+
+### Lauf 16 (v16) und Probe v17
+
+- Logs: `logs/run16-*`. Kopiert: Straße, zwei Haltestellen, Abriss einer Haltestelle, Gleis, Signal (Objekt-Ids ab -400000000 funktionieren, Nummerierung `range0`).
+- Depot: Kopie gebaut, aber nicht an die Straße angeschlossen. Das Zufahrtsstück hat genau einen eingefrorenen Knoten und wurde als Teil des Gebäudes weggelassen. v17: solche Segmente gehen in einer zweiten Zeile hinterher (alle Knoten über die Position), damit sie gebaut werden, wenn das Gebäude steht.
+- Depot-Abriss der Kopie: `ProposalStreetGraph.cpp:152 GetBaseNodeConfig: Assertion '!ContainsEntity(m_proposal->removedNodes, entity)'`. v17 lässt die Endknoten eines nicht gefundenen Zufahrtsstücks stehen.
+- Ein Straßenabriss mit Knoten: `map_util.h:22 Get`. v17 versucht einen abgelehnten Abriss noch einmal ohne `nodesToRemove` (die Straßengraph-Bereinigung räumt lose Knoten selbst ab).
+- Abriss eines Stadtgebäudes ließ die ganze Aufzeichnung scheitern; v17 lässt es mit Hinweis weg.
+- `actions.lua`: Busse an einem alten Depot gekauft (`vehicle_create`), im Allein-Test ohne Kopie des Depots erwartungsgemäß `construction reference not found`. `Invalid entity` beim Linien-Abbild: v17 behält für unlesbare Einträge das alte Abbild statt abzubrechen.

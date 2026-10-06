@@ -234,13 +234,19 @@ local function record(env, id, kind)
 	end
 end
 
-function actions.snapshot(env, kind)
-	local out = {}
+--- Run 16: one unreadable entity ("Invalid entity") made the whole snapshot fail. Such entities
+-- keep their previous record, so a read error never looks like a deletion.
+function actions.snapshot(env, kind, previous)
+	local out, failed = {}, 0
 	for _, id in ipairs(ids(env, kind)) do
-		local r = record(env, id, kind)
+		local ok, r = pcall(record, env, id, kind)
+		if not ok then
+			failed = failed + 1
+			r = previous and previous[tostring(id)]
+		end
 		if r then out[tostring(id)] = r end
 	end
-	return out
+	return out, failed
 end
 
 function actions.encode(action)
@@ -273,7 +279,8 @@ function actions.poll(env, s, log, kinds)
 	local a = s.actions
 	local pending = {}
 	for _, kind in ipairs(kinds or actions.KINDS) do
-		local ok, current = pcall(actions.snapshot, env, kind)
+		local ok, current, failed = pcall(actions.snapshot, env, kind, a.snapshots[kind])
+		if ok and failed > 0 and log then log("action snapshot " .. kind .. ": " .. failed .. " unreadable, kept as before") end
 		if ok then
 			local previous = a.snapshots[kind]
 			if previous then

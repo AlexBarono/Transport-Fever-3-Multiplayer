@@ -1210,7 +1210,10 @@ test("a construction travels with file, name, transf and params, without its own
 		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", depot_param())
 		assert(contains(logged, "capture player build nodes=0 segments=0 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
 			table.concat(logged, "\n"))
-		assert(contains(logged, "capture leaves out segment"), "the entrance is the construction's own")
+		-- Run 16: the access segment (one frozen end) follows in its own line, by position.
+		assert(contains(logged, "capture access segments=1 line B4 f1;-2970.633,-3896.631,3.18 f2;-2970.633,-3881.891,3.18"),
+			table.concat(logged, "\n"))
+		assert(contains(logged, "net send B4 f1;"), "the access line is sent too")
 		local line = state:get().last_build
 		assert(line and line:find(" c;%3A%3A%2Fdepots%2Froad%2Froad_depot%2Froad_depot.con;Rehna%20Strassendepot%20S%C3%BCd;1,0,0,0,0,1,0,0,0,0,1,0,-2970.633,-3889.26,3.18,1;{", 1, true), line)
 		local data = assert(build.deserialize(line))
@@ -1384,9 +1387,10 @@ test("demolishing a depot leaves its own segment to the game (run 15)", function
 	assert(#data.removed_segments == 0 and data.removed_nodes[1].entity == nil, "nothing named twice")
 	assert(data.demolished[1].entity == 700 and #notes >= 1)
 	-- Run 15: the copy's access segment lies elsewhere; the demolition still goes ahead.
-	data = assert(build.deserialize("B4 r;0,0,0;0,18,0;0 d;depot.con;5,5,0"))
+	data = assert(build.deserialize("B4 x;0,0,0 r;0,0,0;0,18,0;0 d;depot.con;5,5,0"))
 	finder.find_edge = function() return nil end
 	assert(build.resolve(data, finder))
+	assert(data.removed_nodes[1].entity == nil, "its end node stays as well (run 16)")
 	-- The same segment twice without a demolition is removed once.
 	data = assert(build.deserialize("B4 r;0,0,0;0,18,0;0 r;0,18,0;0,0,0;0"))
 	finder.find_edge = function() return 601 end

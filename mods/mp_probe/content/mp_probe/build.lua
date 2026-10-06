@@ -273,7 +273,9 @@ build.edge_objects_of = edge_objects_of
 --   construction = function(id) -> { file, position } of a demolished construction,
 --   read_transf = function(transf) -> 16 numbers, or nil and a message,
 --   edge_object = function(id, proposal_entry) -> { param, position, model, name, left, oneWay }
---     of a stop/signal on an added segment, or { problem = text } }
+--     of a stop/signal on an added segment, or { problem = text },
+--   after_constructions = true: only the segments that join a new construction to the network,
+--     all their nodes named by position (info.deferred counts them in the normal line) }
 -- @return string line, table info { nodes, segments, foreign_nodes, removed_segments,
 --   removed_nodes, constructions, demolished, edge_objects, dropped = list of what was left out }
 function build.serialize(proposal, opts)
@@ -294,15 +296,31 @@ function build.serialize(proposal, opts)
 		if frozen[i] then frozen_ids[node.entity] = true end
 	end
 
-	local segments, used = {}, {}
+	-- A segment with both ends frozen belongs to the construction. One with a single frozen end
+	-- joins the construction to the network (a depot's access road, run 16); it can only be built
+	-- once the construction stands, so it goes into a second line (opts.after_constructions).
+	local after = opts.after_constructions
+	local segments, used, deferred = {}, {}, {}
 	for _, seg in ipairs(list_items(proposal.addedSegments)) do
 		local comp = seg.comp
-		if frozen_ids[comp.node0] or frozen_ids[comp.node1] then
+		local f0, f1 = frozen_ids[comp.node0] == true, frozen_ids[comp.node1] == true
+		if f0 and f1 then
 			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (part of a construction)"
-		else
+		elseif f0 or f1 then
+			deferred[#deferred + 1] = seg
+		elseif not after then
 			segments[#segments + 1] = seg
 			used[comp.node0], used[comp.node1] = true, true
 		end
+	end
+	info.deferred = #deferred
+	if after then segments = deferred end
+	local added_position = {}
+	for _, node in ipairs(nodes) do
+		pcall(function()
+			local v = node.comp.position
+			added_position[node.entity] = { x = v.x, y = v.y, z = v.z }
+		end)
 	end
 
 	local count = 0
@@ -319,7 +337,7 @@ function build.serialize(proposal, opts)
 	local function node_ref(id)
 		if placeholder[id] then return placeholder[id] end
 		if not foreign[id] then
-			local p = opts.node_position and opts.node_position(id)
+			local p = (opts.node_position and opts.node_position(id)) or added_position[id]
 			if not p then error("existing node " .. tostring(id) .. " has no position", 0) end
 			foreign_count = foreign_count + 1
 			foreign[id] = foreign_count
@@ -398,6 +416,8 @@ function build.serialize(proposal, opts)
 	end
 	info.foreign_nodes = foreign_count
 
+	if after then return table.concat(parts, " "), info end
+
 	-- Removed nodes: their positions are only in the proposal, the entities are gone.
 	local removed_position = {}
 	for _, node in ipairs(list_items(proposal.removedNodes)) do
@@ -444,9 +464,14 @@ function build.serialize(proposal, opts)
 	end
 	for _, id in ipairs(list_items(opts.to_remove)) do
 		local con = opts.construction and opts.construction(id)
-		if not con then error("demolished construction " .. tostring(id) .. " is unknown", 0) end
+		-- Run 16: a town building the player tears down is not in the cache of player buildings.
+		if not con then
+			info.dropped[#info.dropped + 1] = "demolished construction " .. tostring(id) .. " (not a known player building)"
+			goto continue
+		end
 		info.demolished = info.demolished + 1
 		parts[#parts + 1] = "d;" .. build.escape(con.file) .. ";" .. vec_to_string(con.position)
+		::continue::
 	end
 	return table.concat(parts, " "), info
 end
@@ -608,7 +633,7 @@ function build.resolve(data, finder)
 	end
 	local demolished = {}
 	for _, d in ipairs(data.demolished) do demolished[d.entity] = true end
-	local kept_removed, dropped_nodes = {}, {}
+	local kept_removed, dropped_nodes, missing_ends = {}, {}, {}
 	for _, r in ipairs(data.removed_segments) do
 		local a, b = finder.find_node(r.p0), finder.find_node(r.p1)
 		r.entity = a and b and a ~= b and finder.find_edge(a, b) or nil
@@ -617,7 +642,10 @@ function build.resolve(data, finder)
 			notes[#notes + 1] = "removed segment belongs to a demolished construction, the game removes it"
 			dropped_nodes[a], dropped_nodes[b] = true, true
 		elseif not r.entity and #data.demolished > 0 then
-			-- Run 15: a depot's own access segment lies a little differently in the copy.
+			-- Run 15: a depot's own access segment lies a little differently in the copy. Its end
+			-- nodes stay too (run 16: removing one that is still used asserts).
+			missing_ends[#missing_ends + 1] = r.p0
+			missing_ends[#missing_ends + 1] = r.p1
 			notes[#notes + 1] = string.format("removed segment %.1f,%.1f to %.1f,%.1f not found; left to the demolished construction",
 				r.p0.x, r.p0.y, r.p1.x, r.p1.y)
 		elseif not r.entity then
@@ -673,6 +701,13 @@ function build.resolve(data, finder)
 		if not n.entity then
 			notes[#notes + 1] = string.format("removed node near %.1f,%.1f not found", n.x, n.y)
 		elseif dropped_nodes[n.entity] or removed_node_ids[n.entity] then
+			n.entity = nil
+		elseif (function()
+			for _, p in ipairs(missing_ends) do
+				if math.abs(p.x - n.x) <= 1.5 and math.abs(p.y - n.y) <= 1.5 then return true end
+			end
+			return false
+		end)() then
 			n.entity = nil
 		else
 			removed_node_ids[n.entity] = true
@@ -1370,7 +1405,20 @@ function build.replay(env, data, opts)
 	for _, o in ipairs(data.objects or {}) do
 		if not o.entity then needs_numbering = true end
 	end
-	if not needs_numbering then return replay_once(env, data, opts) end
+	if not needs_numbering then
+		local ok, message = replay_once(env, data, opts)
+		-- Run 16: a removal was rejected once ("map_util Get"); the street graph cleanup removes
+		-- loose nodes by itself, so it is tried again without naming them.
+		local named = 0
+		for _, n in ipairs(data.removed_nodes or {}) do if n.entity then named = named + 1 end end
+		if not ok and named > 0 and #(data.removed_segments or {}) > 0 then
+			log("retrying without the " .. named .. " removed node(s): " .. tostring(message))
+			for _, n in ipairs(data.removed_nodes) do n.entity = nil end
+			ok, message = replay_once(env, data, opts)
+			if ok then message = message .. " (without removed nodes)" end
+		end
+		return ok, message
+	end
 	local last_ok, last_message = false, nil
 	for _, numbering in ipairs(build.OBJECT_NUMBERINGS) do
 		data.object_numbering = numbering
