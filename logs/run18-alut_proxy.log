@@ -1,0 +1,1476 @@
+﻿2026-10-06 13:51:41 alut proxy v2 loaded pid=29388
+2026-10-06 13:51:59 alut proxy v2 unloaded pid=29388
+2026-10-06 14:08:01 [23052] alut proxy v4 loaded
+2026-10-06 14:08:01 [23052] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 14:08:01 [23052] bridge: ucrtbase _putenv_s found
+2026-10-06 14:08:01 [23052] bridge: TF3MP_IN=hello (ok)
+2026-10-06 14:08:01 [23052] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 14:08:19 [23052] bridge: got from Lua: bridge out seq=311
+2026-10-06 14:08:19 [23052] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 14:08:42 [23052] bridge: got from Lua: bridge out seq=312
+2026-10-06 14:08:42 [23052] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 14:08:45 [23052] bridge: got from Lua: bridge out seq=313
+2026-10-06 14:08:45 [23052] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 14:08:47 [23052] bridge: got from Lua: bridge out seq=314
+2026-10-06 14:08:47 [23052] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 14:08:50 [23052] bridge: got from Lua: bridge out seq=315
+2026-10-06 14:08:50 [23052] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 14:08:52 [23052] bridge: got from Lua: bridge out seq=316
+2026-10-06 14:08:52 [23052] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 14:08:55 [23052] bridge: got from Lua: bridge out seq=317
+2026-10-06 14:08:55 [23052] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 14:08:57 [23052] bridge: got from Lua: bridge out seq=318
+2026-10-06 14:08:57 [23052] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 14:09:00 [23052] bridge: got from Lua: bridge out seq=319
+2026-10-06 14:09:00 [23052] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 14:09:02 [23052] bridge: got from Lua: bridge out seq=320
+2026-10-06 14:09:02 [23052] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 14:09:05 [23052] bridge: got from Lua: bridge out seq=321
+2026-10-06 14:09:05 [23052] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 14:09:07 [23052] bridge: got from Lua: bridge out seq=322
+2026-10-06 14:09:07 [23052] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 14:09:10 [23052] bridge: got from Lua: bridge out seq=323
+2026-10-06 14:09:10 [23052] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 14:09:13 [23052] bridge: got from Lua: bridge out seq=324
+2026-10-06 14:09:13 [23052] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 14:09:15 [23052] bridge: got from Lua: bridge out seq=325
+2026-10-06 14:09:15 [23052] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 14:09:18 [23052] bridge: got from Lua: bridge out seq=326
+2026-10-06 14:09:18 [23052] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 14:09:20 [23052] bridge: got from Lua: bridge out seq=327
+2026-10-06 14:09:20 [23052] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 14:09:23 [23052] bridge: got from Lua: bridge out seq=328
+2026-10-06 14:09:23 [23052] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 14:09:25 [23052] bridge: got from Lua: bridge out seq=329
+2026-10-06 14:09:25 [23052] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 14:09:28 [23052] bridge: got from Lua: bridge out seq=330
+2026-10-06 14:09:28 [23052] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 14:09:30 [23052] bridge: got from Lua: bridge out seq=331
+2026-10-06 14:09:30 [23052] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 14:09:33 [23052] bridge: got from Lua: bridge out seq=332
+2026-10-06 14:09:33 [23052] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 14:09:35 [23052] bridge: got from Lua: bridge out seq=333
+2026-10-06 14:09:35 [23052] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 14:09:38 [23052] bridge: got from Lua: bridge out seq=334
+2026-10-06 14:09:38 [23052] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 14:09:40 [23052] bridge: got from Lua: bridge out seq=335
+2026-10-06 14:09:40 [23052] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 14:09:43 [23052] bridge: got from Lua: bridge out seq=336
+2026-10-06 14:09:43 [23052] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 14:09:45 [23052] bridge: got from Lua: bridge out seq=337
+2026-10-06 14:09:45 [23052] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 14:09:48 [23052] bridge: got from Lua: bridge out seq=338
+2026-10-06 14:09:48 [23052] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 14:09:50 [23052] bridge: got from Lua: bridge out seq=339
+2026-10-06 14:09:50 [23052] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 14:09:53 [23052] bridge: got from Lua: bridge out seq=340
+2026-10-06 14:09:53 [23052] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 14:09:55 [23052] bridge: got from Lua: bridge out seq=341
+2026-10-06 14:09:55 [23052] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 14:09:58 [23052] bridge: got from Lua: bridge out seq=342
+2026-10-06 14:09:58 [23052] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 14:10:00 [23052] bridge: got from Lua: bridge out seq=343
+2026-10-06 14:10:00 [23052] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 14:10:03 [23052] bridge: got from Lua: bridge out seq=344
+2026-10-06 14:10:03 [23052] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 14:10:05 [23052] bridge: got from Lua: bridge out seq=345
+2026-10-06 14:10:05 [23052] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 14:10:08 [23052] bridge: got from Lua: bridge out seq=346
+2026-10-06 14:10:08 [23052] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 14:10:10 [23052] bridge: got from Lua: bridge out seq=347
+2026-10-06 14:10:10 [23052] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-06 14:10:12 [23052] bridge: got from Lua: bridge out seq=348
+2026-10-06 14:10:12 [23052] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-06 14:10:15 [23052] bridge: got from Lua: bridge out seq=349
+2026-10-06 14:10:15 [23052] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 14:10:17 [23052] bridge: got from Lua: bridge out seq=350
+2026-10-06 14:10:17 [23052] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 14:10:20 [23052] bridge: got from Lua: bridge out seq=351
+2026-10-06 14:10:20 [23052] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 14:10:22 [23052] bridge: got from Lua: bridge out seq=352
+2026-10-06 14:10:22 [23052] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 14:10:25 [23052] bridge: got from Lua: bridge out seq=353
+2026-10-06 14:10:25 [23052] bridge: TF3MP_IN=ack 353 (ok)
+2026-10-06 14:10:27 [23052] bridge: got from Lua: bridge out seq=354
+2026-10-06 14:10:27 [23052] bridge: TF3MP_IN=ack 354 (ok)
+2026-10-06 14:10:30 [23052] bridge: got from Lua: bridge out seq=355
+2026-10-06 14:10:30 [23052] bridge: TF3MP_IN=ack 355 (ok)
+2026-10-06 14:10:32 [23052] bridge: got from Lua: bridge out seq=356
+2026-10-06 14:10:32 [23052] bridge: TF3MP_IN=ack 356 (ok)
+2026-10-06 14:10:35 [23052] bridge: got from Lua: bridge out seq=357
+2026-10-06 14:10:35 [23052] bridge: TF3MP_IN=ack 357 (ok)
+2026-10-06 14:10:37 [23052] bridge: got from Lua: bridge out seq=358
+2026-10-06 14:10:37 [23052] bridge: TF3MP_IN=ack 358 (ok)
+2026-10-06 14:10:40 [23052] bridge: got from Lua: bridge out seq=359
+2026-10-06 14:10:40 [23052] bridge: TF3MP_IN=ack 359 (ok)
+2026-10-06 14:10:42 [23052] bridge: got from Lua: bridge out seq=360
+2026-10-06 14:10:42 [23052] bridge: TF3MP_IN=ack 360 (ok)
+2026-10-06 14:10:45 [23052] bridge: got from Lua: bridge out seq=361
+2026-10-06 14:10:45 [23052] bridge: TF3MP_IN=ack 361 (ok)
+2026-10-06 14:10:47 [23052] bridge: got from Lua: bridge out seq=362
+2026-10-06 14:10:47 [23052] bridge: TF3MP_IN=ack 362 (ok)
+2026-10-06 14:10:50 [23052] bridge: got from Lua: bridge out seq=363
+2026-10-06 14:10:50 [23052] bridge: TF3MP_IN=ack 363 (ok)
+2026-10-06 14:10:52 [23052] bridge: got from Lua: bridge out seq=364
+2026-10-06 14:10:52 [23052] bridge: TF3MP_IN=ack 364 (ok)
+2026-10-06 14:10:55 [23052] bridge: got from Lua: bridge out seq=365
+2026-10-06 14:10:55 [23052] bridge: TF3MP_IN=ack 365 (ok)
+2026-10-06 14:10:57 [23052] bridge: got from Lua: bridge out seq=366
+2026-10-06 14:10:57 [23052] bridge: TF3MP_IN=ack 366 (ok)
+2026-10-06 14:11:00 [23052] bridge: got from Lua: bridge out seq=367
+2026-10-06 14:11:00 [23052] bridge: TF3MP_IN=ack 367 (ok)
+2026-10-06 14:11:02 [23052] bridge: got from Lua: bridge out seq=368
+2026-10-06 14:11:02 [23052] bridge: TF3MP_IN=ack 368 (ok)
+2026-10-06 14:11:05 [23052] bridge: got from Lua: bridge out seq=369
+2026-10-06 14:11:05 [23052] bridge: TF3MP_IN=ack 369 (ok)
+2026-10-06 14:11:07 [23052] bridge: got from Lua: bridge out seq=370
+2026-10-06 14:11:07 [23052] bridge: TF3MP_IN=ack 370 (ok)
+2026-10-06 14:11:10 [23052] bridge: got from Lua: bridge out seq=371
+2026-10-06 14:11:10 [23052] bridge: TF3MP_IN=ack 371 (ok)
+2026-10-06 14:11:12 [23052] bridge: got from Lua: bridge out seq=372
+2026-10-06 14:11:12 [23052] bridge: TF3MP_IN=ack 372 (ok)
+2026-10-06 14:11:15 [23052] bridge: got from Lua: bridge out seq=373
+2026-10-06 14:11:15 [23052] bridge: TF3MP_IN=ack 373 (ok)
+2026-10-06 14:11:18 [23052] bridge: got from Lua: bridge out seq=374
+2026-10-06 14:11:18 [23052] bridge: TF3MP_IN=ack 374 (ok)
+2026-10-06 14:11:20 [23052] bridge: got from Lua: bridge out seq=375
+2026-10-06 14:11:20 [23052] bridge: TF3MP_IN=ack 375 (ok)
+2026-10-06 14:11:23 [23052] bridge: got from Lua: bridge out seq=376
+2026-10-06 14:11:23 [23052] bridge: TF3MP_IN=ack 376 (ok)
+2026-10-06 14:11:25 [23052] bridge: got from Lua: bridge out seq=377
+2026-10-06 14:11:25 [23052] bridge: TF3MP_IN=ack 377 (ok)
+2026-10-06 14:11:28 [23052] bridge: got from Lua: bridge out seq=378
+2026-10-06 14:11:28 [23052] bridge: TF3MP_IN=ack 378 (ok)
+2026-10-06 14:11:30 [23052] bridge: got from Lua: bridge out seq=379
+2026-10-06 14:11:30 [23052] bridge: TF3MP_IN=ack 379 (ok)
+2026-10-06 14:11:33 [23052] bridge: got from Lua: bridge out seq=380
+2026-10-06 14:11:33 [23052] bridge: TF3MP_IN=ack 380 (ok)
+2026-10-06 14:11:35 [23052] bridge: got from Lua: bridge out seq=381
+2026-10-06 14:11:35 [23052] bridge: TF3MP_IN=ack 381 (ok)
+2026-10-06 14:11:38 [23052] bridge: got from Lua: bridge out seq=382
+2026-10-06 14:11:38 [23052] bridge: TF3MP_IN=ack 382 (ok)
+2026-10-06 14:11:42 [23052] bridge: got from Lua: bridge out seq=383
+2026-10-06 14:11:42 [23052] bridge: TF3MP_IN=ack 383 (ok)
+2026-10-06 14:11:45 [23052] bridge: got from Lua: bridge out seq=384
+2026-10-06 14:11:45 [23052] bridge: TF3MP_IN=ack 384 (ok)
+2026-10-06 14:11:47 [23052] bridge: got from Lua: bridge out seq=385
+2026-10-06 14:11:47 [23052] bridge: TF3MP_IN=ack 385 (ok)
+2026-10-06 14:11:49 [23052] bridge: got from Lua: bridge out seq=386
+2026-10-06 14:11:49 [23052] bridge: TF3MP_IN=ack 386 (ok)
+2026-10-06 14:11:52 [23052] bridge: got from Lua: bridge out seq=387
+2026-10-06 14:11:52 [23052] bridge: TF3MP_IN=ack 387 (ok)
+2026-10-06 14:12:53 [23052] bridge: got from Lua: bridge out seq=388
+2026-10-06 14:12:53 [23052] bridge: TF3MP_IN=ack 388 (ok)
+2026-10-06 14:12:56 [23052] bridge: got from Lua: bridge out seq=389
+2026-10-06 14:12:56 [23052] bridge: TF3MP_IN=ack 389 (ok)
+2026-10-06 14:12:58 [23052] bridge: got from Lua: bridge out seq=390
+2026-10-06 14:12:58 [23052] bridge: TF3MP_IN=ack 390 (ok)
+2026-10-06 14:13:01 [23052] bridge: got from Lua: bridge out seq=391
+2026-10-06 14:13:01 [23052] bridge: TF3MP_IN=ack 391 (ok)
+2026-10-06 14:13:03 [23052] bridge: got from Lua: bridge out seq=392
+2026-10-06 14:13:03 [23052] bridge: TF3MP_IN=ack 392 (ok)
+2026-10-06 14:13:08 [23052] alut proxy v4 unloaded
+2026-10-06 14:28:01 [8276] alut proxy v5 loaded
+2026-10-06 14:28:01 [8276] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 14:28:01 [8276] bridge: ucrtbase _putenv_s found
+2026-10-06 14:28:01 [8276] bridge: TF3MP_IN=hello (ok)
+2026-10-06 14:28:01 [8276] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 14:28:37 [8276] bridge: got from Lua: bridge out seq=311
+2026-10-06 14:28:37 [8276] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 14:28:48 [8276] bridge: got from Lua: bridge out seq=312
+2026-10-06 14:28:48 [8276] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 14:28:50 [8276] bridge: got from Lua: bridge out seq=313
+2026-10-06 14:28:50 [8276] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 14:28:53 [8276] bridge: got from Lua: bridge out seq=314
+2026-10-06 14:28:53 [8276] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 14:28:55 [8276] bridge: got from Lua: bridge out seq=315
+2026-10-06 14:28:55 [8276] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 14:28:58 [8276] bridge: got from Lua: bridge out seq=316
+2026-10-06 14:28:58 [8276] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 14:29:00 [8276] bridge: got from Lua: bridge out seq=317
+2026-10-06 14:29:00 [8276] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 14:29:03 [8276] bridge: got from Lua: bridge out seq=318
+2026-10-06 14:29:03 [8276] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 14:29:03 [8276] bridge: the mod stored a build for replay
+2026-10-06 14:29:05 [8276] bridge: got from Lua: bridge out seq=319
+2026-10-06 14:29:05 [8276] bridge: asking the mod to replay the stored build
+2026-10-06 14:29:05 [8276] bridge: TF3MP_IN=replay 319 (ok)
+2026-10-06 14:29:08 [8276] bridge: got from Lua: bridge out seq=320
+2026-10-06 14:29:08 [8276] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 14:29:10 [8276] bridge: got from Lua: bridge out seq=321
+2026-10-06 14:29:10 [8276] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 14:29:13 [8276] bridge: got from Lua: bridge out seq=322
+2026-10-06 14:29:13 [8276] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 14:29:15 [8276] bridge: got from Lua: bridge out seq=323
+2026-10-06 14:29:15 [8276] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 14:29:18 [8276] bridge: got from Lua: bridge out seq=324
+2026-10-06 14:29:18 [8276] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 14:29:20 [8276] bridge: got from Lua: bridge out seq=325
+2026-10-06 14:29:20 [8276] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 14:29:23 [8276] bridge: got from Lua: bridge out seq=326
+2026-10-06 14:29:23 [8276] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 14:29:25 [8276] bridge: got from Lua: bridge out seq=327
+2026-10-06 14:29:25 [8276] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 14:29:28 [8276] bridge: got from Lua: bridge out seq=328
+2026-10-06 14:29:28 [8276] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 14:29:30 [8276] bridge: got from Lua: bridge out seq=329
+2026-10-06 14:29:30 [8276] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 14:29:33 [8276] bridge: got from Lua: bridge out seq=330
+2026-10-06 14:29:33 [8276] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 14:29:35 [8276] bridge: got from Lua: bridge out seq=331
+2026-10-06 14:29:35 [8276] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 14:29:37 [8276] bridge: got from Lua: bridge out seq=332
+2026-10-06 14:29:37 [8276] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 14:29:40 [8276] bridge: got from Lua: bridge out seq=333
+2026-10-06 14:29:40 [8276] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 14:29:42 [8276] bridge: got from Lua: bridge out seq=334
+2026-10-06 14:29:42 [8276] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 14:29:45 [8276] bridge: got from Lua: bridge out seq=335
+2026-10-06 14:29:45 [8276] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 14:29:47 [8276] bridge: got from Lua: bridge out seq=336
+2026-10-06 14:29:47 [8276] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 14:29:53 [8276] alut proxy v5 unloaded
+2026-10-06 14:53:22 [14460] alut proxy v6 loaded
+2026-10-06 14:53:22 [14460] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 14:53:22 [14460] bridge: ucrtbase _putenv_s found
+2026-10-06 14:53:22 [14460] bridge: TF3MP_IN=hello (ok)
+2026-10-06 14:53:22 [14460] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 14:53:51 [14460] bridge: got from Lua: bridge out seq=311
+2026-10-06 14:53:51 [14460] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 14:54:02 [14460] bridge: got from Lua: bridge out seq=312
+2026-10-06 14:54:02 [14460] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 14:54:04 [14460] bridge: got from Lua: bridge out seq=313
+2026-10-06 14:54:04 [14460] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 14:54:07 [14460] bridge: got from Lua: bridge out seq=314
+2026-10-06 14:54:07 [14460] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 14:54:09 [14460] bridge: got from Lua: bridge out seq=315
+2026-10-06 14:54:09 [14460] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 14:54:11 [14460] bridge: the mod stored a build for replay
+2026-10-06 14:54:12 [14460] bridge: got from Lua: bridge out seq=316
+2026-10-06 14:54:12 [14460] bridge: asking the mod to replay the stored build
+2026-10-06 14:54:12 [14460] bridge: TF3MP_IN=replay 316 (ok)
+2026-10-06 14:54:14 [14460] bridge: got from Lua: bridge out seq=317
+2026-10-06 14:54:14 [14460] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 14:54:17 [14460] bridge: got from Lua: bridge out seq=318
+2026-10-06 14:54:17 [14460] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 14:54:19 [14460] bridge: got from Lua: bridge out seq=319
+2026-10-06 14:54:19 [14460] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 14:54:22 [14460] bridge: got from Lua: bridge out seq=320
+2026-10-06 14:54:22 [14460] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 14:54:24 [14460] bridge: got from Lua: bridge out seq=321
+2026-10-06 14:54:24 [14460] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 14:54:26 [14460] bridge: got from Lua: bridge out seq=322
+2026-10-06 14:54:26 [14460] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 14:54:29 [14460] bridge: got from Lua: bridge out seq=323
+2026-10-06 14:54:29 [14460] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 14:54:31 [14460] bridge: got from Lua: bridge out seq=324
+2026-10-06 14:54:31 [14460] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 14:54:34 [14460] bridge: got from Lua: bridge out seq=325
+2026-10-06 14:54:34 [14460] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 14:54:36 [14460] bridge: got from Lua: bridge out seq=326
+2026-10-06 14:54:36 [14460] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 14:54:39 [14460] bridge: got from Lua: bridge out seq=327
+2026-10-06 14:54:39 [14460] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 14:54:41 [14460] bridge: got from Lua: bridge out seq=328
+2026-10-06 14:54:41 [14460] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 14:54:44 [14460] bridge: the mod stored a build for replay
+2026-10-06 14:54:44 [14460] bridge: got from Lua: bridge out seq=329
+2026-10-06 14:54:44 [14460] bridge: asking the mod to replay the stored build
+2026-10-06 14:54:44 [14460] bridge: TF3MP_IN=replay 329 (ok)
+2026-10-06 14:54:46 [14460] bridge: got from Lua: bridge out seq=330
+2026-10-06 14:54:46 [14460] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 14:54:49 [14460] bridge: got from Lua: bridge out seq=331
+2026-10-06 14:54:49 [14460] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 14:54:51 [14460] bridge: got from Lua: bridge out seq=332
+2026-10-06 14:54:51 [14460] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 14:54:54 [14460] bridge: got from Lua: bridge out seq=333
+2026-10-06 14:54:54 [14460] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 14:54:56 [14460] bridge: got from Lua: bridge out seq=334
+2026-10-06 14:54:56 [14460] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 14:54:57 [14460] bridge: the mod stored a build for replay
+2026-10-06 14:54:59 [14460] bridge: got from Lua: bridge out seq=335
+2026-10-06 14:54:59 [14460] bridge: asking the mod to replay the stored build
+2026-10-06 14:54:59 [14460] bridge: TF3MP_IN=replay 335 (ok)
+2026-10-06 14:55:01 [14460] bridge: got from Lua: bridge out seq=336
+2026-10-06 14:55:01 [14460] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 14:55:04 [14460] bridge: got from Lua: bridge out seq=337
+2026-10-06 14:55:04 [14460] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 14:55:06 [14460] bridge: got from Lua: bridge out seq=338
+2026-10-06 14:55:06 [14460] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 14:55:09 [14460] bridge: got from Lua: bridge out seq=339
+2026-10-06 14:55:09 [14460] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 14:55:11 [14460] bridge: got from Lua: bridge out seq=340
+2026-10-06 14:55:11 [14460] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 14:55:14 [14460] bridge: got from Lua: bridge out seq=341
+2026-10-06 14:55:14 [14460] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 14:55:16 [14460] bridge: got from Lua: bridge out seq=342
+2026-10-06 14:55:16 [14460] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 14:55:19 [14460] bridge: got from Lua: bridge out seq=343
+2026-10-06 14:55:19 [14460] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 14:55:21 [14460] bridge: got from Lua: bridge out seq=344
+2026-10-06 14:55:21 [14460] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 14:55:24 [14460] bridge: got from Lua: bridge out seq=345
+2026-10-06 14:55:24 [14460] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 14:55:26 [14460] bridge: got from Lua: bridge out seq=346
+2026-10-06 14:55:26 [14460] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 14:55:29 [14460] bridge: got from Lua: bridge out seq=347
+2026-10-06 14:55:29 [14460] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-06 14:55:31 [14460] bridge: got from Lua: bridge out seq=348
+2026-10-06 14:55:31 [14460] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-06 14:55:34 [14460] bridge: got from Lua: bridge out seq=349
+2026-10-06 14:55:34 [14460] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 14:55:36 [14460] bridge: got from Lua: bridge out seq=350
+2026-10-06 14:55:36 [14460] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 14:55:39 [14460] bridge: got from Lua: bridge out seq=351
+2026-10-06 14:55:39 [14460] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 14:55:41 [14460] bridge: got from Lua: bridge out seq=352
+2026-10-06 14:55:41 [14460] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 14:55:44 [14460] bridge: got from Lua: bridge out seq=353
+2026-10-06 14:55:44 [14460] bridge: TF3MP_IN=ack 353 (ok)
+2026-10-06 14:55:44 [14460] bridge: the mod stored a build for replay
+2026-10-06 14:55:46 [14460] bridge: got from Lua: bridge out seq=354
+2026-10-06 14:55:46 [14460] bridge: asking the mod to replay the stored build
+2026-10-06 14:55:46 [14460] bridge: TF3MP_IN=replay 354 (ok)
+2026-10-06 14:55:49 [14460] bridge: got from Lua: bridge out seq=355
+2026-10-06 14:55:49 [14460] bridge: TF3MP_IN=ack 355 (ok)
+2026-10-06 14:55:51 [14460] bridge: got from Lua: bridge out seq=356
+2026-10-06 14:55:51 [14460] bridge: TF3MP_IN=ack 356 (ok)
+2026-10-06 14:55:57 [14460] alut proxy v6 unloaded
+2026-10-06 18:33:30 [43248] alut proxy v6 loaded
+2026-10-06 18:33:30 [43248] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 18:33:30 [43248] bridge: ucrtbase _putenv_s found
+2026-10-06 18:33:30 [43248] bridge: TF3MP_IN=hello (ok)
+2026-10-06 18:33:30 [43248] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 18:33:53 [43248] bridge: got from Lua: bridge out seq=311
+2026-10-06 18:33:53 [43248] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 18:34:05 [43248] bridge: got from Lua: bridge out seq=312
+2026-10-06 18:34:05 [43248] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 18:34:08 [43248] bridge: got from Lua: bridge out seq=313
+2026-10-06 18:34:08 [43248] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 18:34:10 [43248] bridge: the mod stored a build for replay
+2026-10-06 18:34:10 [43248] bridge: got from Lua: bridge out seq=314
+2026-10-06 18:34:10 [43248] bridge: asking the mod to replay the stored build
+2026-10-06 18:34:10 [43248] bridge: TF3MP_IN=replay 314 (ok)
+2026-10-06 18:34:13 [43248] bridge: got from Lua: bridge out seq=315
+2026-10-06 18:34:13 [43248] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 18:34:15 [43248] bridge: got from Lua: bridge out seq=316
+2026-10-06 18:34:15 [43248] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 18:34:18 [43248] bridge: got from Lua: bridge out seq=317
+2026-10-06 18:34:18 [43248] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 18:34:20 [43248] bridge: got from Lua: bridge out seq=318
+2026-10-06 18:34:20 [43248] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 18:34:23 [43248] bridge: got from Lua: bridge out seq=319
+2026-10-06 18:34:23 [43248] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 18:34:24 [43248] bridge: the mod stored a build for replay
+2026-10-06 18:34:25 [43248] bridge: got from Lua: bridge out seq=320
+2026-10-06 18:34:25 [43248] bridge: asking the mod to replay the stored build
+2026-10-06 18:34:25 [43248] bridge: TF3MP_IN=replay 320 (ok)
+2026-10-06 18:34:28 [43248] bridge: got from Lua: bridge out seq=321
+2026-10-06 18:34:28 [43248] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 18:34:30 [43248] bridge: got from Lua: bridge out seq=322
+2026-10-06 18:34:30 [43248] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 18:34:33 [43248] bridge: got from Lua: bridge out seq=323
+2026-10-06 18:34:33 [43248] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 18:34:35 [43248] bridge: got from Lua: bridge out seq=324
+2026-10-06 18:34:35 [43248] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 18:34:38 [43248] bridge: got from Lua: bridge out seq=325
+2026-10-06 18:34:38 [43248] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 18:34:40 [43248] bridge: got from Lua: bridge out seq=326
+2026-10-06 18:34:40 [43248] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 18:34:43 [43248] bridge: got from Lua: bridge out seq=327
+2026-10-06 18:34:43 [43248] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 18:34:45 [43248] bridge: got from Lua: bridge out seq=328
+2026-10-06 18:34:45 [43248] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 18:34:48 [43248] bridge: got from Lua: bridge out seq=329
+2026-10-06 18:34:48 [43248] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 18:34:50 [43248] bridge: got from Lua: bridge out seq=330
+2026-10-06 18:34:50 [43248] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 18:34:53 [43248] bridge: got from Lua: bridge out seq=331
+2026-10-06 18:34:53 [43248] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 18:34:58 [43248] alut proxy v6 unloaded
+2026-10-06 18:40:36 [43868] alut proxy v6 loaded
+2026-10-06 18:40:36 [43868] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 18:40:36 [43868] bridge: ucrtbase _putenv_s found
+2026-10-06 18:40:36 [43868] bridge: TF3MP_IN=hello (ok)
+2026-10-06 18:40:36 [43868] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 18:41:26 [43868] bridge: got from Lua: bridge out seq=1
+2026-10-06 18:41:26 [43868] bridge: TF3MP_IN=ack 1 (ok)
+2026-10-06 18:41:34 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:41:36 [43868] bridge: got from Lua: bridge out seq=2
+2026-10-06 18:41:36 [43868] bridge: asking the mod to replay the stored build
+2026-10-06 18:41:36 [43868] bridge: TF3MP_IN=replay 2 (ok)
+2026-10-06 18:41:46 [43868] bridge: got from Lua: bridge out seq=3
+2026-10-06 18:41:46 [43868] bridge: TF3MP_IN=ack 3 (ok)
+2026-10-06 18:41:56 [43868] bridge: got from Lua: bridge out seq=4
+2026-10-06 18:41:56 [43868] bridge: TF3MP_IN=ack 4 (ok)
+2026-10-06 18:42:06 [43868] bridge: got from Lua: bridge out seq=5
+2026-10-06 18:42:06 [43868] bridge: TF3MP_IN=ack 5 (ok)
+2026-10-06 18:42:16 [43868] bridge: got from Lua: bridge out seq=6
+2026-10-06 18:42:16 [43868] bridge: TF3MP_IN=ack 6 (ok)
+2026-10-06 18:42:26 [43868] bridge: got from Lua: bridge out seq=7
+2026-10-06 18:42:26 [43868] bridge: TF3MP_IN=ack 7 (ok)
+2026-10-06 18:42:36 [43868] bridge: got from Lua: bridge out seq=8
+2026-10-06 18:42:36 [43868] bridge: TF3MP_IN=ack 8 (ok)
+2026-10-06 18:42:40 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:44 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:46 [43868] bridge: got from Lua: bridge out seq=9
+2026-10-06 18:42:46 [43868] bridge: asking the mod to replay the stored build
+2026-10-06 18:42:46 [43868] bridge: TF3MP_IN=replay 9 (ok)
+2026-10-06 18:42:51 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:54 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:55 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:56 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:56 [43868] bridge: got from Lua: bridge out seq=10
+2026-10-06 18:42:56 [43868] bridge: asking the mod to replay the stored build
+2026-10-06 18:42:56 [43868] bridge: TF3MP_IN=replay 10 (ok)
+2026-10-06 18:43:06 [43868] bridge: got from Lua: bridge out seq=11
+2026-10-06 18:43:06 [43868] bridge: TF3MP_IN=ack 11 (ok)
+2026-10-06 18:43:13 [43868] alut proxy v6 unloaded
+2026-10-06 19:00:52 [33624] alut proxy v6 loaded
+2026-10-06 19:00:52 [33624] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 19:00:52 [33624] bridge: ucrtbase _putenv_s found
+2026-10-06 19:00:52 [33624] bridge: TF3MP_IN=hello (ok)
+2026-10-06 19:00:52 [33624] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 19:01:10 [33624] bridge: got from Lua: bridge out seq=311
+2026-10-06 19:01:10 [33624] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 19:01:22 [33624] bridge: got from Lua: bridge out seq=312
+2026-10-06 19:01:22 [33624] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 19:01:25 [33624] bridge: got from Lua: bridge out seq=313
+2026-10-06 19:01:25 [33624] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 19:01:27 [33624] bridge: got from Lua: bridge out seq=314
+2026-10-06 19:01:27 [33624] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 19:01:30 [33624] bridge: got from Lua: bridge out seq=315
+2026-10-06 19:01:30 [33624] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 19:01:32 [33624] bridge: got from Lua: bridge out seq=316
+2026-10-06 19:01:32 [33624] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 19:01:35 [33624] bridge: got from Lua: bridge out seq=317
+2026-10-06 19:01:35 [33624] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 19:01:37 [33624] bridge: got from Lua: bridge out seq=318
+2026-10-06 19:01:37 [33624] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 19:01:40 [33624] bridge: got from Lua: bridge out seq=319
+2026-10-06 19:01:40 [33624] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 19:01:42 [33624] bridge: got from Lua: bridge out seq=320
+2026-10-06 19:01:42 [33624] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 19:01:45 [33624] bridge: got from Lua: bridge out seq=321
+2026-10-06 19:01:45 [33624] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 19:01:47 [33624] bridge: got from Lua: bridge out seq=322
+2026-10-06 19:01:47 [33624] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 19:01:50 [33624] bridge: got from Lua: bridge out seq=323
+2026-10-06 19:01:50 [33624] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 19:01:52 [33624] bridge: got from Lua: bridge out seq=324
+2026-10-06 19:01:52 [33624] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 19:01:55 [33624] bridge: got from Lua: bridge out seq=325
+2026-10-06 19:01:55 [33624] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 19:01:57 [33624] bridge: got from Lua: bridge out seq=326
+2026-10-06 19:01:57 [33624] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 19:02:00 [33624] bridge: got from Lua: bridge out seq=327
+2026-10-06 19:02:00 [33624] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 19:02:02 [33624] bridge: got from Lua: bridge out seq=328
+2026-10-06 19:02:02 [33624] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 19:02:05 [33624] bridge: got from Lua: bridge out seq=329
+2026-10-06 19:02:05 [33624] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 19:02:07 [33624] bridge: got from Lua: bridge out seq=330
+2026-10-06 19:02:07 [33624] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 19:02:10 [33624] bridge: got from Lua: bridge out seq=331
+2026-10-06 19:02:10 [33624] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 19:02:12 [33624] bridge: got from Lua: bridge out seq=332
+2026-10-06 19:02:12 [33624] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 19:02:15 [33624] bridge: got from Lua: bridge out seq=333
+2026-10-06 19:02:15 [33624] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 19:02:17 [33624] bridge: got from Lua: bridge out seq=334
+2026-10-06 19:02:17 [33624] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 19:02:19 [33624] bridge: got from Lua: bridge out seq=335
+2026-10-06 19:02:19 [33624] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 19:02:22 [33624] bridge: got from Lua: bridge out seq=336
+2026-10-06 19:02:22 [33624] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 19:02:25 [33624] bridge: got from Lua: bridge out seq=337
+2026-10-06 19:02:25 [33624] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 19:02:26 [33624] bridge: the mod stored a build for replay
+2026-10-06 19:02:27 [33624] bridge: got from Lua: bridge out seq=338
+2026-10-06 19:02:27 [33624] bridge: asking the mod to replay the stored build
+2026-10-06 19:02:27 [33624] bridge: TF3MP_IN=replay 338 (ok)
+2026-10-06 19:02:30 [33624] bridge: got from Lua: bridge out seq=339
+2026-10-06 19:02:30 [33624] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 19:02:33 [33624] bridge: got from Lua: bridge out seq=340
+2026-10-06 19:02:33 [33624] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 19:02:35 [33624] bridge: got from Lua: bridge out seq=341
+2026-10-06 19:02:35 [33624] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 19:02:38 [33624] bridge: got from Lua: bridge out seq=342
+2026-10-06 19:02:38 [33624] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 19:02:40 [33624] bridge: got from Lua: bridge out seq=343
+2026-10-06 19:02:40 [33624] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 19:02:42 [33624] bridge: the mod stored a build for replay
+2026-10-06 19:02:43 [33624] bridge: got from Lua: bridge out seq=344
+2026-10-06 19:02:43 [33624] bridge: asking the mod to replay the stored build
+2026-10-06 19:02:43 [33624] bridge: TF3MP_IN=replay 344 (ok)
+2026-10-06 19:02:45 [33624] bridge: got from Lua: bridge out seq=345
+2026-10-06 19:02:45 [33624] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 19:02:48 [33624] bridge: got from Lua: bridge out seq=346
+2026-10-06 19:02:48 [33624] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 19:02:51 [33624] bridge: got from Lua: bridge out seq=347
+2026-10-06 19:02:51 [33624] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-06 19:02:53 [33624] bridge: got from Lua: bridge out seq=348
+2026-10-06 19:02:53 [33624] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-06 19:02:56 [33624] bridge: got from Lua: bridge out seq=349
+2026-10-06 19:02:56 [33624] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 19:02:58 [33624] bridge: got from Lua: bridge out seq=350
+2026-10-06 19:02:58 [33624] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 19:03:01 [33624] bridge: got from Lua: bridge out seq=351
+2026-10-06 19:03:01 [33624] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 19:03:03 [33624] bridge: got from Lua: bridge out seq=352
+2026-10-06 19:03:03 [33624] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 19:03:05 [33624] bridge: the mod stored a build for replay
+2026-10-06 19:03:06 [33624] bridge: got from Lua: bridge out seq=353
+2026-10-06 19:03:06 [33624] bridge: asking the mod to replay the stored build
+2026-10-06 19:03:06 [33624] bridge: TF3MP_IN=replay 353 (ok)
+2026-10-06 19:03:08 [33624] bridge: got from Lua: bridge out seq=354
+2026-10-06 19:03:08 [33624] bridge: TF3MP_IN=ack 354 (ok)
+2026-10-06 19:03:11 [33624] bridge: got from Lua: bridge out seq=355
+2026-10-06 19:03:11 [33624] bridge: TF3MP_IN=ack 355 (ok)
+2026-10-06 19:03:13 [33624] bridge: got from Lua: bridge out seq=356
+2026-10-06 19:03:13 [33624] bridge: TF3MP_IN=ack 356 (ok)
+2026-10-06 19:03:16 [33624] bridge: got from Lua: bridge out seq=357
+2026-10-06 19:03:16 [33624] bridge: TF3MP_IN=ack 357 (ok)
+2026-10-06 19:03:18 [33624] bridge: got from Lua: bridge out seq=358
+2026-10-06 19:03:18 [33624] bridge: TF3MP_IN=ack 358 (ok)
+2026-10-06 19:03:21 [33624] bridge: got from Lua: bridge out seq=359
+2026-10-06 19:03:21 [33624] bridge: TF3MP_IN=ack 359 (ok)
+2026-10-06 19:03:23 [33624] bridge: got from Lua: bridge out seq=360
+2026-10-06 19:03:23 [33624] bridge: TF3MP_IN=ack 360 (ok)
+2026-10-06 19:03:27 [33624] bridge: got from Lua: bridge out seq=361
+2026-10-06 19:03:27 [33624] bridge: TF3MP_IN=ack 361 (ok)
+2026-10-06 19:03:29 [33624] bridge: got from Lua: bridge out seq=362
+2026-10-06 19:03:29 [33624] bridge: TF3MP_IN=ack 362 (ok)
+2026-10-06 19:03:32 [33624] bridge: got from Lua: bridge out seq=363
+2026-10-06 19:03:32 [33624] bridge: TF3MP_IN=ack 363 (ok)
+2026-10-06 19:03:34 [33624] bridge: got from Lua: bridge out seq=364
+2026-10-06 19:03:34 [33624] bridge: TF3MP_IN=ack 364 (ok)
+2026-10-06 19:03:36 [33624] bridge: got from Lua: bridge out seq=365
+2026-10-06 19:03:36 [33624] bridge: TF3MP_IN=ack 365 (ok)
+2026-10-06 19:03:39 [33624] bridge: got from Lua: bridge out seq=366
+2026-10-06 19:03:39 [33624] bridge: TF3MP_IN=ack 366 (ok)
+2026-10-06 19:03:41 [33624] bridge: got from Lua: bridge out seq=367
+2026-10-06 19:03:41 [33624] bridge: TF3MP_IN=ack 367 (ok)
+2026-10-06 19:03:42 [33624] bridge: the mod stored a build for replay
+2026-10-06 19:03:44 [33624] bridge: got from Lua: bridge out seq=368
+2026-10-06 19:03:44 [33624] bridge: asking the mod to replay the stored build
+2026-10-06 19:03:44 [33624] bridge: TF3MP_IN=replay 368 (ok)
+2026-10-06 19:03:46 [33624] bridge: got from Lua: bridge out seq=369
+2026-10-06 19:03:46 [33624] bridge: TF3MP_IN=ack 369 (ok)
+2026-10-06 19:03:49 [33624] bridge: got from Lua: bridge out seq=370
+2026-10-06 19:03:49 [33624] bridge: TF3MP_IN=ack 370 (ok)
+2026-10-06 19:03:56 [33624] alut proxy v6 unloaded
+2026-10-06 19:16:53 [37656] alut proxy v6 loaded
+2026-10-06 19:16:53 [37656] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 19:16:53 [37656] bridge: ucrtbase _putenv_s found
+2026-10-06 19:16:53 [37656] bridge: TF3MP_IN=hello (ok)
+2026-10-06 19:16:53 [37656] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 19:17:30 [37656] bridge: got from Lua: bridge out seq=311
+2026-10-06 19:17:30 [37656] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 19:17:41 [37656] bridge: got from Lua: bridge out seq=312
+2026-10-06 19:17:41 [37656] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 19:17:43 [37656] bridge: got from Lua: bridge out seq=313
+2026-10-06 19:17:43 [37656] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 19:17:46 [37656] bridge: got from Lua: bridge out seq=314
+2026-10-06 19:17:46 [37656] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 19:17:48 [37656] bridge: got from Lua: bridge out seq=315
+2026-10-06 19:17:48 [37656] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 19:17:51 [37656] bridge: got from Lua: bridge out seq=316
+2026-10-06 19:17:51 [37656] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 19:17:53 [37656] bridge: got from Lua: bridge out seq=317
+2026-10-06 19:17:53 [37656] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 19:17:56 [37656] bridge: got from Lua: bridge out seq=318
+2026-10-06 19:17:56 [37656] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 19:17:58 [37656] bridge: got from Lua: bridge out seq=319
+2026-10-06 19:17:58 [37656] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 19:18:01 [37656] bridge: got from Lua: bridge out seq=320
+2026-10-06 19:18:01 [37656] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 19:18:03 [37656] bridge: got from Lua: bridge out seq=321
+2026-10-06 19:18:03 [37656] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 19:18:05 [37656] bridge: got from Lua: bridge out seq=322
+2026-10-06 19:18:05 [37656] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 19:18:08 [37656] bridge: got from Lua: bridge out seq=323
+2026-10-06 19:18:08 [37656] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 19:18:10 [37656] bridge: got from Lua: bridge out seq=324
+2026-10-06 19:18:10 [37656] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 19:18:13 [37656] bridge: got from Lua: bridge out seq=325
+2026-10-06 19:18:13 [37656] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 19:18:15 [37656] bridge: got from Lua: bridge out seq=326
+2026-10-06 19:18:15 [37656] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 19:18:19 [37656] bridge: got from Lua: bridge out seq=327
+2026-10-06 19:18:19 [37656] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 19:18:21 [37656] bridge: got from Lua: bridge out seq=328
+2026-10-06 19:18:21 [37656] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 19:18:22 [37656] bridge: the mod stored a build for replay
+2026-10-06 19:18:24 [37656] bridge: got from Lua: bridge out seq=329
+2026-10-06 19:18:24 [37656] bridge: asking the mod to replay the stored build
+2026-10-06 19:18:24 [37656] bridge: TF3MP_IN=replay 329 (ok)
+2026-10-06 19:18:26 [37656] bridge: got from Lua: bridge out seq=330
+2026-10-06 19:18:26 [37656] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 19:18:28 [37656] bridge: got from Lua: bridge out seq=331
+2026-10-06 19:18:28 [37656] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 19:18:31 [37656] bridge: got from Lua: bridge out seq=332
+2026-10-06 19:18:31 [37656] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 19:18:33 [37656] bridge: got from Lua: bridge out seq=333
+2026-10-06 19:18:33 [37656] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 19:18:36 [37656] bridge: got from Lua: bridge out seq=334
+2026-10-06 19:18:36 [37656] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 19:18:38 [37656] bridge: got from Lua: bridge out seq=335
+2026-10-06 19:18:38 [37656] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 19:18:41 [37656] bridge: got from Lua: bridge out seq=336
+2026-10-06 19:18:41 [37656] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 19:18:43 [37656] bridge: got from Lua: bridge out seq=337
+2026-10-06 19:18:43 [37656] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 19:18:46 [37656] bridge: got from Lua: bridge out seq=338
+2026-10-06 19:18:46 [37656] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 19:18:48 [37656] bridge: got from Lua: bridge out seq=339
+2026-10-06 19:18:48 [37656] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 19:18:51 [37656] bridge: got from Lua: bridge out seq=340
+2026-10-06 19:18:51 [37656] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 19:18:52 [37656] bridge: the mod stored a build for replay
+2026-10-06 19:18:53 [37656] bridge: got from Lua: bridge out seq=341
+2026-10-06 19:18:53 [37656] bridge: asking the mod to replay the stored build
+2026-10-06 19:18:53 [37656] bridge: TF3MP_IN=replay 341 (ok)
+2026-10-06 19:18:56 [37656] bridge: got from Lua: bridge out seq=342
+2026-10-06 19:18:56 [37656] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 19:18:58 [37656] bridge: got from Lua: bridge out seq=343
+2026-10-06 19:18:58 [37656] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 19:19:01 [37656] bridge: got from Lua: bridge out seq=344
+2026-10-06 19:19:01 [37656] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 19:19:11 [37656] bridge: got from Lua: bridge out seq=345
+2026-10-06 19:19:11 [37656] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 19:19:21 [37656] bridge: got from Lua: bridge out seq=346
+2026-10-06 19:19:21 [37656] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 19:19:31 [37656] bridge: got from Lua: bridge out seq=347
+2026-10-06 19:19:31 [37656] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-06 19:19:39 [37656] alut proxy v6 unloaded
+2026-10-06 19:45:25 [40024] alut proxy v7 loaded
+2026-10-06 19:45:25 [40024] net: loopback, captured lines come back to this game
+2026-10-06 19:45:25 [40024] bridge: ucrtbase _putenv_s found
+2026-10-06 19:45:25 [40024] bridge: TF3MP_IN=hello (ok)
+2026-10-06 19:45:25 [40024] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 19:45:45 [40024] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 19:46:00 [40024] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 19:46:03 [40024] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 19:46:04 [40024] net: line 40024.1 (423 characters) queued for this game (loopback)
+2026-10-06 19:46:05 [40024] bridge: TF3MP_IN=line 40024.1 loop B3 n-1;-2843.945,-3894.836,1.714 n-2;-2779.847,-3888.979,1.007... (ok)
+2026-10-06 19:46:08 [40024] bridge: TF3MP_IN=line 40024.1 loop B3 n-1;-2843.945,-3894.836,1.714 n-2;-2779.847,-3888.979,1.007... (ok)
+2026-10-06 19:46:08 [40024] bridge: the mod has line 40024.1
+2026-10-06 19:46:08 [40024] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 19:46:10 [40024] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 19:46:13 [40024] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 19:46:15 [40024] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 19:46:18 [40024] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 19:46:20 [40024] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 19:46:23 [40024] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 19:46:25 [40024] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 19:46:28 [40024] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 19:46:30 [40024] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 19:46:33 [40024] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 19:46:35 [40024] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 19:46:38 [40024] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 19:46:40 [40024] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 19:46:43 [40024] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 19:46:45 [40024] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 19:46:48 [40024] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 19:46:50 [40024] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 19:46:53 [40024] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 19:46:55 [40024] net: line 40024.2 (254 characters) queued for this game (loopback)
+2026-10-06 19:46:56 [40024] bridge: TF3MP_IN=line 40024.2 loop B3 n-1;-2633.44,-3852.641,2.282 n-2;-2577.189,-3859.185,1.842 ... (ok)
+2026-10-06 19:46:58 [40024] bridge: TF3MP_IN=line 40024.2 loop B3 n-1;-2633.44,-3852.641,2.282 n-2;-2577.189,-3859.185,1.842 ... (ok)
+2026-10-06 19:46:58 [40024] bridge: the mod has line 40024.2
+2026-10-06 19:46:58 [40024] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 19:47:01 [40024] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 19:47:03 [40024] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 19:47:06 [40024] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 19:47:08 [40024] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 19:47:11 [40024] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 19:47:15 [40024] alut proxy v7 unloaded
+2026-10-06 21:49:32 [46604] alut proxy v7 loaded
+2026-10-06 21:49:32 [46604] net: loopback, captured lines come back to this game
+2026-10-06 21:49:32 [46604] bridge: ucrtbase _putenv_s found
+2026-10-06 21:49:32 [46604] bridge: TF3MP_IN=hello (ok)
+2026-10-06 21:49:32 [46604] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 21:50:44 [46604] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 21:51:02 [46604] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 21:51:05 [46604] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 21:51:07 [46604] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 21:51:10 [46604] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 21:51:12 [46604] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 21:51:15 [46604] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 21:51:17 [46604] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 21:51:20 [46604] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 21:51:22 [46604] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 21:51:25 [46604] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 21:51:27 [46604] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 21:51:30 [46604] net: line 46604.1 (424 characters) queued for this game (loopback)
+2026-10-06 21:51:30 [46604] bridge: TF3MP_IN=line 46604.1 loop B4 n-1;-2813.454,-4055.138,2.773 n-2;-2730.128,-4056.49,0.95 n... (ok)
+2026-10-06 21:51:32 [46604] bridge: TF3MP_IN=line 46604.1 loop B4 n-1;-2813.454,-4055.138,2.773 n-2;-2730.128,-4056.49,0.95 n... (ok)
+2026-10-06 21:51:32 [46604] bridge: the mod has line 46604.1
+2026-10-06 21:51:32 [46604] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 21:51:35 [46604] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 21:51:37 [46604] net: line 46604.2 (426 characters) queued for this game (loopback)
+2026-10-06 21:51:37 [46604] bridge: TF3MP_IN=line 46604.2 loop B4 n-1;-2612.986,-4104.29,1.336 n-2;-2579.169,-4150.737,1.187 ... (ok)
+2026-10-06 21:51:40 [46604] bridge: TF3MP_IN=line 46604.2 loop B4 n-1;-2612.986,-4104.29,1.336 n-2;-2579.169,-4150.737,1.187 ... (ok)
+2026-10-06 21:51:40 [46604] bridge: the mod has line 46604.2
+2026-10-06 21:51:40 [46604] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 21:51:42 [46604] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 21:51:45 [46604] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 21:51:47 [46604] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 21:51:50 [46604] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 21:51:51 [46604] net: line 46604.3 (421 characters) queued for this game (loopback)
+2026-10-06 21:51:53 [46604] bridge: TF3MP_IN=line 46604.3 loop B4 n-1;-2824.447,-3867.192,1.904 n-2;-2738.853,-3870.942,1.407... (ok)
+2026-10-06 21:51:55 [46604] bridge: TF3MP_IN=line 46604.3 loop B4 n-1;-2824.447,-3867.192,1.904 n-2;-2738.853,-3870.942,1.407... (ok)
+2026-10-06 21:51:55 [46604] bridge: the mod has line 46604.3
+2026-10-06 21:51:55 [46604] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 21:51:58 [46604] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 21:52:00 [46604] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 21:52:03 [46604] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 21:52:05 [46604] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 21:52:08 [46604] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 21:52:10 [46604] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 21:52:11 [46604] net: line 46604.4 (416 characters) queued for this game (loopback)
+2026-10-06 21:52:13 [46604] bridge: TF3MP_IN=line 46604.4 loop B4 n-1;-2593.914,-3840.06,1.5 n-2;-2534.569,-3805.428,2.1 f1;-... (ok)
+2026-10-06 21:52:15 [46604] bridge: TF3MP_IN=line 46604.4 loop B4 n-1;-2593.914,-3840.06,1.5 n-2;-2534.569,-3805.428,2.1 f1;-... (ok)
+2026-10-06 21:52:15 [46604] bridge: the mod has line 46604.4
+2026-10-06 21:52:15 [46604] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 21:52:18 [46604] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 21:52:20 [46604] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 21:52:23 [46604] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 21:52:25 [46604] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 21:52:28 [46604] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 21:52:33 [46604] alut proxy v7 unloaded
+2026-10-06 21:56:33 [48616] alut proxy v7 loaded
+2026-10-06 21:56:33 [48616] net: loopback, captured lines come back to this game
+2026-10-06 21:56:33 [48616] bridge: ucrtbase _putenv_s found
+2026-10-06 21:56:33 [48616] bridge: TF3MP_IN=hello (ok)
+2026-10-06 21:56:33 [48616] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 21:58:55 [48616] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 21:59:06 [48616] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 21:59:08 [48616] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 21:59:10 [48616] net: line 48616.1 (525 characters) queued for this game (loopback)
+2026-10-06 21:59:11 [48616] bridge: TF3MP_IN=line 48616.1 loop B4 n-1;-2919.751,-3954.449,1.868 n-2;-2841.783,-3959.657,2.45 ... (ok)
+2026-10-06 21:59:13 [48616] bridge: TF3MP_IN=line 48616.1 loop B4 n-1;-2919.751,-3954.449,1.868 n-2;-2841.783,-3959.657,2.45 ... (ok)
+2026-10-06 21:59:13 [48616] bridge: the mod has line 48616.1
+2026-10-06 21:59:13 [48616] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 21:59:16 [48616] net: line 48616.2 (422 characters) queued for this game (loopback)
+2026-10-06 21:59:16 [48616] bridge: TF3MP_IN=line 48616.2 loop B4 n-1;-2613.164,-3906.492,2.9 n-2;-2540.482,-3842.912,2.125 f... (ok)
+2026-10-06 21:59:18 [48616] bridge: TF3MP_IN=line 48616.2 loop B4 n-1;-2613.164,-3906.492,2.9 n-2;-2540.482,-3842.912,2.125 f... (ok)
+2026-10-06 21:59:18 [48616] bridge: the mod has line 48616.2
+2026-10-06 21:59:18 [48616] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 21:59:21 [48616] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 21:59:23 [48616] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 21:59:26 [48616] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 21:59:28 [48616] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 21:59:31 [48616] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 21:59:33 [48616] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 21:59:36 [48616] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 21:59:38 [48616] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 21:59:41 [48616] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 21:59:43 [48616] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 21:59:46 [48616] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 21:59:48 [48616] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 21:59:50 [48616] net: line 48616.3 (676 characters) queued for this game (loopback)
+2026-10-06 21:59:50 [48616] bridge: TF3MP_IN=line 48616.3 loop B4 n-1;-2654.244,-3942.428,2.075 n-2;-2600.423,-4003.954,1.1 n... (ok)
+2026-10-06 21:59:53 [48616] bridge: TF3MP_IN=line 48616.3 loop B4 n-1;-2654.244,-3942.428,2.075 n-2;-2600.423,-4003.954,1.1 n... (ok)
+2026-10-06 21:59:53 [48616] bridge: the mod has line 48616.3
+2026-10-06 21:59:53 [48616] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 21:59:55 [48616] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 21:59:58 [48616] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 22:00:00 [48616] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 22:00:03 [48616] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 22:00:05 [48616] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 22:00:08 [48616] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 22:00:10 [48616] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 22:00:13 [48616] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 22:00:15 [48616] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 22:00:18 [48616] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 22:00:20 [48616] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 22:00:23 [48616] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 22:00:25 [48616] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 22:00:28 [48616] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 22:00:30 [48616] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 22:00:33 [48616] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-06 22:00:36 [48616] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-06 22:00:38 [48616] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 22:00:41 [48616] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 22:00:43 [48616] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 22:00:46 [48616] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 22:00:48 [48616] bridge: TF3MP_IN=ack 353 (ok)
+2026-10-06 22:00:51 [48616] bridge: TF3MP_IN=ack 354 (ok)
+2026-10-06 22:00:53 [48616] bridge: TF3MP_IN=ack 355 (ok)
+2026-10-06 22:00:56 [48616] bridge: TF3MP_IN=ack 356 (ok)
+2026-10-06 22:00:58 [48616] bridge: TF3MP_IN=ack 357 (ok)
+2026-10-06 22:00:59 [48616] net: line 48616.4 (381 characters) queued for this game (loopback)
+2026-10-06 22:01:01 [48616] bridge: TF3MP_IN=line 48616.4 loop B4 f1;-2791.071,-4034.789,2.129 f2;-2800.335,-4105.914,2.02 t1... (ok)
+2026-10-06 22:01:01 [48616] net: line 48616.5 (378 characters) queued for this game (loopback)
+2026-10-06 22:01:03 [48616] bridge: TF3MP_IN=line 48616.4 loop B4 f1;-2791.071,-4034.789,2.129 f2;-2800.335,-4105.914,2.02 t1... (ok)
+2026-10-06 22:01:03 [48616] bridge: the mod has line 48616.4
+2026-10-06 22:01:03 [48616] bridge: TF3MP_IN=line 48616.5 loop B4 f1;-2781.81,-3963.663,2.346 f2;-2685.847,-3970.073,1.639 t1... (ok)
+2026-10-06 22:01:06 [48616] bridge: TF3MP_IN=line 48616.5 loop B4 f1;-2781.81,-3963.663,2.346 f2;-2685.847,-3970.073,1.639 t1... (ok)
+2026-10-06 22:01:06 [48616] bridge: the mod has line 48616.5
+2026-10-06 22:01:06 [48616] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:01:08 [48616] bridge: TF3MP_IN=ack 361 (ok)
+2026-10-06 22:01:10 [48616] net: line 48616.6 (376 characters) queued for this game (loopback)
+2026-10-06 22:01:11 [48616] bridge: TF3MP_IN=line 48616.6 loop B4 f1;-2613.164,-3906.492,2.9 f2;-2540.482,-3842.912,2.125 t1;... (ok)
+2026-10-06 22:01:13 [48616] bridge: TF3MP_IN=line 48616.6 loop B4 f1;-2613.164,-3906.492,2.9 f2;-2540.482,-3842.912,2.125 t1;... (ok)
+2026-10-06 22:01:13 [48616] bridge: the mod has line 48616.6
+2026-10-06 22:01:13 [48616] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:01:15 [48616] net: line 48616.7 (1783 characters) queued for this game (loopback)
+2026-10-06 22:01:16 [48616] bridge: TF3MP_IN=line 48616.7 loop B4 c;%3A%3A%2Fstations%2Frail%2Fmodular_station%2Fmodular_stat... (ok)
+2026-10-06 22:01:18 [48616] bridge: TF3MP_IN=line 48616.7 loop B4 c;%3A%3A%2Fstations%2Frail%2Fmodular_station%2Fmodular_stat... (ok)
+2026-10-06 22:01:18 [48616] bridge: the mod has line 48616.7
+2026-10-06 22:01:18 [48616] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:01:43 [48616] bridge: TF3MP_IN=ack 366 (ok)
+2026-10-06 22:01:45 [48616] net: line 48616.8 (1791 characters) queued for this game (loopback)
+2026-10-06 22:01:46 [48616] bridge: TF3MP_IN=line 48616.8 loop B4 c;%3A%3A%2Fstations%2Frail%2Fmodular_station%2Fmodular_stat... (ok)
+2026-10-06 22:01:48 [48616] bridge: TF3MP_IN=line 48616.8 loop B4 c;%3A%3A%2Fstations%2Frail%2Fmodular_station%2Fmodular_stat... (ok)
+2026-10-06 22:01:48 [48616] bridge: the mod has line 48616.8
+2026-10-06 22:01:48 [48616] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:02:16 [48616] bridge: TF3MP_IN=ack 369 (ok)
+2026-10-06 22:02:21 [48616] bridge: TF3MP_IN=ack 370 (ok)
+2026-10-06 22:02:26 [48616] bridge: TF3MP_IN=ack 371 (ok)
+2026-10-06 22:02:31 [48616] bridge: TF3MP_IN=ack 372 (ok)
+2026-10-06 22:02:36 [48616] bridge: TF3MP_IN=ack 373 (ok)
+2026-10-06 22:02:41 [48616] bridge: TF3MP_IN=ack 374 (ok)
+2026-10-06 22:02:46 [48616] bridge: TF3MP_IN=ack 375 (ok)
+2026-10-06 22:02:51 [48616] bridge: TF3MP_IN=ack 376 (ok)
+2026-10-06 22:02:56 [48616] bridge: TF3MP_IN=ack 377 (ok)
+2026-10-06 22:03:01 [48616] bridge: TF3MP_IN=ack 378 (ok)
+2026-10-06 22:03:06 [48616] bridge: TF3MP_IN=ack 379 (ok)
+2026-10-06 22:03:11 [48616] bridge: TF3MP_IN=ack 380 (ok)
+2026-10-06 22:03:16 [48616] bridge: TF3MP_IN=ack 381 (ok)
+2026-10-06 22:03:21 [48616] bridge: TF3MP_IN=ack 382 (ok)
+2026-10-06 22:03:26 [48616] bridge: TF3MP_IN=ack 383 (ok)
+2026-10-06 22:03:31 [48616] bridge: TF3MP_IN=ack 384 (ok)
+2026-10-06 22:03:36 [48616] bridge: TF3MP_IN=ack 385 (ok)
+2026-10-06 22:03:41 [48616] alut proxy v7 unloaded
+2026-10-06 22:12:14 [51092] alut proxy v7 loaded
+2026-10-06 22:12:14 [51092] net: loopback, captured lines come back to this game
+2026-10-06 22:12:14 [51092] bridge: ucrtbase _putenv_s found
+2026-10-06 22:12:14 [51092] bridge: TF3MP_IN=hello (ok)
+2026-10-06 22:12:14 [51092] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 22:12:39 [51092] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 22:18:21 [51092] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 22:18:24 [51092] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 22:18:26 [51092] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 22:18:29 [51092] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 22:18:31 [51092] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 22:18:34 [51092] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 22:18:36 [51092] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 22:18:38 [51092] net: line 51092.1 (512 characters) queued for this game (loopback)
+2026-10-06 22:18:39 [51092] bridge: TF3MP_IN=line 51092.1 loop B4 n-1;-2693.637,-4010.204,0.874 n-2;-2607.137,-4013.081,1.19 ... (ok)
+2026-10-06 22:18:41 [51092] bridge: TF3MP_IN=line 51092.1 loop B4 n-1;-2693.637,-4010.204,0.874 n-2;-2607.137,-4013.081,1.19 ... (ok)
+2026-10-06 22:18:41 [51092] bridge: the mod has line 51092.1
+2026-10-06 22:18:41 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:18:44 [51092] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 22:18:45 [51092] net: line 51092.2 (478 characters) queued for this game (loopback)
+2026-10-06 22:18:46 [51092] bridge: TF3MP_IN=line 51092.2 loop B4 f1;-2607.137,-4013.081,1.19 f2;-2520.636,-4015.958,1.35 t1;... (ok)
+2026-10-06 22:18:49 [51092] bridge: TF3MP_IN=line 51092.2 loop B4 f1;-2607.137,-4013.081,1.19 f2;-2520.636,-4015.958,1.35 t1;... (ok)
+2026-10-06 22:18:49 [51092] bridge: the mod has line 51092.2
+2026-10-06 22:18:49 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:18:52 [51092] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 22:18:55 [51092] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 22:18:57 [51092] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 22:18:59 [51092] net: line 51092.3 (476 characters) queued for this game (loopback)
+2026-10-06 22:18:59 [51092] bridge: TF3MP_IN=line 51092.3 loop B4 f1;-2607.137,-4013.081,1.19 f2;-2520.636,-4015.958,1.35 t1;... (ok)
+2026-10-06 22:19:02 [51092] bridge: TF3MP_IN=line 51092.3 loop B4 f1;-2607.137,-4013.081,1.19 f2;-2520.636,-4015.958,1.35 t1;... (ok)
+2026-10-06 22:19:02 [51092] bridge: the mod has line 51092.3
+2026-10-06 22:19:02 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:19:05 [51092] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 22:19:08 [51092] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 22:19:10 [51092] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 22:19:13 [51092] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 22:19:15 [51092] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 22:19:16 [51092] net: line 51092.4 (478 characters) queued for this game (loopback)
+2026-10-06 22:19:18 [51092] bridge: TF3MP_IN=line 51092.4 loop B4 f1;-2693.637,-4010.204,0.874 f2;-2607.137,-4013.081,1.19 t1... (ok)
+2026-10-06 22:19:20 [51092] bridge: TF3MP_IN=line 51092.4 loop B4 f1;-2693.637,-4010.204,0.874 f2;-2607.137,-4013.081,1.19 t1... (ok)
+2026-10-06 22:19:20 [51092] bridge: the mod has line 51092.4
+2026-10-06 22:19:20 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:19:22 [51092] net: line 51092.5 (373 characters) queued for this game (loopback)
+2026-10-06 22:19:23 [51092] bridge: TF3MP_IN=line 51092.5 loop B4 f1;-2693.637,-4010.204,0.874 f2;-2607.137,-4013.081,1.19 t1... (ok)
+2026-10-06 22:19:26 [51092] bridge: TF3MP_IN=line 51092.5 loop B4 f1;-2693.637,-4010.204,0.874 f2;-2607.137,-4013.081,1.19 t1... (ok)
+2026-10-06 22:19:26 [51092] bridge: the mod has line 51092.5
+2026-10-06 22:19:26 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:19:28 [51092] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 22:19:31 [51092] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 22:19:32 [51092] net: line 51092.6 (180 characters) queued for this game (loopback)
+2026-10-06 22:19:33 [51092] bridge: TF3MP_IN=line 51092.6 loop B4 c;%3A%3A%2Fdepots%2Froad%2Froad_depot%2Froad_depot.con;Alle... (ok)
+2026-10-06 22:19:36 [51092] bridge: TF3MP_IN=line 51092.6 loop B4 c;%3A%3A%2Fdepots%2Froad%2Froad_depot%2Froad_depot.con;Alle... (ok)
+2026-10-06 22:19:36 [51092] bridge: the mod has line 51092.6
+2026-10-06 22:19:36 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:19:38 [51092] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 22:19:41 [51092] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 22:19:43 [51092] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 22:19:43 [51092] net: line 51092.7 (691 characters) queued for this game (loopback)
+2026-10-06 22:19:46 [51092] bridge: TF3MP_IN=line 51092.7 loop B4 n-1;-2659.833,-4011.328,1.005 f1;-2693.637,-4010.204,0.874 ... (ok)
+2026-10-06 22:19:48 [51092] bridge: TF3MP_IN=line 51092.7 loop B4 n-1;-2659.833,-4011.328,1.005 f1;-2693.637,-4010.204,0.874 ... (ok)
+2026-10-06 22:19:48 [51092] bridge: the mod has line 51092.7
+2026-10-06 22:19:48 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:19:49 [51092] net: line 51092.8 (349 characters) queued for this game (loopback)
+2026-10-06 22:19:51 [51092] bridge: TF3MP_IN=line 51092.8 loop B4 n-1;-2764.409,-3827.818,0.98 n-2;-2686.793,-3828.66,1.375 n... (ok)
+2026-10-06 22:19:53 [51092] bridge: TF3MP_IN=line 51092.8 loop B4 n-1;-2764.409,-3827.818,0.98 n-2;-2686.793,-3828.66,1.375 n... (ok)
+2026-10-06 22:19:53 [51092] bridge: the mod has line 51092.8
+2026-10-06 22:19:53 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:19:56 [51092] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 22:19:58 [51092] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 22:20:01 [51092] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 22:20:03 [51092] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 22:20:05 [51092] bridge: TF3MP_IN=ack 353 (ok)
+2026-10-06 22:20:08 [51092] bridge: TF3MP_IN=ack 354 (ok)
+2026-10-06 22:20:11 [51092] bridge: TF3MP_IN=ack 355 (ok)
+2026-10-06 22:20:13 [51092] bridge: TF3MP_IN=ack 356 (ok)
+2026-10-06 22:20:16 [51092] bridge: TF3MP_IN=ack 357 (ok)
+2026-10-06 22:20:18 [51092] bridge: TF3MP_IN=ack 358 (ok)
+2026-10-06 22:20:21 [51092] bridge: TF3MP_IN=ack 359 (ok)
+2026-10-06 22:20:23 [51092] bridge: TF3MP_IN=ack 360 (ok)
+2026-10-06 22:20:26 [51092] bridge: TF3MP_IN=ack 361 (ok)
+2026-10-06 22:20:28 [51092] bridge: TF3MP_IN=ack 362 (ok)
+2026-10-06 22:20:31 [51092] bridge: TF3MP_IN=ack 363 (ok)
+2026-10-06 22:20:33 [51092] bridge: TF3MP_IN=ack 364 (ok)
+2026-10-06 22:20:36 [51092] bridge: TF3MP_IN=ack 365 (ok)
+2026-10-06 22:20:38 [51092] bridge: TF3MP_IN=ack 366 (ok)
+2026-10-06 22:20:41 [51092] bridge: TF3MP_IN=ack 367 (ok)
+2026-10-06 22:20:43 [51092] bridge: TF3MP_IN=ack 368 (ok)
+2026-10-06 22:20:46 [51092] bridge: TF3MP_IN=ack 369 (ok)
+2026-10-06 22:20:48 [51092] bridge: TF3MP_IN=ack 370 (ok)
+2026-10-06 22:20:51 [51092] bridge: TF3MP_IN=ack 371 (ok)
+2026-10-06 22:20:53 [51092] bridge: TF3MP_IN=ack 372 (ok)
+2026-10-06 22:20:56 [51092] bridge: TF3MP_IN=ack 373 (ok)
+2026-10-06 22:20:58 [51092] bridge: TF3MP_IN=ack 374 (ok)
+2026-10-06 22:21:01 [51092] bridge: TF3MP_IN=ack 375 (ok)
+2026-10-06 22:21:01 [51092] net: line 51092.9 (424 characters) queued for this game (loopback)
+2026-10-06 22:21:03 [51092] bridge: TF3MP_IN=line 51092.9 loop B4 f1;-2764.409,-3827.818,0.98 f2;-2686.793,-3828.66,1.375 t1;... (ok)
+2026-10-06 22:21:06 [51092] bridge: TF3MP_IN=line 51092.9 loop B4 f1;-2764.409,-3827.818,0.98 f2;-2686.793,-3828.66,1.375 t1;... (ok)
+2026-10-06 22:21:06 [51092] bridge: the mod has line 51092.9
+2026-10-06 22:21:06 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:21:08 [51092] bridge: TF3MP_IN=ack 378 (ok)
+2026-10-06 22:21:11 [51092] bridge: TF3MP_IN=ack 379 (ok)
+2026-10-06 22:21:13 [51092] net: line 51092.10 (167 characters) queued for this game (loopback)
+2026-10-06 22:21:13 [51092] bridge: TF3MP_IN=line 51092.10 loop B4 x;-2660.422,-4029.058,1.005 r;-2659.833,-4011.328,1.005;-2... (ok)
+2026-10-06 22:21:14 [51092] net: line 51092.11 (85 characters) queued for this game (loopback)
+2026-10-06 22:21:16 [51092] bridge: TF3MP_IN=line 51092.10 loop B4 x;-2660.422,-4029.058,1.005 r;-2659.833,-4011.328,1.005;-2... (ok)
+2026-10-06 22:21:16 [51092] bridge: the mod has line 51092.10
+2026-10-06 22:21:16 [51092] bridge: TF3MP_IN=line 51092.11 loop B4 x;-2434.136,-4018.836,1.149 r;-2520.636,-4015.958,1.35;-24... (ok)
+2026-10-06 22:21:18 [51092] bridge: TF3MP_IN=line 51092.11 loop B4 x;-2434.136,-4018.836,1.149 r;-2520.636,-4015.958,1.35;-24... (ok)
+2026-10-06 22:21:18 [51092] bridge: the mod has line 51092.11
+2026-10-06 22:21:18 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:21:21 [51092] bridge: TF3MP_IN=ack 383 (ok)
+2026-10-06 22:21:23 [51092] bridge: TF3MP_IN=ack 384 (ok)
+2026-10-06 22:21:26 [51092] bridge: TF3MP_IN=ack 385 (ok)
+2026-10-06 22:21:28 [51092] bridge: TF3MP_IN=ack 386 (ok)
+2026-10-06 22:21:29 [51092] net: line 51092.12 (188 characters) queued for this game (loopback)
+2026-10-06 22:21:31 [51092] bridge: TF3MP_IN=line 51092.12 loop B4 x;-2889.674,-4038.24,3.005 x;-2889.674,-4023.5,3.005 r;-28... (ok)
+2026-10-06 22:21:33 [51092] bridge: TF3MP_IN=line 51092.12 loop B4 x;-2889.674,-4038.24,3.005 x;-2889.674,-4023.5,3.005 r;-28... (ok)
+2026-10-06 22:21:33 [51092] bridge: the mod has line 51092.12
+2026-10-06 22:21:33 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:21:36 [51092] bridge: TF3MP_IN=ack 389 (ok)
+2026-10-06 22:21:38 [51092] bridge: TF3MP_IN=ack 390 (ok)
+2026-10-06 22:21:41 [51092] bridge: TF3MP_IN=ack 391 (ok)
+2026-10-06 22:21:43 [51092] bridge: TF3MP_IN=ack 392 (ok)
+2026-10-06 22:21:45 [51092] net: line 51092.13 (489 characters) queued for this game (loopback)
+2026-10-06 22:21:46 [51092] bridge: TF3MP_IN=line 51092.13 loop B4 f1;-2659.833,-4011.328,1.005 f2;-2607.137,-4013.081,1.19 t... (ok)
+2026-10-06 22:21:49 [51092] bridge: TF3MP_IN=line 51092.13 loop B4 f1;-2659.833,-4011.328,1.005 f2;-2607.137,-4013.081,1.19 t... (ok)
+2026-10-06 22:21:49 [51092] bridge: the mod has line 51092.13
+2026-10-06 22:21:49 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:21:52 [51092] bridge: TF3MP_IN=ack 395 (ok)
+2026-10-06 22:21:54 [51092] bridge: TF3MP_IN=ack 396 (ok)
+2026-10-06 22:21:57 [51092] bridge: TF3MP_IN=ack 397 (ok)
+2026-10-06 22:21:59 [51092] bridge: TF3MP_IN=ack 398 (ok)
+2026-10-06 22:22:02 [51092] bridge: TF3MP_IN=ack 399 (ok)
+2026-10-06 22:22:04 [51092] bridge: TF3MP_IN=ack 400 (ok)
+2026-10-06 22:22:07 [51092] bridge: TF3MP_IN=ack 401 (ok)
+2026-10-06 22:22:09 [51092] bridge: TF3MP_IN=ack 402 (ok)
+2026-10-06 22:22:12 [51092] bridge: TF3MP_IN=ack 403 (ok)
+2026-10-06 22:22:14 [51092] bridge: TF3MP_IN=ack 404 (ok)
+2026-10-06 22:22:17 [51092] bridge: TF3MP_IN=ack 405 (ok)
+2026-10-06 22:22:19 [51092] bridge: TF3MP_IN=ack 406 (ok)
+2026-10-06 22:22:22 [51092] bridge: TF3MP_IN=ack 407 (ok)
+2026-10-06 22:22:24 [51092] bridge: TF3MP_IN=ack 408 (ok)
+2026-10-06 22:22:27 [51092] bridge: TF3MP_IN=ack 409 (ok)
+2026-10-06 22:22:29 [51092] bridge: TF3MP_IN=ack 410 (ok)
+2026-10-06 22:22:32 [51092] bridge: TF3MP_IN=ack 411 (ok)
+2026-10-06 22:22:34 [51092] bridge: TF3MP_IN=ack 412 (ok)
+2026-10-06 22:22:37 [51092] bridge: TF3MP_IN=ack 413 (ok)
+2026-10-06 22:22:39 [51092] bridge: TF3MP_IN=ack 414 (ok)
+2026-10-06 22:22:41 [51092] bridge: TF3MP_IN=ack 415 (ok)
+2026-10-06 22:22:44 [51092] bridge: TF3MP_IN=ack 416 (ok)
+2026-10-06 22:22:46 [51092] bridge: TF3MP_IN=ack 417 (ok)
+2026-10-06 22:22:49 [51092] bridge: TF3MP_IN=ack 418 (ok)
+2026-10-06 22:22:51 [51092] bridge: TF3MP_IN=ack 419 (ok)
+2026-10-06 22:22:54 [51092] bridge: TF3MP_IN=ack 420 (ok)
+2026-10-06 22:22:56 [51092] bridge: TF3MP_IN=ack 421 (ok)
+2026-10-06 22:22:59 [51092] bridge: TF3MP_IN=ack 422 (ok)
+2026-10-06 22:23:01 [51092] bridge: TF3MP_IN=ack 423 (ok)
+2026-10-06 22:23:04 [51092] bridge: TF3MP_IN=ack 424 (ok)
+2026-10-06 22:23:06 [51092] bridge: TF3MP_IN=ack 425 (ok)
+2026-10-06 22:23:09 [51092] bridge: TF3MP_IN=ack 426 (ok)
+2026-10-06 22:23:11 [51092] bridge: TF3MP_IN=ack 427 (ok)
+2026-10-06 22:23:14 [51092] bridge: TF3MP_IN=ack 428 (ok)
+2026-10-06 22:23:16 [51092] bridge: TF3MP_IN=ack 429 (ok)
+2026-10-06 22:23:19 [51092] bridge: TF3MP_IN=ack 430 (ok)
+2026-10-06 22:23:21 [51092] bridge: TF3MP_IN=ack 431 (ok)
+2026-10-06 22:23:24 [51092] bridge: TF3MP_IN=ack 432 (ok)
+2026-10-06 22:23:26 [51092] bridge: TF3MP_IN=ack 433 (ok)
+2026-10-06 22:23:29 [51092] bridge: TF3MP_IN=ack 434 (ok)
+2026-10-06 22:23:31 [51092] bridge: TF3MP_IN=ack 435 (ok)
+2026-10-06 22:23:34 [51092] bridge: TF3MP_IN=ack 436 (ok)
+2026-10-06 22:23:36 [51092] bridge: TF3MP_IN=ack 437 (ok)
+2026-10-06 22:23:39 [51092] bridge: TF3MP_IN=ack 438 (ok)
+2026-10-06 22:23:42 [51092] bridge: TF3MP_IN=ack 439 (ok)
+2026-10-06 22:23:44 [51092] bridge: TF3MP_IN=ack 440 (ok)
+2026-10-06 22:23:45 [51092] net: line 51092.14 (699 characters) queued for this game (loopback)
+2026-10-06 22:23:47 [51092] bridge: TF3MP_IN=line 51092.14 loop B4 n-1;-2523.732,-4376.551,0.922 n-2;-2433.907,-4375.821,1.5 ... (ok)
+2026-10-06 22:23:47 [51092] net: line 51092.15 (483 characters) queued for this game (loopback)
+2026-10-06 22:23:48 [51092] net: line 51092.16 (483 characters) queued for this game (loopback)
+2026-10-06 22:23:49 [51092] bridge: TF3MP_IN=line 51092.14 loop B4 n-1;-2523.732,-4376.551,0.922 n-2;-2433.907,-4375.821,1.5 ... (ok)
+2026-10-06 22:23:49 [51092] bridge: the mod has line 51092.14
+2026-10-06 22:23:49 [51092] bridge: TF3MP_IN=line 51092.15 loop B4 f1;-2433.907,-4375.821,1.5 f2;-2344.083,-4375.091,0.954 t1... (ok)
+2026-10-06 22:23:51 [51092] net: line 51092.17 (978 characters) queued for this game (loopback)
+2026-10-06 22:23:52 [51092] bridge: TF3MP_IN=line 51092.15 loop B4 f1;-2433.907,-4375.821,1.5 f2;-2344.083,-4375.091,0.954 t1... (ok)
+2026-10-06 22:23:52 [51092] bridge: the mod has line 51092.15
+2026-10-06 22:23:52 [51092] bridge: TF3MP_IN=line 51092.16 loop B4 f1;-2254.259,-4374.362,1.313 f2;-2164.435,-4373.632,2.174 ... (ok)
+2026-10-06 22:23:55 [51092] bridge: TF3MP_IN=line 51092.16 loop B4 f1;-2254.259,-4374.362,1.313 f2;-2164.435,-4373.632,2.174 ... (ok)
+2026-10-06 22:23:55 [51092] bridge: the mod has line 51092.16
+2026-10-06 22:23:55 [51092] bridge: TF3MP_IN=line 51092.17 loop B4 n-1;-2316.137,-4374.864,0.982 n-2;-2375.021,-4375.343,1.11... (ok)
+2026-10-06 22:23:58 [51092] bridge: TF3MP_IN=line 51092.17 loop B4 n-1;-2316.137,-4374.864,0.982 n-2;-2375.021,-4375.343,1.11... (ok)
+2026-10-06 22:23:58 [51092] bridge: the mod has line 51092.17
+2026-10-06 22:23:58 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:24:00 [51092] bridge: TF3MP_IN=ack 446 (ok)
+2026-10-06 22:24:03 [51092] bridge: TF3MP_IN=ack 447 (ok)
+2026-10-06 22:24:05 [51092] bridge: TF3MP_IN=ack 448 (ok)
+2026-10-06 22:24:08 [51092] bridge: TF3MP_IN=ack 449 (ok)
+2026-10-06 22:24:10 [51092] bridge: TF3MP_IN=ack 450 (ok)
+2026-10-06 22:24:13 [51092] bridge: TF3MP_IN=ack 451 (ok)
+2026-10-06 22:24:15 [51092] bridge: TF3MP_IN=ack 452 (ok)
+2026-10-06 22:24:18 [51092] bridge: TF3MP_IN=ack 453 (ok)
+2026-10-06 22:24:20 [51092] bridge: TF3MP_IN=ack 454 (ok)
+2026-10-06 22:24:23 [51092] bridge: TF3MP_IN=ack 455 (ok)
+2026-10-06 22:24:25 [51092] bridge: TF3MP_IN=ack 456 (ok)
+2026-10-06 22:24:28 [51092] bridge: TF3MP_IN=ack 457 (ok)
+2026-10-06 22:24:30 [51092] bridge: TF3MP_IN=ack 458 (ok)
+2026-10-06 22:24:33 [51092] bridge: TF3MP_IN=ack 459 (ok)
+2026-10-06 22:24:35 [51092] net: line 51092.18 (683 characters) queued for this game (loopback)
+2026-10-06 22:24:35 [51092] bridge: TF3MP_IN=line 51092.18 loop B4 n-1;-2484.808,-4376.235,1.232 f1;-2523.732,-4376.551,0.922... (ok)
+2026-10-06 22:24:38 [51092] bridge: TF3MP_IN=line 51092.18 loop B4 n-1;-2484.808,-4376.235,1.232 f1;-2523.732,-4376.551,0.922... (ok)
+2026-10-06 22:24:38 [51092] bridge: the mod has line 51092.18
+2026-10-06 22:24:38 [51092] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 22:24:40 [51092] bridge: TF3MP_IN=ack 462 (ok)
+2026-10-06 22:24:43 [51092] bridge: TF3MP_IN=ack 463 (ok)
+2026-10-06 22:24:45 [51092] bridge: TF3MP_IN=ack 464 (ok)
+2026-10-06 22:24:48 [51092] bridge: TF3MP_IN=ack 465 (ok)
+2026-10-06 22:24:50 [51092] bridge: TF3MP_IN=ack 466 (ok)
+2026-10-06 22:24:53 [51092] bridge: TF3MP_IN=ack 467 (ok)
+2026-10-06 22:24:55 [51092] bridge: TF3MP_IN=ack 468 (ok)
+2026-10-06 22:24:58 [51092] bridge: TF3MP_IN=ack 469 (ok)
+2026-10-06 22:25:00 [51092] bridge: TF3MP_IN=ack 470 (ok)
+2026-10-06 22:25:03 [51092] bridge: TF3MP_IN=ack 471 (ok)
+2026-10-06 22:25:05 [51092] bridge: TF3MP_IN=ack 472 (ok)
+2026-10-06 22:25:08 [51092] bridge: TF3MP_IN=ack 473 (ok)
+2026-10-06 22:25:10 [51092] bridge: TF3MP_IN=ack 474 (ok)
+2026-10-06 22:25:13 [51092] bridge: TF3MP_IN=ack 475 (ok)
+2026-10-06 22:25:16 [51092] bridge: TF3MP_IN=ack 476 (ok)
+2026-10-06 22:25:18 [51092] bridge: TF3MP_IN=ack 477 (ok)
+2026-10-06 22:25:21 [51092] bridge: TF3MP_IN=ack 478 (ok)
+2026-10-06 22:25:26 [51092] alut proxy v7 unloaded
+2026-10-06 22:57:56 [42316] alut proxy v7 loaded
+2026-10-06 22:57:56 [42316] net: loopback, captured lines come back to this game
+2026-10-06 22:57:56 [42316] bridge: ucrtbase _putenv_s found
+2026-10-06 22:57:56 [42316] bridge: TF3MP_IN=hello (ok)
+2026-10-06 22:57:56 [42316] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 22:58:13 [42316] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 23:07:29 [42316] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 23:07:31 [42316] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 23:07:33 [42316] net: line 42316.1 (526 characters) queued for this game (loopback)
+2026-10-06 23:07:34 [42316] bridge: TF3MP_IN=line 42316.1 loop B4 n-1;-2927.315,-3885.694,2.316 n-2;-2847.96,-3886.825,2.248 ... (ok)
+2026-10-06 23:07:36 [42316] bridge: TF3MP_IN=line 42316.1 loop B4 n-1;-2927.315,-3885.694,2.316 n-2;-2847.96,-3886.825,2.248 ... (ok)
+2026-10-06 23:07:36 [42316] bridge: the mod has line 42316.1
+2026-10-06 23:07:36 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:07:39 [42316] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 23:07:41 [42316] net: line 42316.2 (489 characters) queued for this game (loopback)
+2026-10-06 23:07:41 [42316] bridge: TF3MP_IN=line 42316.2 loop B4 f1;-2847.96,-3886.825,2.248 f2;-2768.605,-3887.956,1.269 t1... (ok)
+2026-10-06 23:07:44 [42316] bridge: TF3MP_IN=line 42316.2 loop B4 f1;-2847.96,-3886.825,2.248 f2;-2768.605,-3887.956,1.269 t1... (ok)
+2026-10-06 23:07:44 [42316] bridge: the mod has line 42316.2
+2026-10-06 23:07:44 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:07:46 [42316] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 23:07:49 [42316] net: line 42316.3 (486 characters) queued for this game (loopback)
+2026-10-06 23:07:49 [42316] bridge: TF3MP_IN=line 42316.3 loop B4 f1;-2768.605,-3887.956,1.269 f2;-2689.25,-3889.086,1.354 t1... (ok)
+2026-10-06 23:07:51 [42316] bridge: TF3MP_IN=line 42316.3 loop B4 f1;-2768.605,-3887.956,1.269 f2;-2689.25,-3889.086,1.354 t1... (ok)
+2026-10-06 23:07:51 [42316] bridge: the mod has line 42316.3
+2026-10-06 23:07:51 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:07:54 [42316] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 23:07:55 [42316] net: line 42316.4 (379 characters) queued for this game (loopback)
+2026-10-06 23:07:57 [42316] bridge: TF3MP_IN=line 42316.4 loop B4 f1;-2847.96,-3886.825,2.248 f2;-2768.605,-3887.956,1.269 t1... (ok)
+2026-10-06 23:07:59 [42316] bridge: TF3MP_IN=line 42316.4 loop B4 f1;-2847.96,-3886.825,2.248 f2;-2768.605,-3887.956,1.269 t1... (ok)
+2026-10-06 23:07:59 [42316] bridge: the mod has line 42316.4
+2026-10-06 23:07:59 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:08:02 [42316] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 23:08:04 [42316] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 23:08:07 [42316] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 23:08:09 [42316] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 23:08:12 [42316] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 23:08:14 [42316] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 23:08:17 [42316] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 23:08:19 [42316] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 23:08:22 [42316] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 23:08:24 [42316] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 23:08:27 [42316] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 23:08:29 [42316] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 23:08:32 [42316] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 23:08:34 [42316] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 23:08:36 [42316] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 23:08:39 [42316] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 23:08:41 [42316] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 23:08:44 [42316] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 23:08:46 [42316] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 23:08:49 [42316] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 23:08:51 [42316] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 23:08:52 [42316] net: line 42316.5 (873 characters) queued for this game (loopback)
+2026-10-06 23:08:54 [42316] bridge: TF3MP_IN=line 42316.5 loop B4 n-1;-2879.099,-3886.381,2.341 n-2;-2823.854,-3887.168,1.983... (ok)
+2026-10-06 23:08:56 [42316] bridge: TF3MP_IN=line 42316.5 loop B4 n-1;-2879.099,-3886.381,2.341 n-2;-2823.854,-3887.168,1.983... (ok)
+2026-10-06 23:08:56 [42316] bridge: the mod has line 42316.5
+2026-10-06 23:08:56 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:08:59 [42316] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-06 23:09:01 [42316] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 23:09:04 [42316] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 23:09:06 [42316] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 23:09:09 [42316] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 23:09:11 [42316] bridge: TF3MP_IN=ack 353 (ok)
+2026-10-06 23:09:14 [42316] bridge: TF3MP_IN=ack 354 (ok)
+2026-10-06 23:09:15 [42316] net: line 42316.6 (353 characters) queued for this game (loopback)
+2026-10-06 23:09:16 [42316] bridge: TF3MP_IN=line 42316.6 loop B4 n-1;-2844.155,-4005.681,2.1 n-2;-2784.926,-4006.03,1.639 n-... (ok)
+2026-10-06 23:09:19 [42316] bridge: TF3MP_IN=line 42316.6 loop B4 n-1;-2844.155,-4005.681,2.1 n-2;-2784.926,-4006.03,1.639 n-... (ok)
+2026-10-06 23:09:19 [42316] bridge: the mod has line 42316.6
+2026-10-06 23:09:19 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:09:21 [42316] bridge: TF3MP_IN=ack 357 (ok)
+2026-10-06 23:09:24 [42316] bridge: TF3MP_IN=ack 358 (ok)
+2026-10-06 23:09:26 [42316] bridge: TF3MP_IN=ack 359 (ok)
+2026-10-06 23:09:26 [42316] net: line 42316.7 (1431 characters) queued for this game (loopback)
+2026-10-06 23:09:29 [42316] bridge: TF3MP_IN=line 42316.7 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:09:29 [42316] net: line 42316.8 (1431 characters) queued for this game (loopback)
+2026-10-06 23:09:31 [42316] bridge: TF3MP_IN=line 42316.7 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:09:31 [42316] bridge: the mod has line 42316.7
+2026-10-06 23:09:31 [42316] bridge: TF3MP_IN=line 42316.8 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:09:32 [42316] net: line 42316.9 (493 characters) queued for this game (loopback)
+2026-10-06 23:09:34 [42316] bridge: TF3MP_IN=line 42316.8 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:09:34 [42316] bridge: the mod has line 42316.8
+2026-10-06 23:09:34 [42316] bridge: TF3MP_IN=line 42316.9 loop B4 f1;-2879.099,-3846.381,2.341 f2;-2823.854,-3847.168,1.983 t... (ok)
+2026-10-06 23:09:36 [42316] bridge: TF3MP_IN=line 42316.9 loop B4 f1;-2879.099,-3846.381,2.341 f2;-2823.854,-3847.168,1.983 t... (ok)
+2026-10-06 23:09:36 [42316] bridge: the mod has line 42316.9
+2026-10-06 23:09:36 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:09:39 [42316] bridge: TF3MP_IN=ack 364 (ok)
+2026-10-06 23:09:41 [42316] bridge: TF3MP_IN=ack 365 (ok)
+2026-10-06 23:09:44 [42316] bridge: TF3MP_IN=ack 366 (ok)
+2026-10-06 23:09:46 [42316] bridge: TF3MP_IN=ack 367 (ok)
+2026-10-06 23:09:49 [42316] bridge: TF3MP_IN=ack 368 (ok)
+2026-10-06 23:09:51 [42316] bridge: TF3MP_IN=ack 369 (ok)
+2026-10-06 23:09:54 [42316] bridge: TF3MP_IN=ack 370 (ok)
+2026-10-06 23:09:55 [42316] net: line 42316.10 (430 characters) queued for this game (loopback)
+2026-10-06 23:09:57 [42316] bridge: TF3MP_IN=line 42316.10 loop B4 f1;-2784.926,-3966.03,1.639 f2;-2725.697,-3966.379,1.177 t... (ok)
+2026-10-06 23:09:59 [42316] bridge: TF3MP_IN=line 42316.10 loop B4 f1;-2784.926,-3966.03,1.639 f2;-2725.697,-3966.379,1.177 t... (ok)
+2026-10-06 23:09:59 [42316] bridge: the mod has line 42316.10
+2026-10-06 23:09:59 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:10:02 [42316] bridge: TF3MP_IN=ack 373 (ok)
+2026-10-06 23:10:03 [42316] net: line 42316.11 (348 characters) queued for this game (loopback)
+2026-10-06 23:10:04 [42316] bridge: TF3MP_IN=line 42316.11 loop B4 n-1;-2631.865,-4021.912,0.696 n-2;-2580.324,-4020.447,1.05... (ok)
+2026-10-06 23:10:07 [42316] bridge: TF3MP_IN=line 42316.11 loop B4 n-1;-2631.865,-4021.912,0.696 n-2;-2580.324,-4020.447,1.05... (ok)
+2026-10-06 23:10:07 [42316] bridge: the mod has line 42316.11
+2026-10-06 23:10:07 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:10:08 [42316] net: line 42316.12 (427 characters) queued for this game (loopback)
+2026-10-06 23:10:09 [42316] bridge: TF3MP_IN=line 42316.12 loop B4 f1;-2631.865,-4021.912,0.696 f2;-2580.324,-4020.447,1.053 ... (ok)
+2026-10-06 23:10:12 [42316] bridge: TF3MP_IN=line 42316.12 loop B4 f1;-2631.865,-4021.912,0.696 f2;-2580.324,-4020.447,1.053 ... (ok)
+2026-10-06 23:10:12 [42316] bridge: the mod has line 42316.12
+2026-10-06 23:10:12 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:10:14 [42316] bridge: TF3MP_IN=ack 378 (ok)
+2026-10-06 23:10:17 [42316] bridge: TF3MP_IN=ack 379 (ok)
+2026-10-06 23:10:19 [42316] bridge: TF3MP_IN=ack 380 (ok)
+2026-10-06 23:10:22 [42316] bridge: TF3MP_IN=ack 381 (ok)
+2026-10-06 23:10:24 [42316] bridge: TF3MP_IN=ack 382 (ok)
+2026-10-06 23:10:27 [42316] bridge: TF3MP_IN=ack 383 (ok)
+2026-10-06 23:10:29 [42316] bridge: TF3MP_IN=ack 384 (ok)
+2026-10-06 23:10:32 [42316] bridge: TF3MP_IN=ack 385 (ok)
+2026-10-06 23:10:34 [42316] bridge: TF3MP_IN=ack 386 (ok)
+2026-10-06 23:10:37 [42316] bridge: TF3MP_IN=ack 387 (ok)
+2026-10-06 23:10:39 [42316] bridge: TF3MP_IN=ack 388 (ok)
+2026-10-06 23:10:42 [42316] bridge: TF3MP_IN=ack 389 (ok)
+2026-10-06 23:10:44 [42316] bridge: TF3MP_IN=ack 390 (ok)
+2026-10-06 23:10:47 [42316] bridge: TF3MP_IN=ack 391 (ok)
+2026-10-06 23:10:49 [42316] bridge: TF3MP_IN=ack 392 (ok)
+2026-10-06 23:10:51 [42316] bridge: TF3MP_IN=ack 393 (ok)
+2026-10-06 23:10:54 [42316] bridge: TF3MP_IN=ack 394 (ok)
+2026-10-06 23:10:57 [42316] bridge: TF3MP_IN=ack 395 (ok)
+2026-10-06 23:10:59 [42316] bridge: TF3MP_IN=ack 396 (ok)
+2026-10-06 23:11:02 [42316] net: line 42316.13 (167 characters) queued for this game (loopback)
+2026-10-06 23:11:02 [42316] bridge: TF3MP_IN=line 42316.13 loop B4 x;-2879.352,-3904.119,2.341 r;-2879.099,-3886.381,2.341;-2... (ok)
+2026-10-06 23:11:04 [42316] bridge: TF3MP_IN=line 42316.13 loop B4 x;-2879.352,-3904.119,2.341 r;-2879.099,-3886.381,2.341;-2... (ok)
+2026-10-06 23:11:04 [42316] bridge: the mod has line 42316.13
+2026-10-06 23:11:04 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:11:07 [42316] bridge: TF3MP_IN=ack 399 (ok)
+2026-10-06 23:11:08 [42316] net: line 42316.14 (84 characters) queued for this game (loopback)
+2026-10-06 23:11:09 [42316] bridge: TF3MP_IN=line 42316.14 loop B4 x;-2689.25,-3889.086,1.354 r;-2768.605,-3887.956,1.269;-26... (ok)
+2026-10-06 23:11:12 [42316] bridge: TF3MP_IN=line 42316.14 loop B4 x;-2689.25,-3889.086,1.354 r;-2768.605,-3887.956,1.269;-26... (ok)
+2026-10-06 23:11:12 [42316] bridge: the mod has line 42316.14
+2026-10-06 23:11:12 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:11:14 [42316] bridge: TF3MP_IN=ack 402 (ok)
+2026-10-06 23:11:17 [42316] bridge: TF3MP_IN=ack 403 (ok)
+2026-10-06 23:11:19 [42316] bridge: TF3MP_IN=ack 404 (ok)
+2026-10-06 23:11:22 [42316] bridge: TF3MP_IN=ack 405 (ok)
+2026-10-06 23:11:24 [42316] bridge: TF3MP_IN=ack 406 (ok)
+2026-10-06 23:11:27 [42316] bridge: TF3MP_IN=ack 407 (ok)
+2026-10-06 23:11:29 [42316] bridge: TF3MP_IN=ack 408 (ok)
+2026-10-06 23:11:32 [42316] bridge: TF3MP_IN=ack 409 (ok)
+2026-10-06 23:11:34 [42316] bridge: TF3MP_IN=ack 410 (ok)
+2026-10-06 23:11:37 [42316] bridge: TF3MP_IN=ack 411 (ok)
+2026-10-06 23:11:38 [42316] net: line 42316.15 (86 characters) queued for this game (loopback)
+2026-10-06 23:11:39 [42316] bridge: TF3MP_IN=line 42316.15 loop B4 x;-2768.605,-3887.956,1.269 r;-2823.854,-3887.168,1.983;-2... (ok)
+2026-10-06 23:11:42 [42316] bridge: TF3MP_IN=line 42316.15 loop B4 x;-2768.605,-3887.956,1.269 r;-2823.854,-3887.168,1.983;-2... (ok)
+2026-10-06 23:11:42 [42316] bridge: the mod has line 42316.15
+2026-10-06 23:11:42 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:11:44 [42316] bridge: TF3MP_IN=ack 414 (ok)
+2026-10-06 23:11:47 [42316] bridge: TF3MP_IN=ack 415 (ok)
+2026-10-06 23:11:49 [42316] bridge: TF3MP_IN=ack 416 (ok)
+2026-10-06 23:11:52 [42316] bridge: TF3MP_IN=ack 417 (ok)
+2026-10-06 23:11:53 [42316] net: line 42316.16 (86 characters) queued for this game (loopback)
+2026-10-06 23:11:54 [42316] bridge: TF3MP_IN=line 42316.16 loop B4 x;-2528.783,-4018.982,1.411 r;-2580.324,-4020.447,1.053;-2... (ok)
+2026-10-06 23:11:57 [42316] bridge: TF3MP_IN=line 42316.16 loop B4 x;-2528.783,-4018.982,1.411 r;-2580.324,-4020.447,1.053;-2... (ok)
+2026-10-06 23:11:57 [42316] bridge: the mod has line 42316.16
+2026-10-06 23:11:57 [42316] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:11:59 [42316] bridge: TF3MP_IN=ack 420 (ok)
+2026-10-06 23:12:02 [42316] bridge: TF3MP_IN=ack 421 (ok)
+2026-10-06 23:12:04 [42316] bridge: TF3MP_IN=ack 422 (ok)
+2026-10-06 23:12:09 [42316] alut proxy v7 unloaded
+2026-10-06 23:16:42 [44352] alut proxy v7 loaded
+2026-10-06 23:16:42 [44352] net: loopback, captured lines come back to this game
+2026-10-06 23:16:42 [44352] bridge: ucrtbase _putenv_s found
+2026-10-06 23:16:42 [44352] bridge: TF3MP_IN=hello (ok)
+2026-10-06 23:16:42 [44352] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 23:17:12 [44352] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 23:17:28 [44352] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 23:17:31 [44352] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 23:17:33 [44352] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 23:17:36 [44352] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 23:17:38 [44352] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 23:17:39 [44352] net: line 44352.1 (521 characters) queued for this game (loopback)
+2026-10-06 23:17:41 [44352] bridge: TF3MP_IN=line 44352.1 loop B4 n-1;-2889.476,-3889.65,2.332 n-2;-2813.114,-3893.942,1.153 ... (ok)
+2026-10-06 23:17:43 [44352] bridge: TF3MP_IN=line 44352.1 loop B4 n-1;-2889.476,-3889.65,2.332 n-2;-2813.114,-3893.942,1.153 ... (ok)
+2026-10-06 23:17:43 [44352] bridge: the mod has line 44352.1
+2026-10-06 23:17:43 [44352] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:17:46 [44352] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 23:17:48 [44352] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 23:17:51 [44352] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 23:17:52 [44352] net: line 44352.2 (687 characters) queued for this game (loopback)
+2026-10-06 23:17:52 [44352] net: line 44352.3 (315 characters) queued for this game (loopback)
+2026-10-06 23:17:53 [44352] bridge: TF3MP_IN=line 44352.2 loop B4 n-1;-2858.329,-3891.4,1.771 f1;-2889.476,-3889.65,2.332 t1;... (ok)
+2026-10-06 23:17:56 [44352] bridge: TF3MP_IN=line 44352.2 loop B4 n-1;-2858.329,-3891.4,1.771 f1;-2889.476,-3889.65,2.332 t1;... (ok)
+2026-10-06 23:17:56 [44352] bridge: the mod has line 44352.2
+2026-10-06 23:17:56 [44352] bridge: TF3MP_IN=line 44352.3 loop B4 f1;-2858.329,-3891.4,1.771 f2;-2859.324,-3909.112,1.771 t1;... (ok)
+2026-10-06 23:17:58 [44352] bridge: TF3MP_IN=line 44352.3 loop B4 f1;-2858.329,-3891.4,1.771 f2;-2859.324,-3909.112,1.771 t1;... (ok)
+2026-10-06 23:17:58 [44352] bridge: the mod has line 44352.3
+2026-10-06 23:17:58 [44352] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:18:01 [44352] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 23:18:03 [44352] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 23:18:06 [44352] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 23:18:08 [44352] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 23:18:11 [44352] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 23:18:13 [44352] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 23:18:14 [44352] net: line 44352.4 (485 characters) queued for this game (loopback)
+2026-10-06 23:18:15 [44352] net: line 44352.5 (479 characters) queued for this game (loopback)
+2026-10-06 23:18:16 [44352] bridge: TF3MP_IN=line 44352.4 loop B4 f1;-2813.114,-3893.942,1.153 f2;-2736.752,-3898.234,1.6 t1;... (ok)
+2026-10-06 23:18:18 [44352] bridge: TF3MP_IN=line 44352.4 loop B4 f1;-2813.114,-3893.942,1.153 f2;-2736.752,-3898.234,1.6 t1;... (ok)
+2026-10-06 23:18:18 [44352] bridge: the mod has line 44352.4
+2026-10-06 23:18:18 [44352] bridge: TF3MP_IN=line 44352.5 loop B4 f1;-2736.752,-3898.234,1.6 f2;-2660.39,-3902.525,2.507 t1;:... (ok)
+2026-10-06 23:18:21 [44352] bridge: TF3MP_IN=line 44352.5 loop B4 f1;-2736.752,-3898.234,1.6 f2;-2660.39,-3902.525,2.507 t1;:... (ok)
+2026-10-06 23:18:21 [44352] bridge: the mod has line 44352.5
+2026-10-06 23:18:21 [44352] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:18:23 [44352] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 23:18:26 [44352] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 23:18:29 [44352] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 23:18:31 [44352] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 23:18:34 [44352] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 23:18:36 [44352] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 23:18:39 [44352] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 23:18:41 [44352] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 23:18:44 [44352] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 23:18:46 [44352] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 23:18:46 [44352] net: line 44352.6 (1429 characters) queued for this game (loopback)
+2026-10-06 23:18:49 [44352] bridge: TF3MP_IN=line 44352.6 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:18:49 [44352] net: line 44352.7 (1429 characters) queued for this game (loopback)
+2026-10-06 23:18:51 [44352] bridge: TF3MP_IN=line 44352.6 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:18:51 [44352] net: line 44352.8 (2783 characters) queued for this game (loopback)
+2026-10-06 23:18:51 [44352] bridge: the mod has line 44352.6
+2026-10-06 23:18:51 [44352] bridge: TF3MP_IN=line 44352.7 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:18:53 [44352] bridge: TF3MP_IN=line 44352.7 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:18:53 [44352] net: line 44352.9 (2783 characters) queued for this game (loopback)
+2026-10-06 23:18:53 [44352] bridge: the mod has line 44352.7
+2026-10-06 23:18:53 [44352] bridge: TF3MP_IN=line 44352.8 loop A1 t4:s4:6f70s28:76656869636c655f757064617465s16:70726576696f7... (ok)
+2026-10-06 23:18:56 [44352] bridge: TF3MP_IN=line 44352.8 loop A1 t4:s4:6f70s28:76656869636c655f757064617465s16:70726576696f7... (ok)
+2026-10-06 23:18:56 [44352] bridge: the mod has line 44352.8
+2026-10-06 23:18:56 [44352] bridge: TF3MP_IN=line 44352.9 loop A1 t4:s4:6f70s28:76656869636c655f757064617465s16:70726576696f7... (ok)
+2026-10-06 23:18:58 [44352] bridge: TF3MP_IN=line 44352.9 loop A1 t4:s4:6f70s28:76656869636c655f757064617465s16:70726576696f7... (ok)
+2026-10-06 23:18:58 [44352] bridge: the mod has line 44352.9
+2026-10-06 23:18:58 [44352] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:19:01 [44352] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 23:19:03 [44352] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 23:19:06 [44352] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 23:19:08 [44352] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 23:19:10 [44352] net: line 44352.10 (164 characters) queued for this game (loopback)
+2026-10-06 23:19:11 [44352] bridge: TF3MP_IN=line 44352.10 loop B4 x;-2859.324,-3909.112,1.771 r;-2858.329,-3891.4,1.771;-285... (ok)
+2026-10-06 23:19:13 [44352] bridge: TF3MP_IN=line 44352.10 loop B4 x;-2859.324,-3909.112,1.771 r;-2858.329,-3891.4,1.771;-285... (ok)
+2026-10-06 23:19:13 [44352] bridge: the mod has line 44352.10
+2026-10-06 23:19:13 [44352] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:19:15 [44352] net: line 44352.11 (82 characters) queued for this game (loopback)
+2026-10-06 23:19:16 [44352] bridge: TF3MP_IN=line 44352.11 loop B4 x;-2660.39,-3902.525,2.507 r;-2736.752,-3898.234,1.6;-2660... (ok)
+2026-10-06 23:19:18 [44352] bridge: TF3MP_IN=line 44352.11 loop B4 x;-2660.39,-3902.525,2.507 r;-2736.752,-3898.234,1.6;-2660... (ok)
+2026-10-06 23:19:18 [44352] bridge: the mod has line 44352.11
+2026-10-06 23:19:18 [44352] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:19:21 [44352] bridge: TF3MP_IN=ack 357 (ok)
+2026-10-06 23:19:24 [44352] bridge: TF3MP_IN=ack 358 (ok)
+2026-10-06 23:19:26 [44352] bridge: TF3MP_IN=ack 359 (ok)
+2026-10-06 23:19:29 [44352] bridge: TF3MP_IN=ack 360 (ok)
+2026-10-06 23:19:31 [44352] bridge: TF3MP_IN=ack 361 (ok)
+2026-10-06 23:19:34 [44352] bridge: TF3MP_IN=ack 362 (ok)
+2026-10-06 23:19:36 [44352] bridge: TF3MP_IN=ack 363 (ok)
+2026-10-06 23:19:38 [44352] bridge: TF3MP_IN=ack 364 (ok)
+2026-10-06 23:19:41 [44352] bridge: TF3MP_IN=ack 365 (ok)
+2026-10-06 23:19:47 [44352] alut proxy v7 unloaded
+2026-10-06 23:23:17 [49956] alut proxy v7 loaded
+2026-10-06 23:23:17 [49956] net: loopback, captured lines come back to this game
+2026-10-06 23:23:17 [49956] bridge: ucrtbase _putenv_s found
+2026-10-06 23:23:17 [49956] bridge: TF3MP_IN=hello (ok)
+2026-10-06 23:23:17 [49956] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 23:23:34 [49956] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 23:23:44 [49956] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 23:23:47 [49956] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 23:23:49 [49956] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 23:23:52 [49956] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 23:23:54 [49956] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 23:23:56 [49956] net: line 49956.1 (532 characters) queued for this game (loopback)
+2026-10-06 23:23:56 [49956] bridge: TF3MP_IN=line 49956.1 loop B4 n-1;-2903.335,-3949.088,2.071 n-2;-2821.038,-3974.736,2.964... (ok)
+2026-10-06 23:23:59 [49956] bridge: TF3MP_IN=line 49956.1 loop B4 n-1;-2903.335,-3949.088,2.071 n-2;-2821.038,-3974.736,2.964... (ok)
+2026-10-06 23:23:59 [49956] bridge: the mod has line 49956.1
+2026-10-06 23:23:59 [49956] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:24:01 [49956] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 23:24:04 [49956] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 23:24:06 [49956] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 23:24:09 [49956] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 23:24:11 [49956] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 23:24:14 [49956] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 23:24:16 [49956] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 23:24:18 [49956] net: line 49956.2 (981 characters) queued for this game (loopback)
+2026-10-06 23:24:19 [49956] bridge: TF3MP_IN=line 49956.2 loop B4 n-1;-2861.231,-3962.21,2.673 n-2;-2866.509,-3979.147,2.673 ... (ok)
+2026-10-06 23:24:21 [49956] bridge: TF3MP_IN=line 49956.2 loop B4 n-1;-2861.231,-3962.21,2.673 n-2;-2866.509,-3979.147,2.673 ... (ok)
+2026-10-06 23:24:21 [49956] bridge: the mod has line 49956.2
+2026-10-06 23:24:21 [49956] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:24:24 [49956] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 23:24:27 [49956] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 23:24:29 [49956] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 23:24:32 [49956] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 23:24:34 [49956] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 23:24:34 [49956] net: line 49956.3 (1427 characters) queued for this game (loopback)
+2026-10-06 23:24:37 [49956] bridge: TF3MP_IN=line 49956.3 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:24:37 [49956] net: line 49956.4 (1427 characters) queued for this game (loopback)
+2026-10-06 23:24:38 [49956] net: line 49956.5 (489 characters) queued for this game (loopback)
+2026-10-06 23:24:39 [49956] net: line 49956.6 (488 characters) queued for this game (loopback)
+2026-10-06 23:24:39 [49956] bridge: TF3MP_IN=line 49956.3 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:24:39 [49956] bridge: the mod has line 49956.3
+2026-10-06 23:24:39 [49956] bridge: TF3MP_IN=line 49956.4 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:24:42 [49956] bridge: TF3MP_IN=line 49956.4 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:24:42 [49956] bridge: the mod has line 49956.4
+2026-10-06 23:24:42 [49956] bridge: TF3MP_IN=line 49956.5 loop B4 f1;-2861.231,-3962.21,2.673 f2;-2821.038,-3974.736,2.964 t1... (ok)
+2026-10-06 23:24:44 [49956] bridge: TF3MP_IN=line 49956.5 loop B4 f1;-2861.231,-3962.21,2.673 f2;-2821.038,-3974.736,2.964 t1... (ok)
+2026-10-06 23:24:44 [49956] bridge: the mod has line 49956.5
+2026-10-06 23:24:44 [49956] bridge: TF3MP_IN=line 49956.6 loop B4 f1;-2821.038,-3974.736,2.964 f2;-2738.742,-4000.384,1.581 t... (ok)
+2026-10-06 23:24:47 [49956] bridge: TF3MP_IN=line 49956.6 loop B4 f1;-2821.038,-3974.736,2.964 f2;-2738.742,-4000.384,1.581 t... (ok)
+2026-10-06 23:24:47 [49956] bridge: the mod has line 49956.6
+2026-10-06 23:24:47 [49956] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:24:49 [49956] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 23:24:52 [49956] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 23:24:54 [49956] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 23:24:57 [49956] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 23:24:59 [49956] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 23:25:02 [49956] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 23:25:04 [49956] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 23:25:07 [49956] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 23:25:09 [49956] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 23:25:12 [49956] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-06 23:25:14 [49956] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-06 23:25:14 [49956] net: line 49956.7 (1431 characters) queued for this game (loopback)
+2026-10-06 23:25:17 [49956] bridge: TF3MP_IN=line 49956.7 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:25:17 [49956] net: line 49956.8 (1431 characters) queued for this game (loopback)
+2026-10-06 23:25:19 [49956] bridge: TF3MP_IN=line 49956.7 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:25:19 [49956] net: line 49956.9 (1431 characters) queued for this game (loopback)
+2026-10-06 23:25:19 [49956] bridge: the mod has line 49956.7
+2026-10-06 23:25:19 [49956] bridge: TF3MP_IN=line 49956.8 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:25:22 [49956] bridge: TF3MP_IN=line 49956.8 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:25:22 [49956] net: line 49956.10 (621 characters) queued for this game (loopback)
+2026-10-06 23:25:22 [49956] bridge: the mod has line 49956.8
+2026-10-06 23:25:22 [49956] bridge: TF3MP_IN=line 49956.9 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:25:25 [49956] bridge: TF3MP_IN=line 49956.9 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574t... (ok)
+2026-10-06 23:25:25 [49956] net: line 49956.11 (1431 characters) queued for this game (loopback)
+2026-10-06 23:25:25 [49956] bridge: the mod has line 49956.9
+2026-10-06 23:25:25 [49956] bridge: TF3MP_IN=line 49956.10 loop A1 t2:s4:6f70s28:76656869636c655f72656d6f7665s14:746172676574... (ok)
+2026-10-06 23:25:27 [49956] bridge: TF3MP_IN=line 49956.10 loop A1 t2:s4:6f70s28:76656869636c655f72656d6f7665s14:746172676574... (ok)
+2026-10-06 23:25:27 [49956] net: line 49956.12 (1431 characters) queued for this game (loopback)
+2026-10-06 23:25:27 [49956] bridge: the mod has line 49956.10
+2026-10-06 23:25:27 [49956] bridge: TF3MP_IN=line 49956.11 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:29 [49956] bridge: TF3MP_IN=line 49956.11 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:29 [49956] net: line 49956.13 (1431 characters) queued for this game (loopback)
+2026-10-06 23:25:29 [49956] bridge: the mod has line 49956.11
+2026-10-06 23:25:29 [49956] bridge: TF3MP_IN=line 49956.12 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:32 [49956] bridge: TF3MP_IN=line 49956.12 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:32 [49956] net: line 49956.14 (1431 characters) queued for this game (loopback)
+2026-10-06 23:25:32 [49956] bridge: the mod has line 49956.12
+2026-10-06 23:25:32 [49956] bridge: TF3MP_IN=line 49956.13 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:34 [49956] bridge: TF3MP_IN=line 49956.13 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:34 [49956] bridge: the mod has line 49956.13
+2026-10-06 23:25:34 [49956] bridge: TF3MP_IN=line 49956.14 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:37 [49956] bridge: TF3MP_IN=line 49956.14 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:37 [49956] bridge: the mod has line 49956.14
+2026-10-06 23:25:37 [49956] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:25:37 [49956] net: line 49956.15 (493 characters) queued for this game (loopback)
+2026-10-06 23:25:39 [49956] bridge: TF3MP_IN=line 49956.15 loop B4 n-1;-2493.753,-4110.494,2.207 n-2;-2493.753,-4095.754,2.20... (ok)
+2026-10-06 23:25:42 [49956] bridge: TF3MP_IN=line 49956.15 loop B4 n-1;-2493.753,-4110.494,2.207 n-2;-2493.753,-4095.754,2.20... (ok)
+2026-10-06 23:25:42 [49956] bridge: the mod has line 49956.15
+2026-10-06 23:25:42 [49956] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:25:44 [49956] bridge: TF3MP_IN=ack 360 (ok)
+2026-10-06 23:25:47 [49956] bridge: TF3MP_IN=ack 361 (ok)
+2026-10-06 23:25:49 [49956] bridge: TF3MP_IN=ack 362 (ok)
+2026-10-06 23:25:49 [49956] net: line 49956.16 (1353 characters) queued for this game (loopback)
+2026-10-06 23:25:52 [49956] bridge: TF3MP_IN=line 49956.16 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:52 [49956] net: line 49956.17 (1353 characters) queued for this game (loopback)
+2026-10-06 23:25:54 [49956] bridge: TF3MP_IN=line 49956.16 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:54 [49956] bridge: the mod has line 49956.16
+2026-10-06 23:25:54 [49956] bridge: TF3MP_IN=line 49956.17 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:57 [49956] bridge: TF3MP_IN=line 49956.17 loop A1 t3:s4:6f70s28:76656869636c655f637265617465s12:746172676574... (ok)
+2026-10-06 23:25:57 [49956] bridge: the mod has line 49956.17
+2026-10-06 23:25:57 [49956] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 23:25:59 [49956] bridge: TF3MP_IN=ack 366 (ok)
+2026-10-06 23:26:02 [49956] bridge: TF3MP_IN=ack 367 (ok)
+2026-10-06 23:26:04 [49956] bridge: TF3MP_IN=ack 368 (ok)
+2026-10-06 23:26:07 [49956] bridge: TF3MP_IN=ack 369 (ok)
+2026-10-06 23:26:10 [49956] bridge: TF3MP_IN=ack 370 (ok)
+2026-10-06 23:26:12 [49956] bridge: TF3MP_IN=ack 371 (ok)
+2026-10-06 23:26:15 [49956] bridge: TF3MP_IN=ack 372 (ok)
+2026-10-06 23:26:17 [49956] bridge: TF3MP_IN=ack 373 (ok)
+2026-10-06 23:26:19 [49956] bridge: TF3MP_IN=ack 374 (ok)
+2026-10-06 23:26:22 [49956] bridge: TF3MP_IN=ack 375 (ok)
+2026-10-06 23:26:24 [49956] bridge: TF3MP_IN=ack 376 (ok)
+2026-10-06 23:26:27 [49956] bridge: TF3MP_IN=ack 377 (ok)
+2026-10-06 23:26:29 [49956] bridge: TF3MP_IN=ack 378 (ok)
+2026-10-06 23:26:32 [49956] bridge: TF3MP_IN=ack 379 (ok)
+2026-10-06 23:26:34 [49956] bridge: TF3MP_IN=ack 380 (ok)
+2026-10-06 23:26:37 [49956] bridge: TF3MP_IN=ack 381 (ok)
+2026-10-06 23:26:39 [49956] bridge: TF3MP_IN=ack 382 (ok)
+2026-10-06 23:26:42 [49956] bridge: TF3MP_IN=ack 383 (ok)
+2026-10-06 23:26:44 [49956] bridge: TF3MP_IN=ack 384 (ok)
+2026-10-06 23:26:47 [49956] bridge: TF3MP_IN=ack 385 (ok)
+2026-10-06 23:26:49 [49956] bridge: TF3MP_IN=ack 386 (ok)
+2026-10-06 23:26:52 [49956] bridge: TF3MP_IN=ack 387 (ok)
+2026-10-06 23:26:54 [49956] bridge: TF3MP_IN=ack 388 (ok)
+2026-10-06 23:26:57 [49956] bridge: TF3MP_IN=ack 389 (ok)
+2026-10-06 23:27:00 [49956] bridge: TF3MP_IN=ack 390 (ok)
+2026-10-06 23:27:02 [49956] bridge: TF3MP_IN=ack 391 (ok)
+2026-10-06 23:27:04 [49956] bridge: TF3MP_IN=ack 392 (ok)
+2026-10-06 23:27:07 [49956] bridge: TF3MP_IN=ack 393 (ok)
+2026-10-06 23:27:09 [49956] bridge: TF3MP_IN=ack 394 (ok)
+2026-10-06 23:27:14 [49956] alut proxy v7 unloaded
