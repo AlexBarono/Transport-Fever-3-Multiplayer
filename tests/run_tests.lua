@@ -271,8 +271,9 @@ test("update runs the probe once and snapshots periodically", function()
 	assert(contains(logged, "subscribe onPostBuildProposal: ok"))
 end)
 
+-- param[4] is the game's own "player build" flag (true for every player build in runs 5-9).
 local function player_build_param()
-	return { { proposal = run5_street(), toAdd = {} }, {}, { 501 }, false }
+	return { { proposal = run5_street(), toAdd = {} }, {}, { 501 }, true }
 end
 
 local function town_build_param()
@@ -285,6 +286,9 @@ test("is_player_build tells player builds from town builds", function()
 	assert(main.is_player_build({ { proposal = { addedSegments = {}, addedNodes = {} }, toAdd = { { playerEntity = 3 } } } }))
 	assert(not main.is_player_build(town_build_param()))
 	assert(not main.is_player_build({ {} }), "malformed param counts as no player build")
+	local town_road = player_build_param()
+	town_road[4] = false
+	assert(not main.is_player_build(town_road), "a town's road is not the player's, even with segments")
 end)
 
 test("handleEvent dumps up to BUILD_DUMPS player builds and one town build", function()
@@ -424,96 +428,331 @@ test("deserialize rejects broken lines", function()
 	assert(#data.nodes == 0 and #data.segments == 0)
 end)
 
---- A C++-vector-like list: index assignment raises, push_back works (as a TF3 Vector_* might).
-local function vector_list()
+--- Mock of TF3 engine structs with the copy semantics run 9 revealed: reading a nested struct or a
+-- list gives a copy, so a change only reaches the owner when it is assigned back. Unknown fields
+-- and values of the wrong kind raise, as the C++ binding does.
+local STRUCT = {}
+
+local function struct_info(v)
+	local mt = type(v) == "table" and getmetatable(v)
+	return mt and mt[STRUCT]
+end
+
+local function vector_items(v)
+	local mt = type(v) == "table" and getmetatable(v)
+	return mt and mt.vector_items
+end
+
+local copy_value
+
+local function new_struct(type_name, store, lists, opts)
+	local info = { type_name = type_name, store = store, lists = lists, opts = opts or {} }
+	return setmetatable({}, {
+		[STRUCT] = info,
+		__index = function(_, k)
+			local v = store[k]
+			if v == nil then error("no field " .. tostring(k) .. " in " .. type_name) end
+			return copy_value(v)
+		end,
+		__newindex = function(_, k, v)
+			local old = store[k]
+			if old == nil then error("cannot set unknown field " .. tostring(k) .. " of " .. type_name) end
+			if lists[k] then
+				local items = vector_items(v)
+				if not items then
+					if type(v) ~= "table" or struct_info(v) then error("Error decoding list " .. k) end
+					if info.opts.refuse_tables then error("expected a Vector for " .. k) end
+					items = v
+				end
+				local list = {}
+				for i = 1, #items do list[i] = copy_value(items[i]) end
+				store[k] = list
+				return
+			end
+			local old_info = struct_info(old)
+			if old_info and (struct_info(v) or {}).type_name ~= old_info.type_name then
+				error("Error decoding " .. old_info.type_name .. " for " .. k)
+			end
+			if info.opts.ignore_writes and info.opts.ignore_writes[k] then return end
+			store[k] = copy_value(v)
+		end,
+	})
+end
+
+function copy_value(v)
+	local info = struct_info(v)
+	if info then
+		local store = {}
+		for k, x in pairs(info.store) do store[k] = copy_value(x) end
+		return new_struct(info.type_name, store, info.lists, info.opts)
+	end
+	if type(v) == "table" and not vector_items(v) then
+		local list = {}
+		for i = 1, #v do list[i] = copy_value(v[i]) end
+		return list
+	end
+	return v
+end
+
+--- A struct with the given fields; the value "list" marks a list field.
+local function struct(type_name, fields, opts)
+	local store, lists = {}, {}
+	for k, v in pairs(fields) do
+		if v == "list" then store[k], lists[k] = {}, true else store[k] = v end
+	end
+	return new_struct(type_name, store, lists, opts)
+end
+
+local function type_name_of(v)
+	local info = struct_info(v)
+	return info and info.type_name
+end
+
+--- TF3's Vector_* types: index assignment raises, push_back works.
+local function vector()
 	local items = {}
 	return setmetatable({}, {
+		vector_items = items,
 		__len = function() return #items end,
 		__index = function(_, k)
-			if k == "push_back" then return function(_, v) items[#items + 1] = v end end
+			if k == "push_back" then return function(_, v) items[#items + 1] = copy_value(v) end end
 			return items[k]
 		end,
 		__newindex = function() error("cannot assign to a vector") end,
 	})
 end
 
---- Mock of the TF3 types used when rebuilding. Only the type named in opts.layout exists.
+test("the struct mock hands out copies, as TF3 did in run 9", function()
+	local p = struct("SimpleProposal", { streetProposal = struct("SimpleStreetProposal", { nodesToAdd = "list" }) })
+	local list = p.streetProposal.nodesToAdd
+	list[#list + 1] = "x"
+	assert(#p.streetProposal.nodesToAdd == 0, "appending to the copy changes nothing")
+	local sp = p.streetProposal
+	sp.nodesToAdd = { "x" }
+	assert(#p.streetProposal.nodesToAdd == 0, "the nested struct is a copy too")
+	p.streetProposal = sp
+	assert(#p.streetProposal.nodesToAdd == 1, "writing it back lands")
+	assert(not pcall(function() p.unknown = 1 end), "unknown fields raise")
+end)
+
+--- Mock of the TF3 types used when rebuilding.
+-- @param opts table|nil { layouts = set of proposal type names that exist (default all),
+--   refuse_tables = lists only take Vector_* objects, lose_positions = node positions are
+--   silently not stored, builds = set of proposal types the game builds (default all),
+--   required_args = number of arguments makeWorldBuildProposalCmd insists on }
+local function mock_types(opts)
+	local function vec3(x, y, z) return struct("Vec3f", { x = x or 0, y = y or 0, z = z or 0 }) end
+	local t = {
+		Vec3f = { new = vec3 },
+		Context = { new = function()
+			return struct("Context", { player = -1, cleanupStreetGraph = false, gatherBuildings = false,
+				gatherFields = true, checkTerrainAlignment = false })
+		end },
+		PlayerOwned = { new = function() return struct("PlayerOwned", { player = -1 }) end },
+		NodeAndEntity = { new = function()
+			return struct("NodeAndEntity", { entity = 0, comp = struct("BaseNode", { position = vec3() },
+				{ ignore_writes = opts.lose_positions and { position = true } or nil }) })
+		end },
+		SegmentAndEntity = { new = function()
+			return struct("SegmentAndEntity", {
+				entity = 0, type = 0,
+				comp = struct("BaseEdge", {
+					node0 = 0, node1 = 0, position0 = vec3(), position1 = vec3(), tangent0 = vec3(), tangent1 = vec3(),
+					type = 0, typeIndex = 0, roadTemplate = "", roadStyle = "", roadType = 0, distance = 0,
+				}),
+				playerOwned = struct("PlayerOwned", { player = -1 }),
+			})
+		end },
+		Vector_NodeAndEntity = { new = vector },
+		Vector_SegmentAndEntity = { new = vector },
+	}
+	local list_opts = { refuse_tables = opts.refuse_tables }
+	local function exists(name) return opts.layouts == nil or opts.layouts[name] end
+	if exists("SimpleProposal") then
+		t.SimpleProposal = { new = function()
+			return struct("SimpleProposal", {
+				streetProposal = struct("SimpleStreetProposal", { nodesToAdd = "list", edgesToAdd = "list" }, list_opts),
+				constructionsToAdd = "list",
+			})
+		end }
+	end
+	if exists("WorldBuildProposal") then
+		t.WorldBuildProposal = { new = function()
+			return struct("WorldBuildProposal", {
+				proposal = struct("Proposal", {
+					proposal = struct("StreetProposal", { addedNodes = "list", addedSegments = "list" }, list_opts),
+					toAdd = "list", toRemove = "list",
+				}),
+				context = t.Context.new(),
+			})
+		end }
+	end
+	if exists("StreetProposal") then
+		t.StreetProposal = { new = function()
+			return struct("StreetProposal", { addedNodes = "list", addedSegments = "list" }, list_opts)
+		end }
+	end
+	return t
+end
+
+--- The node and edge lists a sent proposal carries, read the way the game would.
+local function sent_lists(proposal)
+	local name = type_name_of(proposal)
+	if name == "SimpleProposal" then
+		local sp = proposal.streetProposal
+		return sp.nodesToAdd, sp.edgesToAdd
+	elseif name == "WorldBuildProposal" then
+		local inner = proposal.proposal.proposal
+		return inner.addedNodes, inner.addedSegments
+	elseif name == "StreetProposal" then
+		return proposal.addedNodes, proposal.addedSegments
+	end
+	return {}, {}
+end
+
+--- api mock for rebuilding: the game "builds" a sent proposal with segments (one new entity per
+-- node and segment, 500 per segment) unless opts.builds leaves its type out.
 local function mock_build_api(opts)
 	opts = opts or {}
 	local sent = {}
-	local list = opts.vectors and vector_list or function() return {} end
-	local function vec() return { x = 0, y = 0, z = 0 } end
-	local types = {
-		Context = { new = function() return { context = true } end },
-		NodeAndEntity = { new = function() return { comp = { position = vec() } } end },
-		SegmentAndEntity = { new = function() return { comp = { tangent0 = vec(), tangent1 = vec() } } end },
-	}
-	if opts.layout == "SimpleProposal" then
-		types.SimpleProposal = { new = function()
-			return { streetProposal = { nodesToAdd = list(), edgesToAdd = list() } }
-		end }
-	elseif opts.layout == "WorldBuildProposal" then
-		types.WorldBuildProposal = { new = function()
-			return { proposal = { addedNodes = list(), addedSegments = list() }, toAdd = {} }
-		end }
-	end
 	local api = {
-		type = types,
+		type = mock_types(opts),
 		cmd = {
 			makeWorldBuildProposalCmd = function(proposal, context, flag)
 				if opts.required_args and select("#", proposal, context, flag) ~= opts.required_args then
 					error("wrong number of arguments")
 				end
-				if opts.needs_context and context == nil then error("Error decoding argument #2") end
 				return { proposal = proposal, context = context, flag = flag }
 			end,
-			sendCommand = function(cmd) sent[#sent + 1] = cmd end,
+			sendCommand = function(cmd, callback)
+				sent[#sent + 1] = cmd
+				cmd.layout = type_name_of(cmd.proposal)
+				local nodes, edges = sent_lists(cmd.proposal)
+				local builds = #edges > 0 and (opts.builds == nil or opts.builds[cmd.layout] == true)
+				local entities = {}
+				if builds then for i = 1, #nodes + #edges do entities[i] = 1000 + i end end
+				if callback then
+					callback({
+						resultEntities = entities,
+						resultProposalData = { costs = builds and 500 * #edges or 0, errorState = {
+							critical = false, messages = {}, warnings = builds and {} or { "nothing to build" } } },
+					}, true)
+				end
+			end,
 		},
 	}
 	return { api = api }, sent
 end
 
-test("replay fills a SimpleProposal (TF2 layout) and sends one command", function()
-	local env, sent = mock_build_api({ layout = "SimpleProposal", needs_context = true })
-	local data = assert(build.deserialize(build.serialize(run5_street())))
-	local ok, message = build.replay(env, data)
+local function street_data()
+	return assert(build.deserialize(build.serialize(run5_street())))
+end
+
+test("replay assigns whole lists to a SimpleProposal whose lists are copies", function()
+	local env, sent = mock_build_api()
+	local logs, results = {}, {}
+	local ok, message = build.replay(env, street_data(), {
+		log = function(line) logs[#logs + 1] = line end,
+		on_result = function(_, success, label, outcome) results[#results + 1] = { label, outcome, success } end,
+		player = 29125,
+	})
 	assert(ok, message)
-	assert(message == "SimpleProposal: sent with signature 1", message)
+	assert(message == "SimpleProposal/table: sent with signature 1", message)
 	assert(#sent == 1, "commands sent: " .. #sent)
-	local sp = sent[1].proposal.streetProposal
-	assert(#sp.nodesToAdd == 3 and #sp.edgesToAdd == 2)
-	assert(sp.edgesToAdd[1].entity == -1 and sp.edgesToAdd[2].comp.node0 == -2)
-	assert(sp.edgesToAdd[1].comp.typeIndex == -1)
-	assert(math.abs(sp.nodesToAdd[1].comp.position.z - 1.675) < 0.001)
-	assert(sent[1].context ~= nil, "the command gets a context")
+	local nodes, edges = sent_lists(sent[1].proposal)
+	assert(#nodes == 3 and #edges == 2, #nodes .. "/" .. #edges)
+	-- Segments keep -1, -2; nodes follow behind them (-3, -4, -5), so no two entities share an id.
+	assert(edges[1].entity == -1 and edges[2].entity == -2)
+	assert(nodes[1].entity == -3 and nodes[3].entity == -5)
+	assert(edges[1].comp.node0 == -3 and edges[1].comp.node1 == -4)
+	assert(edges[2].comp.node0 == -4 and edges[2].comp.node1 == -5)
+	assert(edges[1].comp.typeIndex == -1 and edges[1].comp.roadType == 1)
+	assert(edges[1].comp.roadTemplate == "::/infrastructure/street/town/town_old_small.street_template")
+	assert(math.abs(edges[1].comp.tangent0.y - 54.226) < 0.001)
+	assert(math.abs(edges[2].comp.position1.x + 2749.069) < 0.001, "position1 is the end node's position")
+	assert(edges[1].playerOwned.player == 29125)
+	assert(math.abs(nodes[1].comp.position.z - 1.675) < 0.001)
+	assert(sent[1].context.player == 29125 and sent[1].context.cleanupStreetGraph == true)
+	assert(contains(logs, "proposal check SimpleProposal/table: complete, nodes 3/3, edges 2/2, node[1] -3 at -2888.0,-3941.5,1.7, edge[1] -1 type 0 nodes -3->-4 tangent0 69.5,54.2,-0.2 template town_old_small.street_template owner 29125"),
+		table.concat(logs, "\n"))
+	assert(#results == 1 and results[1][1] == "SimpleProposal/table" and results[1][2].built == true)
+	assert(results[1][2].costs == 1000 and results[1][2].entities == 5)
 end)
 
-test("replay falls back to WorldBuildProposal and fills C++-style vectors", function()
-	local env, sent = mock_build_api({ layout = "WorldBuildProposal", vectors = true })
-	local data = assert(build.deserialize(build.serialize(run5_street())))
-	local attempts = {}
-	local ok, message = build.replay(env, data, { log = function(line) attempts[#attempts + 1] = line end })
-	assert(ok, message)
-	assert(message:find("WorldBuildProposal", 1, true), message)
-	assert(#sent[1].proposal.proposal.addedSegments == 2)
-	assert(#sent[1].proposal.proposal.addedNodes == 3)
-	assert(contains(attempts, "SimpleProposal: "), "the failed first layout is logged")
+test("lists that refuse a Lua table get TF3's vector type", function()
+	local env, sent = mock_build_api({ refuse_tables = true })
+	local logs = {}
+	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
+	assert(ok and message == "SimpleProposal/vector: sent with signature 1", message)
+	assert(contains(logs, "SimpleProposal/table refused fields: streetProposal.nodesToAdd: "), table.concat(logs, "\n"))
+	assert(contains(logs, "proposal check SimpleProposal/table: INCOMPLETE, nodes 0/3, edges 0/2"))
+	assert(contains(logs, "proposal check SimpleProposal/vector: complete, nodes 3/3, edges 2/2"))
+	local nodes, edges = sent_lists(sent[1].proposal)
+	assert(#nodes == 3 and #edges == 2)
+end)
+
+test("a proposal that does not read back complete is never sent", function()
+	local env, sent = mock_build_api({ lose_positions = true })
+	local logs = {}
+	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
+	assert(not ok and message == "no layout could be filled and sent", message)
+	assert(#sent == 0, "nothing at the map origin")
+	assert(contains(logs, "proposal check SimpleProposal/table: INCOMPLETE, nodes 3/3, edges 2/2, node[1] -3 at 0.0,0.0,0.0, expected at -2888.0,-3941.5,1.7"),
+		table.concat(logs, "\n"))
+	assert(contains(logs, "proposal check WorldBuildProposal/vector: INCOMPLETE"))
+end)
+
+test("when the game builds nothing, the next layout is tried", function()
+	local env, sent = mock_build_api({ builds = { WorldBuildProposal = true } })
+	local logs, verdicts = {}, {}
+	local ok, message = build.replay(env, street_data(), {
+		log = function(line) logs[#logs + 1] = line end,
+		on_result = function(_, _, label, outcome) verdicts[#verdicts + 1] = label .. "=" .. tostring(outcome.built) end,
+		player = 7,
+	})
+	assert(ok and message == "WorldBuildProposal/table: sent with signature 1", message)
+	assert(#sent == 2, "sent " .. #sent)
+	assert(sent[2].layout == "WorldBuildProposal")
+	assert(table.concat(verdicts, " ") == "SimpleProposal/table=false WorldBuildProposal/table=true", table.concat(verdicts, " "))
+	assert(contains(logs, "SimpleProposal/table: sent with signature 1, but nothing was built; trying the next layout"),
+		table.concat(logs, "\n"))
+	assert(sent[2].proposal.context.player == 7, "the WorldBuildProposal carries the player's context")
+	local nodes, edges = sent_lists(sent[2].proposal)
+	assert(#nodes == 3 and #edges == 2)
 end)
 
 test("replay logs every failed signature on its own line", function()
-	local env, sent = mock_build_api({ layout = "SimpleProposal", required_args = 99 })
-	local data = assert(build.deserialize(build.serialize(run5_street())))
-	local attempts = {}
-	local ok, message = build.replay(env, data, { log = function(line) attempts[#attempts + 1] = line end })
-	assert(not ok and message == "no layout worked", message)
+	local env, sent = mock_build_api({ required_args = 99 })
+	local logs = {}
+	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
+	assert(not ok and message == "no layout could be filled and sent", message)
 	assert(#sent == 0)
-	assert(contains(attempts, "SimpleProposal signature 5: "), table.concat(attempts, "\n"))
-	assert(contains(attempts, "WorldBuildProposal: "))
-	assert(contains(attempts, "StreetProposal: "))
+	assert(contains(logs, "SimpleProposal/table signature 5: "), table.concat(logs, "\n"))
+	assert(contains(logs, "StreetProposal/table signature 1: "))
+end)
+
+test("a missing proposal type is logged and skipped", function()
+	local env, sent = mock_build_api({ layouts = { StreetProposal = true } })
+	local logs = {}
+	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
+	assert(ok and message == "StreetProposal/table: sent with signature 1", message)
+	assert(contains(logs, "SimpleProposal/table: "), table.concat(logs, "\n"))
+	assert(contains(logs, "WorldBuildProposal/vector: "))
+	assert(#sent == 1)
+end)
+
+test("outcome counts new entities and costs, not the success flag", function()
+	local built = build.outcome({ resultEntities = { 4, 5 }, resultProposalData = { costs = 300,
+		errorState = { critical = false, messages = { "a" }, warnings = { "b" } } } })
+	assert(built.built == true and built.entities == 2 and built.costs == 300 and built.critical == false)
+	assert(built.messages[1] == "message: a" and built.messages[2] == "warning: b", table.concat(built.messages, "|"))
+	local empty = build.outcome({ resultEntities = {}, resultProposalData = { costs = 0 } })
+	assert(empty.built == false, "run 9: an empty proposal reports success with costs 0")
+	assert(build.outcome(nil).built == nil, "no result: unknown")
 end)
 
 test("append uses push_back when index assignment fails and reports a nil list", function()
-	local v = vector_list()
+	local v = vector()
 	build.append(v, "a")
 	build.append(v, "b")
 	assert(#v == 2 and v[2] == "b")
@@ -522,7 +761,7 @@ test("append uses push_back when index assignment fails and reports a nil list",
 end)
 
 test("side_offset points at a right angle to the first segment", function()
-	local data = assert(build.deserialize(build.serialize(run5_street())))
+	local data = street_data()
 	local dx, dy = build.side_offset(data, 40)
 	local t = data.segments[1].tangent0
 	assert(math.abs(dx * t.x + dy * t.y) < 1e-6, "perpendicular")
@@ -532,12 +771,12 @@ test("side_offset points at a right angle to the first segment", function()
 end)
 
 --- Global engine mock for the main script: game time, player and the build/event commands.
+-- @param opts table|nil { bridge_value = TF3MP_IN, no_events = bool, build = mock_build_api opts }
 local function with_engine_api(opts, fn)
 	opts = opts or {}
-	local env, sent = mock_build_api({ layout = "SimpleProposal" })
+	local env, sent = mock_build_api(opts.build)
 	local game_time = 1000
 	env.api.type.ComponentType = { GAME_TIME = 100 }
-	env.api.type.PlayerOwned = { new = function() return {} end }
 	env.api.engine = {
 		util = { getWorld = function() return 10 end, getPlayer = function() return 29125 end },
 		getComponent = function(_, comp) if comp == 100 then return { gameTime = game_time } end end,
@@ -547,11 +786,10 @@ local function with_engine_api(opts, fn)
 		if opts.no_events then error("no script events") end
 		return { event = { a, b, c, d } }
 	end
-	local real_send = env.api.cmd.sendCommand
+	local build_send = env.api.cmd.sendCommand
 	env.api.cmd.sendCommand = function(cmd, callback)
 		if cmd.event then events[#events + 1] = cmd.event return end
-		real_send(cmd)
-		if callback then callback({ resultEntities = { 9 } }, true) end
+		build_send(cmd, callback)
 	end
 	local saved_api, saved_os = api, os
 	api = env.api
@@ -587,22 +825,41 @@ test("a replay request travels as script event with the line, the event state bu
 		assert(contains(logged, "replay event received (src=mp_probe id=mp_probe_replay, line "))
 		assert(contains(logged, "replay #1: 3 nodes, 2 segments, moved by"))
 		assert(contains(logged, "player 29125"))
-		assert(contains(logged, "replay: sent, SimpleProposal: sent with signature 1"))
-		assert(contains(logged, "replay result (SimpleProposal): success=true"))
-		local edge = t.sent[1].proposal.streetProposal.edgesToAdd[1]
-		assert(edge.comp.roadTemplate == "::/infrastructure/street/town/town_old_small.street_template")
-		assert(edge.comp.roadType == 1)
-		assert(edge.playerOwned.player == 29125)
-		assert(t.sent[1].context.player == 29125 and t.sent[1].context.cleanupStreetGraph == true)
+		assert(contains(logged, "replay proposal check SimpleProposal/table: complete, nodes 3/3, edges 2/2"))
+		assert(contains(logged, "replay: sent, SimpleProposal/table: sent with signature 1"))
+		assert(contains(logged, "replay result (SimpleProposal/table): BUILT, success=true, costs 1000, new entities 5"),
+			table.concat(logged, "\n"))
+		assert(contains(logged, "res.resultProposalData.costs = number 1000"))
+		assert(#t.sent == 1)
+		local _, edges = sent_lists(t.sent[1].proposal)
+		assert(edges[1].comp.roadTemplate == "::/infrastructure/street/town/town_old_small.street_template")
+		assert(edges[1].playerOwned.player == 29125)
 		-- The copy's own build event comes back within the quiet time and is not captured again.
 		t.advance(2000)
 		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
-		assert(contains(logged, "capture skipped: build arrived right after a replay"))
+		assert(contains(logged, "build right after a replay (probably the copy, not captured): segments=2 nodes=3 constructions=0 new entities=1 player build=true"),
+			table.concat(logged, "\n"))
 		-- Later builds are captured again.
 		t.advance(fresh_main().REPLAY_QUIET_MS)
 		logged = {}
 		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
 		assert(contains(logged, "capture stored for replay"))
+	end)
+end)
+
+test("a replay that builds nothing is reported as such and tries the next layout", function()
+	with_engine_api({ build = { builds = {} } }, function(t)
+		logged = {}
+		local state = mock_state()
+		fresh_main().handleEvent(nil, state, "mp_probe", "mp_probe_replay", "mp_probe_replay",
+			{ line = build.serialize(run5_street()), number = 1 })
+		assert(#t.sent == 3, "every layout is tried once: " .. #t.sent)
+		assert(contains(logged, "replay result (SimpleProposal/table): NOTHING BUILT, success=true, costs 0, new entities 0"),
+			table.concat(logged, "\n"))
+		assert(contains(logged, "replay result warning: nothing to build"))
+		assert(contains(logged, "replay WorldBuildProposal/table: sent with signature 1, but nothing was built; trying the next layout"))
+		assert(contains(logged, "replay result (StreetProposal/table): NOTHING BUILT"))
+		assert(contains(logged, "replay: failed, nothing built with any layout (3 sent)"))
 	end)
 end)
 
@@ -613,7 +870,7 @@ test("a replay event without a parameter falls back to the line in the script st
 		state:set({ last_build = build.serialize(run5_street()) })
 		fresh_main().handleEvent(nil, state, "mp_probe", "mp_probe_replay", "mp_probe_replay", nil)
 		assert(contains(logged, "line missing"), table.concat(logged, "\n"))
-		assert(contains(logged, "replay: sent, SimpleProposal"))
+		assert(contains(logged, "replay: sent, SimpleProposal/table"))
 		assert(#t.sent == 1)
 	end)
 end)
@@ -625,7 +882,7 @@ test("without script events the update state replays the line from the script st
 		fresh_main().bridge_tick(t.env, 1, s)
 		assert(contains(logged, "replay event signature 3: "), table.concat(logged, "\n"))
 		assert(contains(logged, "replay: no script event possible, replaying in the update state"))
-		assert(contains(logged, "replay: sent, SimpleProposal"))
+		assert(contains(logged, "replay: sent, SimpleProposal/table"))
 		assert(#t.sent == 1)
 	end)
 end)
@@ -642,6 +899,32 @@ test("replay requests stop after MAX_REPLAYS and need a capture first", function
 		assert(#t.events == main.MAX_REPLAYS, "events " .. #t.events)
 		assert(contains(logged, "replay: limit of " .. main.MAX_REPLAYS .. " reached"))
 	end)
+end)
+
+test("a new probe version gives a savegame its replays back", function()
+	local main = fresh_main()
+	logged = {}
+	local state = mock_state()
+	state:set({ probe_version = main.PROBE_VERSION, subscribed = main.PROBE_VERSION, replays_requested = 3,
+		replay_version = main.PROBE_VERSION - 1, last_build = "B2" })
+	main.update(nil, state, 0)
+	assert(state:get().replays_requested == 0)
+	assert(state:get().last_build == "B2", "the capture stays")
+	state:get().replays_requested = 2
+	fresh_main().update(nil, state, 0)
+	assert(state:get().replays_requested == 2, "reset once per version")
+end)
+
+test("builds with a construction such as a station are not captured", function()
+	local main = fresh_main()
+	logged = {}
+	local state = mock_state()
+	local param = player_build_param()
+	param[1].toAdd = { { playerEntity = 29125 } }
+	main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", param)
+	assert(contains(logged, "capture skipped: the build contains 1 construction(s) such as a station"), table.concat(logged, "\n"))
+	assert(not contains(logged, "capture stored for replay"))
+	assert((state:get() or {}).last_build == nil)
 end)
 
 test("replay without the engine api says so", function()

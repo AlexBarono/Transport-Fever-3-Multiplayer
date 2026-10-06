@@ -11,7 +11,7 @@ local build = require("/mp_probe/build.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 9
+main.PROBE_VERSION = 10
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -40,6 +40,10 @@ main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay" }
 main.REPLAY_SIDE_OFFSET = 40
 main.MAX_REPLAYS = 3
 main.REPLAY_QUIET_MS = 10000
+
+--- Line budget for the fields of a replay result. A filled proposal comes back in the result, and
+-- its entries must not use up the budget before costs and errors are listed.
+main.RESULT_DUMP_LINES = 120
 
 --- Runs 7 and 8: module variables survive neither between update() calls (rotating "Sim Pool"
 -- Lua states) nor between handleEvent() calls. Only the script state (state:get/set) persists, so
@@ -162,11 +166,17 @@ local function current_player(env)
 	return ok and player or nil
 end
 
---- Logs what the game reports after it executed a replayed build.
-function main.log_replay_result(result, success, layout)
-	logger.info("replay result (" .. tostring(layout) .. "): success=" .. tostring(success) ..
-		" result=" .. type(result))
-	local ok, lines = pcall(probe.fields, result, "res", 5, 80)
+--- Logs what the game reports after it executed a replayed build. Run 9: success=true alone means
+-- nothing, so the verdict comes from the new entities and the costs (build.outcome).
+function main.log_replay_result(result, success, label, outcome)
+	outcome = outcome or build.outcome(result)
+	local verdict = "UNKNOWN"
+	if outcome.built == true then verdict = "BUILT" elseif outcome.built == false then verdict = "NOTHING BUILT" end
+	logger.info("replay result (" .. tostring(label) .. "): " .. verdict .. ", success=" .. tostring(success) ..
+		", costs " .. tostring(outcome.costs) .. ", new entities " .. tostring(outcome.entities) ..
+		", critical " .. tostring(outcome.critical))
+	for _, message in ipairs(outcome.messages) do logger.info("replay result " .. message) end
+	local ok, lines = pcall(probe.fields, result, "res", 5, main.RESULT_DUMP_LINES)
 	if ok and #lines > 0 then log_lines("replay result fields", lines) end
 end
 
@@ -196,7 +206,7 @@ function main.replay_line(env, line, number, state)
 	logger.info(string.format("replay #%s: %d nodes, %d segments, moved by %.1f,%.1f, player %s",
 		tostring(number), #data.nodes, #data.segments, dx, dy, tostring(player)))
 	local ok, message = build.replay(env, data, {
-		log = function(attempt) logger.info("replay attempt " .. attempt) end,
+		log = function(line) logger.info("replay " .. line) end,
 		on_result = main.log_replay_result,
 		player = player,
 	})
@@ -219,6 +229,12 @@ function main.update(_user_params, state, _dt)
 		s.subscribed = main.PROBE_VERSION
 	end
 
+	if s.replay_version ~= main.PROBE_VERSION then
+		-- A savegame from an older probe may have used up its replays already.
+		s.replays_requested = 0
+		s.replay_version = main.PROBE_VERSION
+	end
+
 	s.updates = (s.updates or 0) + 1
 	if s.updates % main.BRIDGE_EVERY == 0 then
 		local ok, err = pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY, s)
@@ -236,9 +252,11 @@ function main.update(_user_params, state, _dt)
 end
 
 --- True for a build proposal the player made (new road or track segments, or a construction owned
--- by a player). The game itself also builds (towns), with playerEntity -1 and no segments.
+-- by a player). The game itself also builds (towns), with playerEntity -1. Runs 5-9: param[4] is
+-- true for every player build and false for town builds, so it decides whenever it is set.
 function main.is_player_build(param)
 	local ok, result = pcall(function()
+		if type(param[4]) == "boolean" then return param[4] end
 		local ctx = param[1]
 		if #ctx.proposal.addedSegments > 0 then return true end
 		for i = 1, #ctx.toAdd do
@@ -247,6 +265,26 @@ function main.is_player_build(param)
 		return false
 	end)
 	return ok and result
+end
+
+--- Number of constructions (stations, depots, ...) a build adds. Run 9: a station arrived as 25
+-- loose track nodes; such builds are not copied until constructions are transferred as a whole.
+function main.construction_count(param)
+	local ok, n = pcall(function() return #param[1].toAdd end)
+	return ok and type(n) == "number" and n or 0
+end
+
+--- Short description of a build event for the log.
+function main.describe_build(param)
+	local function count(fn)
+		local ok, n = pcall(fn)
+		return ok and tostring(n) or "?"
+	end
+	return "segments=" .. count(function() return #param[1].proposal.addedSegments end) ..
+		" nodes=" .. count(function() return #param[1].proposal.addedNodes end) ..
+		" constructions=" .. count(function() return #param[1].toAdd end) ..
+		" new entities=" .. count(function() return #param[3] end) ..
+		" player build=" .. tostring(type(param) == "table" and param[4])
 end
 
 --- Dumps the components of the entities a build created. CONSTRUCTION is left out on purpose:
@@ -308,12 +346,19 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	local key = tostring(src) .. "|" .. tostring(id) .. "|" .. tostring(name)
 	local player_build = name == "onPostBuildProposal" and main.is_player_build(param)
 	if player_build then key = key .. "|player" end
-	if player_build then
+	if name == "onPostBuildProposal" then
 		local now = main.game_time(_G)
 		if now and now < (s.quiet_until or -1) then
-			logger.info("capture skipped: build arrived right after a replay (probably the copy)")
-		else
-			main.capture_build(state, s, param, "player build")
+			-- Most likely the copy itself: it confirms the build independently of the result callback.
+			logger.info("build right after a replay (probably the copy, not captured): " .. main.describe_build(param))
+		elseif player_build then
+			local constructions = main.construction_count(param)
+			if constructions > 0 then
+				logger.info("capture skipped: the build contains " .. constructions ..
+					" construction(s) such as a station; only roads and tracks are copied so far")
+			else
+				main.capture_build(state, s, param, "player build")
+			end
 		end
 	end
 	local prev = s.seen_events[key]

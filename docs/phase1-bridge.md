@@ -213,3 +213,15 @@ Folgerung für Probe v10:
 3. Erfolg erkennt man an `costs > 0` und nicht leeren `resultEntities` im Ergebnis, nicht an `success`.
 
 Nebenbefund: Kurz nach dem Gleis kamen drei Aufzeichnungen mit je 25 Knoten und 24 Segmenten, Abstände 2 m/16 m, mit `simple.street`. Das sind vermutlich Bahnsteig-Gleise eines Bahnhofs, den der Nutzer gebaut hat (`foreign_nodes = 0`). Bahnhöfe sollten als Konstruktion übertragen werden, nicht als lose Gleise. `is_player_build` bzw. `capture` sollten Bauten mit `toAdd` deshalb ausschließen.
+
+## Probe v10 (Antwort auf Lauf 9)
+
+- **Listen als Ganzes zuweisen.** Knoten und Segmente werden in normalen Lua-Tabellen gesammelt und dann als Ganzes in den Vorschlag geschrieben. Jede Ebene wird zurückgeschrieben (`sp = p.streetProposal; sp.nodesToAdd = nodes; sp.edgesToAdd = edges; p.streetProposal = sp`), denn TF3 gibt beim Lesen Kopien heraus. Dasselbe gilt in den Einträgen: `comp` wird gelesen, geändert und zurückgeschrieben. Positionen und Tangenten sind neue `api.type.Vec3f`.
+- **Zweite Listenart.** Nimmt der Vorschlag keine Lua-Tabelle an, versucht der Mod TF3s eigene Typen `Vector_NodeAndEntity` und `Vector_SegmentAndEntity`.
+- **Prüfung vor dem Senden.** Der Vorschlag wird zurückgelesen und als `proposal check <Variante>/<Listenart>: complete|INCOMPLETE, nodes 3/3, edges 2/2, node[1] … at x,y,z, edge[1] … nodes a->b tangent0 … template … owner …` geloggt. Ein unvollständiger Vorschlag wird nicht gesendet: falsche Anzahl, Position mehr als 0,5 m daneben oder falsche Knotenverweise. Felder, die das Spiel ablehnt, stehen in `<Variante> refused fields: …`.
+- **Urteil aus dem Ergebnis.** `replay result (<Variante>): BUILT|NOTHING BUILT|UNKNOWN, success=…, costs …, new entities …, critical …`, danach jede Meldung und Warnung des Spiels als eigene Zeile. Gebaut heißt: neue Entities oder Kosten über 0 (`build.outcome`), nicht `success`.
+- **Nächste Variante bei „nichts gebaut“.** Lauf 9 zeigt, dass das Spiel den Rückruf noch während `sendCommand` aufruft. Meldet er nichts gebaut, versucht `build.replay` gleich danach die nächste Variante (`SimpleProposal`, `WorldBuildProposal` mit eigenem Kontext, `StreetProposal`). Es gibt keinen Befehl innerhalb des Rückrufs.
+- **Bestätigung unabhängig vom Rückruf.** Jedes Bau-Event in der Ruhezeit nach einem Nachbau wird als `build right after a replay (probably the copy, not captured): segments=… nodes=… constructions=… new entities=… player build=…` geloggt.
+- **Nur Straßen und Gleise.** Bauten mit Konstruktionen (`toAdd`, z. B. Bahnhöfe) werden nicht aufgezeichnet (`capture skipped: the build contains N construction(s) …`). `param[4]` (vom Spiel gesetzt, in Lauf 5–9 immer `true` bei Spielerbauten und `false` bei Stadtbauten) entscheidet, ob ein Bau vom Spieler ist. Straßen, die eine Stadt baut, werden also nicht mehr kopiert.
+- Mit einer neuen Probe-Version stehen einem Spielstand wieder 3 Nachbauten zu (`replays_requested` wird einmal zurückgesetzt).
+- Die Offline-Tests bilden jetzt das Kopierverhalten nach: Gelesene Strukturen und Listen sind Kopien, und unbekannte Felder werfen einen Fehler. Der Fehler aus Lauf 9 wäre damit offline aufgefallen.

@@ -226,6 +226,8 @@ probe.KNOWN_FIELDS = {
 	-- Command results and TF3 segment fields (run 5 raw dump).
 	"resultProposalData", "resultEntities", "result", "proposalData", "roadTemplate", "roadStyle",
 	"roadType", "distance", "playerOwned", "position0", "position1",
+	-- Possible fields of the errors and warnings in a command result.
+	"text", "message", "description", "code", "severity",
 }
 
 --- Probes probe.KNOWN_FIELDS on a value (recursing into whatever is found) and on array entries.
