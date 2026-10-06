@@ -334,3 +334,12 @@ Aufbauend auf v12 wurde Code für vollständige Konstruktionen (Bahnhöfe/Depots
 - Logs: `logs/run13-stdout.txt`, `logs/run13-alut_proxy.log`. Zwei freie Straßen wurden kopiert (Kosten 8027 und 9440).
 - Zwei an eine bestehende Straße angeschlossene Straßen wurden richtig aufgezeichnet (`foreign_nodes=1`, `f1;…`), der Nachbau brach aber ab: `replay: lookup failed (world.lua:28: Cannot loop over this component type`. TF3 lässt `forEachEntityWithComponent(BASE_NODE)` nicht zu (`CONSTRUCTION` geht, 4 Spieler-Gebäude gefunden).
 - Fix in v14: `world.lua` holt Knoten und Kanten aus `streetSystem.getNode2SegmentMap()`, sonst `forEachEntityWithComponent`, sonst `getEntitiesWithComponent`, jeweils mit `pcall`.
+
+### Lauf 14 (v14): Anschlüsse und Bahnhöfe gehen
+
+- Logs: `logs/run14-*`. Freie Straße, Anschluss am Ende, Anschluss in der Mitte (zweiter Versuch) und zwei modulare Bahnhöfe (`c;…modular_station.con`, Kosten 190903/189669) wurden kopiert. Depot und Abriss kommen im Log nicht vor (kein Bau-Ereignis).
+- Erster Mitte-Anschluss: `removed segment -50806 has no node positions`; ein Endknoten war schon weg. Fix v15: `comp.position0/1` des entfernten Segments.
+- Jede Bahnhofskopie hielt das Spiel ~23 s an: der Dump des Ergebnisses. Fix v15: `main.DUMP_REPLAY_RESULTS = false`.
+- Ein echter Spielerbau mit gleicher Segmentzahl kurz nach einer Kopie wurde für die Kopie gehalten. Fix v15: nur Bauten mit `isPlayerBuild=false` gelten als Kopie.
+- `actions.lua`: `api.type.Mat4f.cols` fehlt in TF3, und nicht jedes userdata hat `asTable`. Fix v15: `build.read_transf` und eigenes `to_plain`.
+- Haltestellen auf Straßen: Bau-Ereignis entfernt die Kante und legt sie mit `comp.objects` neu an; `edgeObjectsToAdd[i]` hat `name`, `playerEntity`. Noch nicht übertragen.

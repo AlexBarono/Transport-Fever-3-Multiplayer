@@ -24,9 +24,37 @@ local function vec(v)
 	return { x = assert(v.x), y = assert(v.y), z = assert(v.z) }
 end
 
+--- Turns engine values into plain Lua data. Run 14: not every TF3 userdata has asTable
+-- ("unsupported wire value: userdata" for vehicles), so lists and vector structs are read by hand.
+local function to_plain(value, depth)
+	depth = depth or 0
+	if depth > 12 then error("value nested too deep", 0) end
+	local t = type(value)
+	if t ~= "userdata" and t ~= "table" then return value end
+	if t == "userdata" then
+		local ok, as = pcall(function() return value:asTable() end)
+		if ok and type(as) == "table" then return to_plain(as, depth + 1) end
+		local ok_n, n = pcall(function() return #value end)
+		if ok_n and type(n) == "number" then
+			local out = {}
+			for i = 1, n do out[i] = to_plain(value[i], depth + 1) end
+			return out
+		end
+		local out, any = {}, false
+		for _, key in ipairs({ "x", "y", "z", "w" }) do
+			local ok_k, v = pcall(function() return value[key] end)
+			if ok_k and type(v) == "number" then out[key], any = v, true end
+		end
+		if any then return out end
+		error("unreadable engine value " .. tostring(value):gsub("0x%x+", ""), 0)
+	end
+	local out = {}
+	for k, v in pairs(value) do out[k] = to_plain(v, depth + 1) end
+	return out
+end
+
 local function plain(value)
-	if type(value) == "userdata" then value = value:asTable() end
-	return wire.copy(value)
+	return wire.copy(to_plain(value))
 end
 
 local function take(obj, keys)
@@ -40,6 +68,15 @@ end
 
 local function matrix(env, value)
 	local out = {}
+	-- Run 14: api.type.Mat4f.cols does not exist in TF3; build.read_transf knows what works.
+	local m = build.read_transf(value)
+	if m then
+		for i = 1, 4 do
+			local b = (i - 1) * 4
+			out[i] = { x = m[b + 1], y = m[b + 2], z = m[b + 3], w = m[b + 4] }
+		end
+		return out
+	end
 	for i = 1, 4 do
 		local c = env.api.type.Mat4f.cols(value, i)
 		out[i] = { x = c.x, y = c.y, z = c.z, w = c.w }
@@ -172,7 +209,7 @@ local function record(env, id, kind)
 	if kind == "construction" then
 		local c = component(env, id, "CONSTRUCTION")
 		local params = field(c, "params_native")
-		params = params and params:asTable() or c.params
+		params = params and to_plain(params) or c.params
 		-- Include ALL parameters, including modular stations' modules/seed/year.
 		return { ref = construction_ref(env, id), data = { fileName = c.fileName,
 			params = plain(params), transf = matrix(env, c.transf), name = name_of(env, id) } }

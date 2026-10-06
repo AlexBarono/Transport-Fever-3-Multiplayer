@@ -13,7 +13,7 @@ local actions = require("/mp_probe/actions.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 14
+main.PROBE_VERSION = 15
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -62,6 +62,8 @@ main.BRIDGE_EVERY = 50
 main.BRIDGE_ENV = "TF3MP_IN"
 --- Poll purchases/line edits more frequently than the full street graph.
 main.ACTION_EVERY = 10
+--- Dump every replay result (slow for stations, run 14).
+main.DUMP_REPLAY_RESULTS = false
 --- Action kinds polled by actions.lua (the rest comes from build events, format B4).
 main.ACTION_KINDS = { "line", "vehicle" }
 
@@ -227,8 +229,11 @@ function main.log_replay_result(result, success, label, outcome)
 		", costs " .. tostring(outcome.costs) .. ", new entities " .. tostring(outcome.entities) ..
 		", critical " .. tostring(outcome.critical))
 	for _, message in ipairs(outcome.messages) do logger.info("replay result " .. message) end
-	local ok, lines = pcall(probe.fields, result, "res", 5, main.RESULT_DUMP_LINES)
-	if ok and #lines > 0 then log_lines("replay result fields", lines) end
+	-- Run 14: walking the result of a station copy stalled the game for 23 s, so it is off.
+	if main.DUMP_REPLAY_RESULTS then
+		local ok, lines = pcall(probe.fields, result, "res", 5, main.RESULT_DUMP_LINES)
+		if ok and #lines > 0 then log_lines("replay result fields", lines) end
+	end
 end
 
 function main.count_keys(t)
@@ -556,7 +561,8 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	if player_build then key = key .. "|player" end
 	if name == "onPostBuildProposal" then
 		local now = main.game_time(_G)
-		if now and now < (s.quiet_until or -1) and main.segment_count(param) == s.quiet_segments
+		-- The copy arrives with isPlayerBuild=false (run 11); run 14 swallowed a real player build here.
+		if not player_build and now and now < (s.quiet_until or -1) and main.segment_count(param) == s.quiet_segments
 			and main.construction_count(param) == 0 then
 			-- Most likely the copy itself: it confirms the build independently of the result callback.
 			-- Run 10: town buildings arrive in the quiet time too; they have constructions and no

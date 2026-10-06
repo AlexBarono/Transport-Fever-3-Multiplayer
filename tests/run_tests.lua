@@ -472,6 +472,17 @@ test("resolve finds existing nodes, removed segments and demolished construction
 	assert(not ok2 and missing2:find("does not exist here", 1, true), missing2)
 end)
 
+test("a removed segment whose end node is gone uses its own end positions (run 14)", function()
+	local proposal = run5_street()
+	proposal.addedNodes = { proposal.addedNodes[1], proposal.addedNodes[2] }
+	proposal.removedSegments = { { entity = -50806, type = 0, comp = { node0 = 48724, node1 = 45373,
+		position0 = { x = -2841.78, y = -3959.66, z = 2.45 }, position1 = { x = -2763.81, y = -3964.86, z = 2.26 } } } }
+	local positions = { [51458] = { x = 30, y = 40, z = 2 } }
+	local line, info = build.serialize(proposal, { node_position = function(id) return positions[id] end })
+	assert(info.removed_segments == 1, line)
+	assert(line:find(" r;-2841.78,-3959.66,2.45;-2763.81,-3964.86,2.26;0", 1, true), line)
+end)
+
 test("serialize gives each lane layout its own road token and marks missing params", function()
 	local proposal = run5_street()
 	local seg = proposal.addedSegments[2]
@@ -969,16 +980,23 @@ test("a replay request travels as script event with the line, the event state bu
 		assert(contains(logged, "replay: sent, SimpleProposal/table: sent with signature 1"))
 		assert(contains(logged, "replay result (SimpleProposal/table): BUILT, success=true, costs 1000, new entities 5"),
 			table.concat(logged, "\n"))
-		assert(contains(logged, "res.resultProposalData.costs = number 1000"))
 		assert(#t.sent == 1)
 		local _, edges = sent_lists(t.sent[1].proposal)
 		assert(edges[1].comp.roadTemplate == "::/infrastructure/street/town/town_old_small.street_template")
 		assert(edges[1].playerOwned.player == 29125)
 		-- The copy's own build event comes back within the quiet time and is not captured again.
 		t.advance(2000)
-		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
-		assert(contains(logged, "build right after a replay (probably the copy, not captured): segments=2 nodes=3 constructions=0 new entities=1 player build=true"),
+		-- Run 11: the copy's event has isPlayerBuild=false.
+		local copy = player_build_param()
+		copy[4] = false
+		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", copy)
+		assert(contains(logged, "build right after a replay (probably the copy, not captured): segments=2 nodes=3 constructions=0 new entities=1 player build=false"),
 			table.concat(logged, "\n"))
+		-- Run 14: a real player build of the same size in the quiet time is captured.
+		logged = {}
+		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+		assert(contains(logged, "capture player build nodes=3 segments=2"), table.concat(logged, "\n"))
+		state:set(s)
 		-- Run 10: town buildings and other player builds in the quiet time are not taken for the copy.
 		logged = {}
 		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", town_build_param())

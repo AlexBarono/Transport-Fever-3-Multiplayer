@@ -361,9 +361,19 @@ function build.serialize(proposal, opts)
 	local function position_of(id)
 		return removed_position[id] or (opts.node_position and opts.node_position(id))
 	end
+	local function end_position(comp, key)
+		local ok, p = pcall(function()
+			local v = comp[key]
+			return { x = v.x, y = v.y, z = v.z }
+		end)
+		if ok and type(p.x) == "number" then return p end
+		return nil
+	end
 	for _, seg in ipairs(list_items(proposal.removedSegments)) do
 		local comp = seg.comp
-		local p0, p1 = position_of(comp.node0), position_of(comp.node1)
+		-- Run 14: an end node can be gone already, but the removed segment keeps position0/1.
+		local p0 = end_position(comp, "position0") or position_of(comp.node0)
+		local p1 = end_position(comp, "position1") or position_of(comp.node1)
 		if not p0 or not p1 then error("removed segment " .. tostring(seg.entity) .. " has no node positions", 0) end
 		info.removed_segments = info.removed_segments + 1
 		parts[#parts + 1] = "r;" .. vec_to_string(p0) .. ";" .. vec_to_string(p1) .. ";" .. tostring(seg.type)
