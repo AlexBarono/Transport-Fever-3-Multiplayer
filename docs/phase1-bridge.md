@@ -97,3 +97,44 @@ Nächster Schritt für Probe v7: `WorldBuildProposal.new()` bzw. `StreetProposal
 - Schutz gegen eine Endlosschleife: höchstens 3 Wiederaufbauten pro Sitzung, und ein Bau, der innerhalb von 50 Updates nach einem Wiederaufbau kommt (die Kopie selbst), wird nicht aufgezeichnet.
 - Jeder Spielerbau wird aufgezeichnet, auch wenn sein Dump wegen `BUILD_DUMPS` entfällt.
 - DLL v6 fordert für jede neue Aufzeichnung einen Wiederaufbau an, nicht nur für die erste.
+
+## Ergebnis Lauf 7 (06.10.2026, Probe v7 + DLL v6)
+
+Logs: [logs/probe-log-7-mp_probe.txt](../logs/probe-log-7-mp_probe.txt), [logs/probe-log-7-context.txt](../logs/probe-log-7-context.txt), [logs/proxy-log-7.txt](../logs/proxy-log-7.txt)
+
+Der Nutzer hat zwei Straßen und zwei Gleise auf freier Fläche gebaut. Kein Hängen, **aber im Spiel entstand keine Kopie.**
+
+- Aufzeichnung: 4 Spielerbauten, alle mit `foreign_nodes=0` (Straße 4 Knoten/3 Segmente, Gleis 3/2, Straße 4/3, Straße 3/2). Dumps 0,02–0,03 s.
+- DLL v6: hat für jede Aufzeichnung `TF3MP_IN=replay N` gesetzt (316, 329, 335, 354), jeweils 1–2 s nach `capture stored`.
+- Mod: jedes Mal `replay: ok, SimpleProposal: sent with signature 1`, also hat `api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(SimpleProposal, Context, true))` keinen Lua-Fehler ausgelöst. Es gibt keine `replay attempt`-Zeilen, weil schon der erste Versuch durchlief.
+- Trotzdem gab es danach **kein** `onPostBuildProposal`, auch kein `capture skipped`, und keine Warnung oder Fehlermeldung des Spiels. Der Befehl wurde angenommen und still verworfen, oder er wurde nie ausgeführt.
+
+Beschreibung frischer Instanzen (`---- type`):
+
+```
+SimpleProposal.streetProposal.{edgesToAdd, edgesToRemove, nodesToAdd, nodesToRemove,
+                               edgeObjectsToAdd, edgeObjectsToRemove}
+SimpleProposal.{constructionsToAdd, constructionsToRemove}
+WorldBuildProposal.proposal.proposal.{edgeObjectsToAdd, edgeObjectsToRemove, addedSegments,
+    removedSegments, addedNodes, removedNodes, new2oldSegments, old2newSegments, frozenNodes}
+WorldBuildProposal.proposal.{toAdd, toRemove}
+WorldBuildProposal.context.{player = -1, cleanupStreetGraph = false, gatherBuildings = false,
+                            gatherFields = true, checkTerrainAlignment = false}
+StreetProposal.{edgeObjectsToAdd, …, frozenNodes}   (wie WorldBuildProposal.proposal.proposal)
+Vector_NodeAndEntity, Vector_SegmentAndEntity = userdata ohne sichtbare Felder
+```
+
+Alle Listen sind Lua-Tabellen (`table (#0)`), keine Vektoren.
+
+**Zweiter Befund: Der Mod läuft in mehreren Lua-Zuständen.** Bau-Events kommen im Thread „Simulation Thread“, die Bridge-Ticks dagegen in wechselnden „Sim Pool N“-Threads. Modul-Variablen (`main.pending_replay`, Replay-Zähler, „Typen schon beschrieben“) sind deshalb nicht geteilt:
+
+- Die `---- type`-Beschreibung kam bei jedem Nachbau neu.
+- Drei Nachbauten hießen `replay #1`, und alle drei bauten den **ersten** Bau (4 Knoten/3 Segmente) nach, auch nach dem Gleis (3/2). Erst der vierte (`replay #2`, Sim Pool 2) nahm den letzten Bau.
+- Was zwischen den Zuständen ankommt, ist offenbar nur `state:get()/set()`, und das auch nur mit Verzögerung.
+
+Folgerungen für Probe v8:
+1. `sendCommand` mit Rückruf aufrufen (`api.cmd.sendCommand(cmd, function(res, success) … end)`) und `success` sowie `res.resultProposalData.errorState`/`costs` loggen. Erst dann wissen wir, ob und warum das Spiel den Befehl verwirft.
+2. `context.player` auf die Spieler-Entity setzen (aus Lauf 5: 29125, besser aus `param[1].toAdd[i].playerEntity` bzw. dem Event lesen); der Standardwert ist −1 (kein Besitzer).
+3. Auch `WorldBuildProposal` als eigenen Versuch senden, nicht nur als Rückfall, falls `SimpleProposal` ohne Fehler angenommen wird.
+4. Prüfen, ob `sendCommand` aus einem „Sim Pool“-Thread überhaupt wirkt. Notfalls den Nachbau im Event-Handler (Simulation Thread) auslösen, etwa über ein Event per `makeScriptingSendEventCmd`.
+5. Gemeinsamen Zustand (letzte Aufzeichnung, Zähler, Ruhezeit) nur über `state` führen, nicht über Modul-Variablen.
