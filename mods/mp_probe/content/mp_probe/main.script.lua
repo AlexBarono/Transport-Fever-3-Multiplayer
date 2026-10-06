@@ -13,7 +13,7 @@ local actions = require("/mp_probe/actions.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 17
+main.PROBE_VERSION = 18
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -40,7 +40,7 @@ main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay" }
 -- are visible; at most MAX_REPLAYS per savegame session. A build with as many segments as the copy
 -- that arrives within REPLAY_QUIET_MS of game time after a replay is taken for the copy and not
 -- captured, so the copy does not trigger yet another copy.
-main.REPLAY_SIDE_OFFSET = 40
+main.REPLAY_SIDE_OFFSET = 100
 main.MAX_REPLAYS = 3
 main.REPLAY_QUIET_MS = 10000
 
@@ -234,6 +234,19 @@ function main.log_replay_result(result, success, label, outcome)
 		local ok, lines = pcall(probe.fields, result, "res", 5, main.RESULT_DUMP_LINES)
 		if ok and #lines > 0 then log_lines("replay result fields", lines) end
 	end
+end
+
+--- Readable text of an error value. Run 17: a failed vehicle purchase raised a table.
+function main.error_text(err)
+	if type(err) ~= "table" then return tostring(err) end
+	local parts = {}
+	for k, v in pairs(err) do
+		local text = type(v) == "table" and main.error_text(v) or tostring(v)
+		parts[#parts + 1] = tostring(k) .. "=" .. text
+		if #parts >= 12 then break end
+	end
+	table.sort(parts)
+	return "{" .. table.concat(parts, ", ") .. "}"
 end
 
 function main.count_keys(t)
@@ -507,7 +520,8 @@ function main.capture_build(state, s, param, label)
 	logger.info("capture " .. label .. " nodes=" .. info.nodes .. " segments=" .. info.segments ..
 		" foreign_nodes=" .. info.foreign_nodes .. " removed_segments=" .. info.removed_segments ..
 		" removed_nodes=" .. info.removed_nodes .. " constructions=" .. info.constructions ..
-		" demolished=" .. info.demolished .. " edge_objects=" .. info.edge_objects)
+		" demolished=" .. info.demolished .. " edge_objects=" .. info.edge_objects ..
+		" access_segments=" .. tostring(info.access))
 	for _, what in ipairs(info.dropped) do logger.info("capture leaves out " .. what) end
 	logger.info("capture line " .. line)
 	if info.segments + info.removed_segments + info.constructions + info.demolished > 0 then
@@ -515,18 +529,6 @@ function main.capture_build(state, s, param, label)
 		state:set(s)
 		logger.info("capture stored for replay (" .. #line .. " characters)")
 		logger.info(main.SEND_MARKER .. line)
-	end
-	if info.deferred and info.deferred > 0 then
-		-- Segments joining a new construction (a depot's access road) follow in their own line, so
-		-- the other game builds them once the construction stands (run 16).
-		opts.after_constructions = true
-		local ok_a, after_line, after_info = pcall(build.serialize, param[1].proposal, opts)
-		if not ok_a then
-			logger.info("capture of the access segments failed: " .. tostring(after_line))
-			return
-		end
-		logger.info("capture access segments=" .. after_info.segments .. " line " .. after_line)
-		logger.info(main.SEND_MARKER .. after_line)
 	end
 end
 
@@ -558,7 +560,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			s.action_work_requested = false
 			state:set(s)
 			local ok, err = pcall(actions.tick, _G, state, function(text) logger.info(text) end)
-			if not ok then logger.info("action continuation failed: " .. tostring(err):sub(1, 240)) end
+			if not ok then logger.info("action continuation failed: " .. main.error_text(err):sub(1, 400)) end
 			return
 		end
 		local line = type(param) == "table" and param.line or nil

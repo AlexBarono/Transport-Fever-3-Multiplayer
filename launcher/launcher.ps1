@@ -178,7 +178,7 @@ $hostRadio.Text = 'Gastgeber (der andere verbindet sich mit mir)'; $hostRadio.Lo
 $clientRadio = New-Object System.Windows.Forms.RadioButton
 $clientRadio.Text = 'Mitspieler (ich verbinde mich mit dem Gastgeber)'; $clientRadio.Location = New-Object System.Drawing.Point(12, 45); $clientRadio.Size = New-Object System.Drawing.Size(490, 22)
 $loopRadio = New-Object System.Windows.Forms.RadioButton
-$loopRadio.Text = 'Allein testen (eigene Straßen werden 40 m daneben nachgebaut)'; $loopRadio.Location = New-Object System.Drawing.Point(12, 70); $loopRadio.Size = New-Object System.Drawing.Size(490, 22)
+$loopRadio.Text = 'Allein testen (eigene Bauten werden 100 m daneben nachgebaut)'; $loopRadio.Location = New-Object System.Drawing.Point(12, 70); $loopRadio.Size = New-Object System.Drawing.Size(490, 22)
 $roleBox.Controls.AddRange(@($hostRadio, $clientRadio, $loopRadio))
 $form.Controls.Add($roleBox)
 
@@ -242,7 +242,7 @@ $install.Add_Click({
 		if ($mode -eq 'client' -and -not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) { throw 'Bitte die IP-Adresse des Gastgebers eingeben, z. B. 192.168.1.10.' }
 		$n = Install-All $gameBox.Text.Trim() $mode $port $ip $steam
 		$role = if ($mode -eq 'client') { "Mitspieler, verbindet sich mit $($ip):$port" }
-			elseif ($mode -eq 'loopback') { 'Allein testen, eigene Straßen kommen 40 m daneben zurück' }
+			elseif ($mode -eq 'loopback') { 'Allein testen, eigene Bauten kommen 100 m daneben zurück' }
 			else { "Gastgeber, wartet auf Port $port" }
 		$out.Text = "Installiert.`r`nRolle: $role`r`nMod kopiert in $n Steam-Konto/Konten.`r`n`r`nJetzt 'Spiel starten', einen Spielstand laden und danach 'Verbindung prüfen'."
 	} catch { Show-Error $_.Exception.Message }

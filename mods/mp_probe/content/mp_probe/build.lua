@@ -274,8 +274,7 @@ build.edge_objects_of = edge_objects_of
 --   read_transf = function(transf) -> 16 numbers, or nil and a message,
 --   edge_object = function(id, proposal_entry) -> { param, position, model, name, left, oneWay }
 --     of a stop/signal on an added segment, or { problem = text },
---   after_constructions = true: only the segments that join a new construction to the network,
---     all their nodes named by position (info.deferred counts them in the normal line) }
+--   }
 -- @return string line, table info { nodes, segments, foreign_nodes, removed_segments,
 --   removed_nodes, constructions, demolished, edge_objects, dropped = list of what was left out }
 function build.serialize(proposal, opts)
@@ -297,24 +296,23 @@ function build.serialize(proposal, opts)
 	end
 
 	-- A segment with both ends frozen belongs to the construction. One with a single frozen end
-	-- joins the construction to the network (a depot's access road, run 16); it can only be built
-	-- once the construction stands, so it goes into a second line (opts.after_constructions).
-	local after = opts.after_constructions
-	local segments, used, deferred = {}, {}, {}
+	-- joins the construction to the network (a depot's access road). Run 17: built on its own after
+	-- the construction the game refused it ("Bau nicht möglich"), so it travels in the same line,
+	-- marked with an "a" token, and the receiver builds it together with the construction.
+	local segments, used, access = {}, {}, {}
 	for _, seg in ipairs(list_items(proposal.addedSegments)) do
 		local comp = seg.comp
 		local f0, f1 = frozen_ids[comp.node0] == true, frozen_ids[comp.node1] == true
 		if f0 and f1 then
 			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (part of a construction)"
-		elseif f0 or f1 then
-			deferred[#deferred + 1] = seg
-		elseif not after then
+		else
 			segments[#segments + 1] = seg
 			used[comp.node0], used[comp.node1] = true, true
+			if f0 or f1 then access[#segments] = true end
 		end
 	end
-	info.deferred = #deferred
-	if after then segments = deferred end
+	info.access = 0
+	for _ in pairs(access) do info.access = info.access + 1 end
 	local added_position = {}
 	for _, node in ipairs(nodes) do
 		pcall(function()
@@ -415,8 +413,7 @@ function build.serialize(proposal, opts)
 		end
 	end
 	info.foreign_nodes = foreign_count
-
-	if after then return table.concat(parts, " "), info end
+	for i in pairs(access) do parts[#parts + 1] = "a;" .. i end
 
 	-- Removed nodes: their positions are only in the proposal, the entities are gone.
 	local removed_position = {}
@@ -491,7 +488,7 @@ end
 function build.deserialize(line)
 	if type(line) ~= "string" then return nil, "not a string" end
 	local data = { nodes = {}, foreign = {}, segments = {}, removed_segments = {}, removed_nodes = {},
-		constructions = {}, demolished = {}, objects = {} }
+		constructions = {}, demolished = {}, objects = {}, access = {} }
 	local roads = {}
 	for token in string.gmatch(line, "%S+") do
 		local kind = token:sub(1, 1)
@@ -541,6 +538,10 @@ function build.deserialize(line)
 			local position = pos and vec_from_string(pos)
 			if not position then return nil, "bad demolish token " .. token end
 			data.demolished[#data.demolished + 1] = { file = build.unescape(file), position = position }
+		elseif kind == "a" then
+			local i = string.match(token, "^a;(%d+)$")
+			if not i then return nil, "bad access token " .. token end
+			data.access[-tonumber(i)] = true
 		elseif kind == "o" then
 			local seg, side, param, pos, model, name, flags =
 				string.match(token, "^o;(%d+);(%-?%d+);([^;]+);([^;]+);([^;]+);([^;]*);([^;]+)$")
@@ -1398,6 +1399,32 @@ local function replay_once(env, data, opts)
 	return false, failure or "no layout could be filled and sent"
 end
 
+--- Removes the segments that join a construction to the network, and nodes only they used.
+function build.drop_access(data)
+	local segments, used = {}, {}
+	for _, seg in ipairs(data.segments) do
+		if not data.access[seg.id] then
+			segments[#segments + 1] = seg
+			used[seg.node0], used[seg.node1] = true, true
+		end
+	end
+	local nodes = {}
+	for _, node in ipairs(data.nodes) do
+		if used[node.id] then nodes[#nodes + 1] = node end
+	end
+	data.segments, data.nodes, data.access = segments, nodes, {}
+	-- Placeholders stay dense: -1, -2, ... for segments and for nodes (node_entity moves the nodes
+	-- behind the segments).
+	local renumber, node_ids = {}, {}
+	for i, seg in ipairs(data.segments) do renumber[seg.id] = -i; seg.id = -i end
+	for _, o in ipairs(data.objects or {}) do o.segment = renumber[o.segment] or o.segment end
+	for i, node in ipairs(data.nodes) do node_ids[node.id] = -i; node.id = -i end
+	for _, seg in ipairs(data.segments) do
+		if type(seg.node0) == "number" and seg.node0 < 0 then seg.node0 = node_ids[seg.node0] end
+		if type(seg.node1) == "number" and seg.node1 < 0 then seg.node1 = node_ids[seg.node1] end
+	end
+end
+
 function build.replay(env, data, opts)
 	opts = opts or {}
 	local log = opts.log or function() end
@@ -1407,6 +1434,12 @@ function build.replay(env, data, opts)
 	end
 	if not needs_numbering then
 		local ok, message = replay_once(env, data, opts)
+		if not ok and next(data.access or {}) then
+			log("retrying without the access segments: " .. tostring(message))
+			build.drop_access(data)
+			ok, message = replay_once(env, data, opts)
+			if ok then message = message .. " (without access segments)" end
+		end
 		-- Run 16: a removal was rejected once ("map_util Get"); the street graph cleanup removes
 		-- loose nodes by itself, so it is tried again without naming them.
 		local named = 0

@@ -1087,7 +1087,7 @@ test("a loopback line is built beside the original", function()
 		assert(not contains(logged, "moved by 0.0,0.0"), table.concat(logged, "\n"))
 		assert(contains(logged, "replay result (SimpleProposal/table): BUILT"))
 		local nodes = sent_lists(t.sent[1].proposal)
-		assert(math.abs(nodes[1].comp.position.y - (-3941.508 + 40)) < 0.01, "moved 40 m north")
+		assert(math.abs(nodes[1].comp.position.y - (-3941.508 + 100)) < 0.01, "moved 100 m north")
 	end)
 end)
 
@@ -1202,18 +1202,16 @@ local function depot_param()
 	}
 end
 
-test("a construction travels with file, name, transf and params, without its own segments", function()
+test("a construction travels with file, name, transf, params and its access segment", function()
 	with_engine_api({}, function(t)
 		local main = fresh_main()
 		logged = {}
 		local state = mock_state()
 		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", depot_param())
-		assert(contains(logged, "capture player build nodes=0 segments=0 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
+		assert(contains(logged, "capture player build nodes=2 segments=1 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
 			table.concat(logged, "\n"))
-		-- Run 16: the access segment (one frozen end) follows in its own line, by position.
-		assert(contains(logged, "capture access segments=1 line B4 f1;-2970.633,-3896.631,3.18 f2;-2970.633,-3881.891,3.18"),
-			table.concat(logged, "\n"))
-		assert(contains(logged, "net send B4 f1;"), "the access line is sent too")
+		-- Run 17: the access segment (one frozen end) travels in the same line, marked with "a".
+		assert(contains(logged, "access_segments=1"), table.concat(logged, "\n"))
 		local line = state:get().last_build
 		assert(line and line:find(" c;%3A%3A%2Fdepots%2Froad%2Froad_depot%2Froad_depot.con;Rehna%20Strassendepot%20S%C3%BCd;1,0,0,0,0,1,0,0,0,0,1,0,-2970.633,-3889.26,3.18,1;{", 1, true), line)
 		local data = assert(build.deserialize(line))
@@ -1227,6 +1225,13 @@ test("a construction travels with file, name, transf and params, without its own
 		local sent = t.sent[1].proposal.constructionsToAdd[1]
 		assert(sent.fileName == c.file and sent.name == c.name and sent.playerEntity == 29125)
 		assert(sent.transf[13] == -2970.633 and sent.params.modules[3] == "a b;c")
+		local _, edges = sent_lists(t.sent[1].proposal)
+		assert(#edges == 1, "the access segment is built together with the depot")
+		assert(data.access[-1], "the line marks segment 1 as access segment")
+		-- Without it, if the game refuses the pair, the depot still comes.
+		data = assert(build.deserialize(line))
+		build.drop_access(data)
+		assert(#data.segments == 0 and #data.nodes == 0 and #data.constructions == 1)
 	end)
 end)
 

@@ -368,3 +368,10 @@ Token `o;<segment>;<side>;<param>;x,y,z;<model>;<name>;<flags>` hinter dem Segme
 - Ein Straßenabriss mit Knoten: `map_util.h:22 Get`. v17 versucht einen abgelehnten Abriss noch einmal ohne `nodesToRemove` (die Straßengraph-Bereinigung räumt lose Knoten selbst ab).
 - Abriss eines Stadtgebäudes ließ die ganze Aufzeichnung scheitern; v17 lässt es mit Hinweis weg.
 - `actions.lua`: Busse an einem alten Depot gekauft (`vehicle_create`), im Allein-Test ohne Kopie des Depots erwartungsgemäß `construction reference not found`. `Invalid entity` beim Linien-Abbild: v17 behält für unlesbare Einträge das alte Abbild statt abzubrechen.
+
+### Lauf 17 (v17) und Probe v18
+
+- Logs: `logs/run17-*`. Kopiert: Straße, zwei Haltestellen, Linie und Bus (Linie zuweisen kam als `vehicle_update` an), Depot-Abriss, Straßenabriss. Keine Assertions.
+- Depot: das Zufahrtsstück kam als eigene Zeile, das Spiel lehnte es ab („Bau nicht möglich“, Knoten 50968→49688, Vorlage `entrance_new.street_template`). v18 schickt es in derselben Zeile wie das Gebäude (Token `a;<segment>`), der eingefrorene Knoten ist ein neuer Knoten des Vorschlags. Lehnt das Spiel das Paar ab, baut der Mod das Gebäude ohne Zufahrt (`build.drop_access`).
+- `vehicle_create` meldete einen Fehler als Tabelle; v18 schreibt deren Felder ins Log.
+- Allein-Test: Kopie jetzt 100 m nördlich (Wunsch des Nutzers).
