@@ -80,7 +80,11 @@ end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
 	local s = state:get() or {}
-	s.seen_events = s.seen_events or {}
+	-- Event counts live in the savegame; start over for each probe version so a new version dumps again.
+	if s.seen_events_version ~= main.PROBE_VERSION then
+		s.seen_events = {}
+		s.seen_events_version = main.PROBE_VERSION
+	end
 	local key = tostring(src) .. "|" .. tostring(id) .. "|" .. tostring(name)
 	local prev = s.seen_events[key]
 	local count = type(prev) == "number" and prev + 1 or 1

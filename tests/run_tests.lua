@@ -252,11 +252,11 @@ test("handleEvent dumps up to BUILD_DUMPS build proposals", function()
 	assert(dumps == 2, "dumps " .. dumps)
 end)
 
-test("handleEvent tolerates seen_events from v2 savegames", function()
+test("handleEvent starts counting again for a new probe version", function()
 	local main = load_resource("/mp_probe/main.script.lua")
 	logged = {}
 	local state = mock_state()
-	state:set({ seen_events = { ["a.lua|id1|onX"] = true } })
+	state:set({ seen_events = { ["a.lua|id1|onX"] = true }, seen_events_version = main.PROBE_VERSION - 1 })
 	main.handleEvent(nil, state, "a.lua", "id1", "onX", {})
 	main.handleEvent(nil, state, "a.lua", "id1", "onX", {})
 	assert(contains(logged, "name=onX #1"))
