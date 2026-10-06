@@ -20,17 +20,73 @@ local function component(env, id, name)
 	return nil
 end
 
---- Calls fn(id) for every entity with the component `name`.
+--- Calls fn(id) for every entity with the component `name`. TF3 refuses some component types in
+-- forEachEntityWithComponent ("Cannot loop over this component type", run 13: BASE_NODE), so the
+-- list function is tried next.
 local function each_with(env, name, fn)
 	local engine = env.api.engine
 	local ct = env.api.type.ComponentType[name]
+	local errors = {}
 	if engine.forEachEntityWithComponent then
-		engine.forEachEntityWithComponent(fn, ct)
+		local list = {}
+		local ok, err = pcall(engine.forEachEntityWithComponent, function(id) list[#list + 1] = id end, ct)
+		if ok then
+			for i = 1, #list do fn(list[i]) end
+			return
+		end
+		errors[#errors + 1] = tostring(err)
+	end
+	local ok, ids = pcall(engine.getEntitiesWithComponent, ct)
+	if ok and type(ids) == "table" then
+		for i = 1, #ids do fn(ids[i]) end
 		return
 	end
-	local ids = engine.getEntitiesWithComponent(ct)
-	for i = 1, #ids do fn(ids[i]) end
+	errors[#errors + 1] = tostring(ids)
+	error("cannot list " .. name .. ": " .. table.concat(errors, " / "), 0)
 end
+
+--- Node ids from the street system's node-to-segment map (BASE_NODE cannot be looped over).
+local function each_node(env, fn)
+	local ok, map = pcall(function() return env.api.engine.system.streetSystem.getNode2SegmentMap() end)
+	if ok and map ~= nil then
+		local found = 0
+		local ok_pairs = pcall(function()
+			for id in pairs(map) do
+				found = found + 1
+				fn(id)
+			end
+		end)
+		if ok_pairs and found > 0 then return end
+	end
+	each_with(env, "BASE_NODE", fn)
+end
+
+--- Edge ids from the street system's node-to-segment map (BASE_EDGE cannot be looped over).
+local function each_edge(env, fn)
+	local seen = {}
+	local ok, map = pcall(function() return env.api.engine.system.streetSystem.getNode2SegmentMap() end)
+	if ok and map ~= nil then
+		local ok_pairs = pcall(function()
+			for _, edges in pairs(map) do
+				for i = 1, #edges do
+					local id = edges[i]
+					if not seen[id] then
+						seen[id] = true
+						fn(id)
+					end
+				end
+			end
+		end)
+		if ok_pairs and next(seen) then return end
+	end
+	each_with(env, "BASE_EDGE", function(id)
+		if not seen[id] then fn(id) end
+	end)
+end
+
+world.each_with = each_with
+world.each_node = each_node
+world.each_edge = each_edge
 
 --- Position of a node entity as a plain table, or nil.
 function world.node_position(env, id)
@@ -49,7 +105,7 @@ world.read_transf = build.read_transf
 --- Index of all nodes for repeated searches within one replay. Built on first use.
 function world.node_index(env)
 	local index = { cells = {}, size = 16 }
-	each_with(env, "BASE_NODE", function(id)
+	each_node(env, function(id)
 		local p = world.node_position(env, id)
 		if p then
 			local key = math.floor(p.x / index.size) .. ":" .. math.floor(p.y / index.size)
@@ -99,7 +155,7 @@ function world.find_edge(env, a, b)
 		end
 	end
 	-- Fallback: look at every edge once.
-	pcall(each_with, env, "BASE_EDGE", function(id)
+	pcall(each_edge, env, function(id)
 		if found then return end
 		local edge = component(env, id, "BASE_EDGE")
 		if edge and ((edge.node0 == a and edge.node1 == b) or (edge.node0 == b and edge.node1 == a)) then

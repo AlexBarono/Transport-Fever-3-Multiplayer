@@ -328,3 +328,9 @@ Aufbauend auf v12 wurde Code für vollständige Konstruktionen (Bahnhöfe/Depots
 - Aus `actions.lua` (ChatGPT) werden nur Linien und Fahrzeuge abgefragt (`main.ACTION_KINDS = { "line", "vehicle" }`), damit Gebäude und Kanten nicht doppelt kopiert werden.
 - Der Allein-Test verschiebt bei beiden um (0, +40 m); `edge_loop_offsets` entfällt, `actions.resolve` nutzt dann genau diesen Versatz.
 - Tests: 56 (`run_tests.lua`) und 35 (`run_actions.lua`), unter Lua 5.4 und 5.2.
+
+### Lauf 13 (v13): freie Straßen ja, angeschlossene nein
+
+- Logs: `logs/run13-stdout.txt`, `logs/run13-alut_proxy.log`. Zwei freie Straßen wurden kopiert (Kosten 8027 und 9440).
+- Zwei an eine bestehende Straße angeschlossene Straßen wurden richtig aufgezeichnet (`foreign_nodes=1`, `f1;…`), der Nachbau brach aber ab: `replay: lookup failed (world.lua:28: Cannot loop over this component type`. TF3 lässt `forEachEntityWithComponent(BASE_NODE)` nicht zu (`CONSTRUCTION` geht, 4 Spieler-Gebäude gefunden).
+- Fix in v14: `world.lua` holt Knoten und Kanten aus `streetSystem.getNode2SegmentMap()`, sonst `forEachEntityWithComponent`, sonst `getEntitiesWithComponent`, jeweils mit `pcall`.

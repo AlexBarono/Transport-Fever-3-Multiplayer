@@ -1227,6 +1227,29 @@ test("world finds nodes, edges and constructions of the running game by position
 	assert(mine[20] and mine[20].position.y == 60 and mine[21] == nil)
 end)
 
+test("world finds nodes and edges when the game refuses to loop over them (run 13)", function()
+	local world = require("/mp_probe/world.lua")
+	local comps = {
+		[1] = { BASE_NODE = { position = { x = 100, y = 200, z = 5 } } },
+		[4] = { BASE_NODE = { position = { x = 300, y = 200, z = 0 } } },
+		[10] = { BASE_EDGE = { node0 = 4, node1 = 1 } },
+	}
+	local env = { api = { type = { ComponentType = { BASE_NODE = "BASE_NODE", BASE_EDGE = "BASE_EDGE" } },
+		engine = {
+			getComponent = function(id, ct) return comps[id] and comps[id][ct] end,
+			forEachEntityWithComponent = function() error("Cannot loop over this component type") end,
+			getEntitiesWithComponent = function() error("Cannot loop over this component type") end,
+			system = { streetSystem = { getNode2SegmentMap = function() return { [1] = { 10 }, [4] = { 10 } } end } },
+		} } }
+	local index = world.node_index(env)
+	assert(world.find_node(index, { x = 100.4, y = 199.8, z = 5 }) == 1)
+	assert(world.find_node(index, { x = 300, y = 201, z = 0 }) == 4)
+	assert(world.find_edge(env, 1, 4) == 10)
+	env.api.engine.system.streetSystem = {}
+	local ok, err = pcall(world.node_index, env)
+	assert(not ok and tostring(err):find("cannot list BASE_NODE"), tostring(err))
+end)
+
 test("params literals survive a round trip and reject broken text", function()
 	local value = { 1, 2.5, -3, { x = "y z" }, seed = 42, s = "", b = false, nested = { [10] = { "%;|" } } }
 	local text = build.params_to_string(value)
