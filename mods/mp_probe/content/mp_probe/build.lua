@@ -246,6 +246,21 @@ local function list_items(list)
 	return items
 end
 
+--- The {entity, side} entries of comp.objects of a segment (empty if unreadable).
+local function edge_objects_of(comp)
+	local out = {}
+	pcall(function()
+		local list = comp.objects
+		for i = 1, #list do
+			local entry = list[i]
+			local id, side = entry[1], entry[2]
+			if type(id) == "number" then out[#out + 1] = { id, side } end
+		end
+	end)
+	return out
+end
+build.edge_objects_of = edge_objects_of
+
 --- Turns a captured build into one line (format B4, see docs/phase1-bridge.md).
 -- New nodes and segments keep only their position and shape; their engine ids become placeholders
 -- -1, -2, ... because the other game creates different ones. Existing things the build touches
@@ -256,7 +271,9 @@ end
 --   node_position = function(id) -> {x,y,z} of an existing node,
 --   to_add = param[1].toAdd (constructions), to_remove = param[1].toRemove (construction ids),
 --   construction = function(id) -> { file, position } of a demolished construction,
---   read_transf = function(transf) -> 16 numbers, or nil and a message }
+--   read_transf = function(transf) -> 16 numbers, or nil and a message,
+--   edge_object = function(id, proposal_entry) -> { param, position, model, name, left, oneWay }
+--     of a stop/signal on an added segment, or { problem = text } }
 -- @return string line, table info { nodes, segments, foreign_nodes, removed_segments,
 --   removed_nodes, constructions, demolished, edge_objects, dropped = list of what was left out }
 function build.serialize(proposal, opts)
@@ -311,17 +328,30 @@ function build.serialize(proposal, opts)
 		return "f" .. foreign[id]
 	end
 
+	-- Objects that were on a removed segment already existed; all others are new in this build.
+	local kept_objects = {}
+	for _, seg in ipairs(list_items(proposal.removedSegments)) do
+		for _, entry in ipairs(edge_objects_of(seg.comp)) do kept_objects[entry[1]] = true end
+	end
+	-- What the proposal says about its new objects (left side, name, model), by result entity and
+	-- in order, because it is not known whether resultEntity holds the final id.
+	local new_objects = { by_order = {} }
+	for _, eo in ipairs(list_items(proposal.edgeObjectsToAdd)) do
+		local entry = {}
+		pcall(function() entry.left = eo.left end)
+		pcall(function() entry.name = eo.name end)
+		pcall(function() entry.category = eo.category end)
+		pcall(function() entry.modelId = eo.modelInstance.modelId end)
+		local ok, result = pcall(function() return eo.resultEntity end)
+		if ok and result ~= nil then new_objects[result] = entry end
+		new_objects.by_order[#new_objects.by_order + 1] = entry
+	end
+	local placed_new = {}
 	for i, seg in ipairs(segments) do
 		local comp = seg.comp
 		local n0, n1 = node_ref(comp.node0), node_ref(comp.node1)
 		if comp.roadTemplate == nil or comp.roadStyle == nil then
 			error("segment " .. tostring(seg.entity) .. " has no roadTemplate/roadStyle", 0)
-		end
-		-- Stops and signals on a segment are not copied yet (v13); the segment is.
-		local objects = 0
-		pcall(function() objects = #comp.objects end)
-		if objects > 0 then
-			info.dropped[#info.dropped + 1] = objects .. " stop(s)/signal(s) on segment " .. tostring(seg.entity)
 		end
 		info.segments = i
 		-- TF3 keeps the street or track type in the segment itself (run 5 raw dump):
@@ -342,6 +372,29 @@ function build.serialize(proposal, opts)
 			comp.roadType or -1, comp.distance or 0, road,
 			precedence_to_string(seg, "params"), precedence_to_string(seg, "streetEdge"),
 		}, ";")
+		-- Stops, waypoints and signals on the segment (v15). TF3 places one by removing the edge and
+		-- adding it again with the object in comp.objects (run 14). Each object travels with its
+		-- position, so the receiver can tell its own existing objects from new ones.
+		for _, entry in ipairs(edge_objects_of(comp)) do
+			local id, side = entry[1], entry[2]
+			local is_new = not kept_objects[id]
+			local from_proposal = nil
+			if is_new then
+				from_proposal = new_objects[id] or new_objects.by_order[#placed_new + 1]
+				placed_new[#placed_new + 1] = id
+			end
+			local o = opts.edge_object and opts.edge_object(id, from_proposal)
+			if not o or not o.position or type(o.model) ~= "string" or o.model == "" then
+				info.dropped[#info.dropped + 1] = "stop/signal " .. tostring(id) .. " on segment " ..
+					tostring(seg.entity) .. " (" .. tostring(o and o.problem or "no data") .. ")"
+			else
+				local flags = (is_new and "n" or "") .. (o.left and "l" or "") .. (o.oneWay and "w" or "")
+				info.edge_objects = info.edge_objects + 1
+				parts[#parts + 1] = table.concat({ "o", i, tostring(side), num(o.param or 0.5),
+					vec_to_string(o.position), build.escape(o.model), build.escape(o.name or ""),
+					flags == "" and "-" or flags }, ";")
+			end
+		end
 	end
 	info.foreign_nodes = foreign_count
 
@@ -379,13 +432,6 @@ function build.serialize(proposal, opts)
 		parts[#parts + 1] = "r;" .. vec_to_string(p0) .. ";" .. vec_to_string(p1) .. ";" .. tostring(seg.type)
 	end
 
-	for _, eo in ipairs(list_items(proposal.edgeObjectsToAdd)) do
-		info.edge_objects = info.edge_objects + 1
-		local name = ""
-		pcall(function() name = eo.name end)
-		info.dropped[#info.dropped + 1] = "new stop/signal " .. tostring(name)
-	end
-
 	for _, con in ipairs(list_items(opts.to_add)) do
 		local m, how = (opts.read_transf or build.read_transf)(con.transf)
 		if not m then error("construction " .. tostring(con.fileName) .. ": transf unreadable (" .. tostring(how) .. ")", 0) end
@@ -420,7 +466,7 @@ end
 function build.deserialize(line)
 	if type(line) ~= "string" then return nil, "not a string" end
 	local data = { nodes = {}, foreign = {}, segments = {}, removed_segments = {}, removed_nodes = {},
-		constructions = {}, demolished = {} }
+		constructions = {}, demolished = {}, objects = {} }
 	local roads = {}
 	for token in string.gmatch(line, "%S+") do
 		local kind = token:sub(1, 1)
@@ -470,6 +516,16 @@ function build.deserialize(line)
 			local position = pos and vec_from_string(pos)
 			if not position then return nil, "bad demolish token " .. token end
 			data.demolished[#data.demolished + 1] = { file = build.unescape(file), position = position }
+		elseif kind == "o" then
+			local seg, side, param, pos, model, name, flags =
+				string.match(token, "^o;(%d+);(%-?%d+);([^;]+);([^;]+);([^;]+);([^;]*);([^;]+)$")
+			local position = pos and vec_from_string(pos)
+			if not position or not tonumber(param) then return nil, "bad stop/signal token " .. token:sub(1, 80) end
+			data.objects[#data.objects + 1] = {
+				segment = -tonumber(seg), side = tonumber(side), param = tonumber(param), position = position,
+				model = build.unescape(model), name = build.unescape(name), new = flags:find("n", 1, true) ~= nil,
+				left = flags:find("l", 1, true) ~= nil, oneWay = flags:find("w", 1, true) ~= nil,
+			}
 		elseif kind == "s" then
 			local fields = {}
 			for field in string.gmatch(token:sub(2), "[^;]+") do fields[#fields + 1] = field end
@@ -499,6 +555,13 @@ function build.deserialize(line)
 		end
 	end
 	if not data.version then return nil, "no version token" end
+	for _, o in ipairs(data.objects) do
+		local found = false
+		for _, seg in ipairs(data.segments) do
+			if seg.id == o.segment then found = true end
+		end
+		if not found then return nil, "stop/signal on unknown segment " .. o.segment end
+	end
 	for _, seg in ipairs(data.segments) do
 		for _, ref in ipairs({ seg.node0, seg.node1 }) do
 			if type(ref) == "string" and not data.foreign[ref] then return nil, "unknown existing node " .. ref end
@@ -513,8 +576,11 @@ end
 -- found makes the whole build fail (TF2 multiplayer mod: building without removing would double
 -- the road); a removed node that is not found is left out (the street graph cleanup removes it).
 -- @param finder table { find_node = function(position) -> id, find_edge = function(a, b) -> id,
---   find_construction = function(file, position) -> id }
+--   find_construction = function(file, position) -> id, edge_objects_of = function(edge) ->
+--   {{id, side, position}} (optional) }
 -- @return boolean ok, string|nil what could not be found, table notes
+build.OBJECT_RADIUS = 3
+
 function build.resolve(data, finder)
 	local notes = {}
 	local ids = {}
@@ -538,6 +604,39 @@ function build.resolve(data, finder)
 		if not r.entity then
 			return false, string.format("removes a road or track that does not exist here (%.1f,%.1f to %.1f,%.1f)",
 				r.p0.x, r.p0.y, r.p1.x, r.p1.y), notes
+		end
+	end
+	-- Stops and signals: objects on the edges removed here either come back (same position) or
+	-- were removed by the other player. A sent object that is not here yet is added.
+	data.objects_to_remove = {}
+	if finder.edge_objects_of then
+		local here = {}
+		for _, r in ipairs(data.removed_segments) do
+			for _, o in ipairs(finder.edge_objects_of(r.entity) or {}) do
+				-- Without its position an object could only be dropped by mistake.
+				if not o.position then return false, "cannot read the position of stop/signal " .. tostring(o.id), notes end
+				here[#here + 1] = o
+			end
+		end
+		local taken = {}
+		for _, o in ipairs(data.objects or {}) do
+			local best, best_d = nil, nil
+			for k, h in ipairs(here) do
+				if not taken[k] and h.position then
+					local dx, dy = h.position.x - o.position.x, h.position.y - o.position.y
+					local d = dx * dx + dy * dy
+					if d <= build.OBJECT_RADIUS * build.OBJECT_RADIUS and (not best_d or d < best_d) then
+						best, best_d = k, d
+					end
+				end
+			end
+			if best then
+				taken[best] = true
+				o.entity = here[best].id
+			end
+		end
+		for k, h in ipairs(here) do
+			if not taken[k] then data.objects_to_remove[#data.objects_to_remove + 1] = h.id end
 		end
 	end
 	for _, n in ipairs(data.removed_nodes) do
@@ -687,6 +786,12 @@ build.LAYOUTS = {
 				if extra.nodes_to_remove and #extra.nodes_to_remove > 0 then
 					try_set(sp, "nodesToRemove", extra.nodes_to_remove, errors, "streetProposal.nodesToRemove")
 				end
+				if extra.objects_to_add and #extra.objects_to_add > 0 then
+					try_set(sp, "edgeObjectsToAdd", extra.objects_to_add, errors, "streetProposal.edgeObjectsToAdd")
+				end
+				if extra.objects_to_remove and #extra.objects_to_remove > 0 then
+					try_set(sp, "edgeObjectsToRemove", extra.objects_to_remove, errors, "streetProposal.edgeObjectsToRemove")
+				end
 			end, errors, "streetProposal")
 			if extra.constructions and #extra.constructions > 0 then
 				try_set(p, "constructionsToAdd", extra.constructions, errors, "constructionsToAdd")
@@ -716,6 +821,30 @@ function build.node_entity(data, id)
 	return id
 end
 
+--- How new stops/signals are numbered in a proposal; not documented for TF3, so build.replay
+-- tries each. "own": a counter of their own (-1, -2, ..., the TF2 multiplayer mod's stop proposal);
+-- "shared": behind nodes and segments, like nodes behind segments.
+build.OBJECT_NUMBERINGS = { "own", "shared" }
+
+--- Gives every sent stop/signal its id in this proposal: the local entity when it already exists
+-- here (build.resolve), otherwise a placeholder by data.object_numbering. Returns the new ones.
+function build.number_objects(data)
+	local added = {}
+	for _, o in ipairs(data.objects or {}) do
+		if o.entity then
+			o.proposal_id = o.entity
+		else
+			added[#added + 1] = o
+			if data.object_numbering == "shared" then
+				o.proposal_id = -(#data.segments + #data.nodes + #added)
+			else
+				o.proposal_id = -#added
+			end
+		end
+	end
+	return added
+end
+
 --- Creates the NodeAndEntity for one node of parsed data.
 function build.make_node(api, data, node, errors)
 	local entry = api.type.NodeAndEntity.new()
@@ -741,6 +870,11 @@ function build.make_segment(api, data, seg, positions, player, errors)
 		if positions[seg.node0] then set_vec(api, comp, "position0", positions[seg.node0], errors, "edge.comp.position0") end
 		if positions[seg.node1] then set_vec(api, comp, "position1", positions[seg.node1], errors, "edge.comp.position1") end
 		if seg.typeIndex then try_set(comp, "typeIndex", seg.typeIndex, errors, "edge.comp.typeIndex") end
+		local objects = {}
+		for _, o in ipairs(data.objects or {}) do
+			if o.segment == seg.id and o.proposal_id then objects[#objects + 1] = { o.proposal_id, o.side } end
+		end
+		if #objects > 0 then try_set(comp, "objects", objects, errors, "edge.comp.objects") end
 		-- Without its template the segment has no street or track type.
 		try_set(comp, "roadTemplate", seg.roadTemplate, errors, "edge.comp.roadTemplate")
 		try_set(comp, "roadStyle", seg.roadStyle, errors, "edge.comp.roadStyle")
@@ -886,6 +1020,7 @@ function build.make_proposal(env, data, layout, player, list_kind)
 	local positions = {}
 	for _, node in ipairs(data.nodes) do positions[node.id] = node.position end
 	for id, p in pairs(data.positions_of or {}) do positions[id] = p end
+	local added_objects = build.number_objects(data)
 	local nodes, edges = {}, {}
 	for _, node in ipairs(data.nodes) do nodes[#nodes + 1] = build.make_node(api, data, node, errors) end
 	for _, seg in ipairs(data.segments) do
@@ -895,7 +1030,11 @@ function build.make_proposal(env, data, layout, player, list_kind)
 		nodes = build.to_vector(api, "Vector_NodeAndEntity", nodes)
 		edges = build.to_vector(api, "Vector_SegmentAndEntity", edges)
 	end
-	local extra = { edges_to_remove = {}, nodes_to_remove = {}, constructions = {}, constructions_to_remove = {} }
+	local extra = { edges_to_remove = {}, nodes_to_remove = {}, constructions = {}, constructions_to_remove = {},
+		objects_to_add = {}, objects_to_remove = data.objects_to_remove or {} }
+	for i, o in ipairs(added_objects) do
+		extra.objects_to_add[i] = build.make_edge_object(api, o, player, errors, "edgeObject[" .. i .. "]")
+	end
 	for _, r in ipairs(data.removed_segments or {}) do extra.edges_to_remove[#extra.edges_to_remove + 1] = r.entity end
 	for _, n in ipairs(data.removed_nodes or {}) do
 		if n.entity then extra.nodes_to_remove[#extra.nodes_to_remove + 1] = n.entity end
@@ -928,7 +1067,21 @@ function build.make_proposal(env, data, layout, player, list_kind)
 		{ "nodesToRemove", #extra.nodes_to_remove, function() return proposal.streetProposal.nodesToRemove end },
 		{ "constructionsToAdd", #extra.constructions, function() return proposal.constructionsToAdd end },
 		{ "constructionsToRemove", #extra.constructions_to_remove, function() return proposal.constructionsToRemove end },
+		{ "edgeObjectsToAdd", #extra.objects_to_add, function() return proposal.streetProposal.edgeObjectsToAdd end },
+		{ "edgeObjectsToRemove", #extra.objects_to_remove, function() return proposal.streetProposal.edgeObjectsToRemove end },
 	}
+	local want_objects = 0
+	for _, o in ipairs(data.objects or {}) do if o.proposal_id then want_objects = want_objects + 1 end end
+	if want_objects > 0 then
+		local ok, n = pcall(function()
+			local list, total = proposal.streetProposal.edgesToAdd, 0
+			for i = 1, #list do total = total + count(list[i].comp.objects) end
+			return total
+		end)
+		n = ok and n or 0
+		check.text = check.text .. ", objects on edges " .. n .. "/" .. want_objects
+		if n ~= want_objects then check.complete = false end
+	end
 	for _, r in ipairs(readback) do
 		if r[2] > 0 then
 			local ok, list = pcall(r[3])
@@ -938,6 +1091,20 @@ function build.make_proposal(env, data, layout, player, list_kind)
 		end
 	end
 	return proposal, check, unique
+end
+
+--- Creates the api.type.SimpleStreetProposal.EdgeObject for a new stop/signal (tealdef: edgeEntity
+-- is the new segment's placeholder, param 0..1 along it, model a resource name).
+function build.make_edge_object(api, o, player, errors, label)
+	local eo = api.type.SimpleStreetProposal.EdgeObject.new()
+	try_set(eo, "edgeEntity", o.segment, errors, label .. ".edgeEntity")
+	try_set(eo, "param", o.param, errors, label .. ".param")
+	try_set(eo, "oneWay", o.oneWay and true or false, errors, label .. ".oneWay")
+	try_set(eo, "left", o.left and true or false, errors, label .. ".left")
+	try_set(eo, "model", o.model, errors, label .. ".model")
+	if player then try_set(eo, "playerEntity", player, errors, label .. ".playerEntity") end
+	try_set(eo, "name", o.name or "", errors, label .. ".name")
+	return eo
 end
 
 --- Creates the api.type.SimpleProposal.ConstructionEntity for one parsed construction. The
@@ -1089,6 +1256,7 @@ function build.offset(data, dx, dy)
 		c.transf[14] = c.transf[14] + dy
 	end
 	for _, d in ipairs(data.demolished or {}) do move(d.position) end
+	for _, o in ipairs(data.objects or {}) do move(o.position) end
 	return data
 end
 
@@ -1111,7 +1279,7 @@ end
 --   outcome), inspect = function(label, node_list, edge_list) called with a complete proposal
 --   before it is sent, player = entity }
 -- @return boolean ok, string message
-function build.replay(env, data, opts)
+local function replay_once(env, data, opts)
 	opts = opts or {}
 	local log = opts.log or function() end
 	if not (env.api and env.api.type and env.api.cmd) then return false, "api missing" end
@@ -1161,6 +1329,24 @@ function build.replay(env, data, opts)
 	end
 	if nothing_built > 0 then return false, "nothing built with any layout (" .. nothing_built .. " sent)" end
 	return false, failure or "no layout could be filled and sent"
+end
+
+function build.replay(env, data, opts)
+	opts = opts or {}
+	local log = opts.log or function() end
+	local needs_numbering = false
+	for _, o in ipairs(data.objects or {}) do
+		if not o.entity then needs_numbering = true end
+	end
+	if not needs_numbering then return replay_once(env, data, opts) end
+	local last_ok, last_message = false, nil
+	for _, numbering in ipairs(build.OBJECT_NUMBERINGS) do
+		data.object_numbering = numbering
+		last_ok, last_message = replay_once(env, data, opts)
+		if last_ok then return true, last_message .. " (stops/signals numbered " .. numbering .. ")" end
+		log("stops/signals numbered " .. numbering .. ": " .. tostring(last_message))
+	end
+	return last_ok, last_message
 end
 
 return build

@@ -674,7 +674,7 @@ local function mock_types(opts)
 				comp = struct("BaseEdge", {
 					node0 = 0, node1 = 0, position0 = vec3(), position1 = vec3(), tangent0 = vec3(), tangent1 = vec3(),
 					type = 0, typeIndex = 0, roadTemplate = "", roadStyle = "", roadType = 0, distance = 0,
-					laneConfigs = "list",
+					laneConfigs = "list", objects = "list",
 				}, list_opts),
 				params = NIL,
 				streetEdge = struct("BaseEdgeStreet", { precedenceNode0 = 0, precedenceNode1 = 0 }),
@@ -689,7 +689,8 @@ local function mock_types(opts)
 		t.SimpleProposal = { new = function()
 			return struct("SimpleProposal", {
 				streetProposal = struct("SimpleStreetProposal", { nodesToAdd = "list", edgesToAdd = "list",
-					edgesToRemove = "list", nodesToRemove = "list" }, list_opts),
+					edgesToRemove = "list", nodesToRemove = "list", edgeObjectsToAdd = "list",
+					edgeObjectsToRemove = "list" }, list_opts),
 				constructionsToAdd = "list",
 				constructionsToRemove = "list",
 			})
@@ -698,6 +699,10 @@ local function mock_types(opts)
 				transf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } })
 		end } }
 	end
+	t.SimpleStreetProposal = { EdgeObject = { new = function()
+		return struct("EdgeObject", { edgeEntity = 0, param = 0, oneWay = false, left = false, model = "",
+			playerEntity = -1, name = "" })
+	end } }
 	return t
 end
 
@@ -724,6 +729,18 @@ local function mock_build_api(opts)
 				end
 				-- Like the game, the error points at the line in build.lua that made the call.
 				if opts.content_error then error("Unknown exception", 2) end
+				if opts.objects_need == "shared" then
+					local sp = proposal.streetProposal
+					local first_free = -(#sp.edgesToAdd + #sp.nodesToAdd)
+					local edges = sp.edgesToAdd
+					for i = 1, #edges do
+						local objects = edges[i].comp.objects
+						for j = 1, #objects do
+							local id = objects[j][1]
+							if id < 0 and id >= first_free then error("Unknown exception", 2) end
+						end
+					end
+				end
 				return { proposal = proposal, context = context, flag = flag }
 			end,
 			sendCommand = function(cmd, callback)
@@ -1266,6 +1283,91 @@ test("world finds nodes and edges when the game refuses to loop over them (run 1
 	env.api.engine.system.streetSystem = {}
 	local ok, err = pcall(world.node_index, env)
 	assert(not ok and tostring(err):find("cannot list BASE_NODE"), tostring(err))
+end)
+
+local function stop_build(kept)
+	local proposal = run5_street()
+	local seg = proposal.addedSegments[1]
+	proposal.addedNodes = {}
+	proposal.addedSegments = { seg }
+	seg.comp.objects = kept and { { 8001, 1 }, { 9001, 0 } } or { { 9001, 1 } }
+	proposal.removedSegments = { { entity = -50, type = 0, comp = { node0 = 51389, node1 = 51498,
+		position0 = { x = -2888.017, y = -3941.508, z = 1.675 }, position1 = { x = -2818.543, y = -3887.282, z = 1.473 },
+		objects = kept and { { 8001, 1 } } or {} } } }
+	proposal.edgeObjectsToAdd = { { resultEntity = 9001, left = true, name = "Amselweg", modelInstance = { modelId = 5 } } }
+	local positions = { [51389] = { x = -2888.017, y = -3941.508, z = 1.675 }, [51498] = { x = -2818.543, y = -3887.282, z = 1.473 } }
+	local seen = {}
+	local line, info = build.serialize(proposal, {
+		node_position = function(id) return positions[id] end,
+		edge_object = function(id, from_proposal)
+			seen[id] = from_proposal or false
+			if id == 8001 then return { param = 0.7, position = { x = -2840, y = -3904, z = 1.5 }, model = "::/station/street/stop.mdl", name = "Alt" } end
+			return { param = 0.25, position = { x = -2870, y = -3928, z = 1.6 }, model = "::/station/street/stop.mdl",
+				name = from_proposal and from_proposal.name, left = from_proposal and from_proposal.left }
+		end,
+	})
+	return line, info, seen
+end
+
+test("a new stop on a street travels with position, model and side (v15)", function()
+	local line, info, seen = stop_build(false)
+	assert(info.edge_objects == 1 and info.removed_segments == 1, line)
+	assert(seen[9001] and seen[9001].name == "Amselweg", "the proposal entry is matched by result entity")
+	assert(line:find(" o;1;1;0.25;-2870,-3928,1.6;%3A%3A%2Fstation%2Fstreet%2Fstop.mdl;Amselweg;nl", 1, true), line)
+	local data = assert(build.deserialize(line))
+	assert(#data.objects == 1 and data.objects[1].new and data.objects[1].left and data.objects[1].segment == -1)
+	build.offset(data, 0, 40)
+	assert(data.objects[1].position.y == -3888)
+	-- Here the edge carries a stop the other player removed with this build.
+	local finder = {
+		find_node = function(pos) if pos.x < -2850 then return 11 end return 12 end,
+		find_edge = function(a, b) if a == 11 and b == 12 then return 600 end end,
+		find_construction = function() end,
+		edge_objects_of = function(edge)
+			assert(edge == 600)
+			return { { id = 7001, side = 0, position = { x = -2830, y = -3860, z = 1 } } }
+		end,
+	}
+	assert(build.resolve(data, finder))
+	assert(data.objects[1].entity == nil and data.objects_to_remove[1] == 7001)
+	local env, sent = mock_build_api({ objects_need = "shared" })
+	local logs = {}
+	local ok, message = build.replay(env, data, { player = 29125, log = function(l) logs[#logs + 1] = l end })
+	assert(ok, message .. "\n" .. table.concat(logs, "\n"))
+	assert(message:find("numbered shared", 1, true), message)
+	local sp = sent[#sent].proposal.streetProposal
+	assert(sp.edgesToAdd[1].comp.objects[1][1] == -2 and sp.edgesToAdd[1].comp.objects[1][2] == 1)
+	assert(sp.edgeObjectsToAdd[1].edgeEntity == -1 and sp.edgeObjectsToAdd[1].param == 0.25)
+	assert(sp.edgeObjectsToAdd[1].model == "::/station/street/stop.mdl" and sp.edgeObjectsToAdd[1].left == true)
+	assert(sp.edgeObjectsToAdd[1].playerEntity == 29125 and sp.edgeObjectsToAdd[1].name == "Amselweg")
+	assert(sp.edgeObjectsToRemove[1] == 7001 and sp.edgesToRemove[1] == 600)
+end)
+
+test("an existing stop on a rebuilt edge stays, a new one is added beside it (v15)", function()
+	local line, info, seen = stop_build(true)
+	assert(info.edge_objects == 2, line)
+	assert(seen[8001] == false and seen[9001].name == "Amselweg", "only new objects get the proposal entry")
+	local data = assert(build.deserialize(line))
+	assert(not data.objects[1].new and data.objects[2].new)
+	local finder = {
+		find_node = function(pos) if pos.x < -2850 then return 11 end return 12 end,
+		find_edge = function() return 600 end,
+		find_construction = function() end,
+		edge_objects_of = function() return { { id = 7001, side = 1, position = { x = -2840.5, y = -3903, z = 1 } } } end,
+	}
+	assert(build.resolve(data, finder))
+	assert(data.objects[1].entity == 7001 and #data.objects_to_remove == 0)
+	local env, sent = mock_build_api()
+	assert(build.replay(env, data, { player = 29125 }))
+	local sp = sent[1].proposal.streetProposal
+	local objects = sp.edgesToAdd[1].comp.objects
+	assert(objects[1][1] == 7001 and objects[2][1] == -1, tostring(objects[2][1]))
+	assert(#sp.edgeObjectsToAdd == 1 and #sp.edgeObjectsToRemove == 0)
+	-- Without a readable position nothing is removed by guesswork.
+	data = assert(build.deserialize(line))
+	finder.edge_objects_of = function() return { { id = 7001, side = 1 } } end
+	local ok, missing = build.resolve(data, finder)
+	assert(not ok and missing:find("cannot read the position", 1, true))
 end)
 
 test("params literals survive a round trip and reject broken text", function()

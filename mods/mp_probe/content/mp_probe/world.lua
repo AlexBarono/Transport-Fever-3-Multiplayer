@@ -212,4 +212,64 @@ function world.find_construction(env, file, pos, radius)
 	return best
 end
 
+--- What a stop/signal on an edge needs to travel: param along the edge, position, model
+-- resource and name. The model is taken from the EDGE_OBJECT component (edgeObjectConstruction,
+-- tealdef) or from the proposal's model instance via modelRep.
+-- @param from_proposal table|nil { left, name, category, modelId } from edgeObjectsToAdd
+-- @return table { param, position, model, name, left, oneWay, side_left, sources } or { problem }
+function world.edge_object_info(env, id, from_proposal)
+	local out = { sources = {} }
+	local eo = component(env, id, "EDGE_OBJECT")
+	if not eo then return { problem = "no EDGE_OBJECT component" } end
+	pcall(function() out.param = eo.param end)
+	local m = nil
+	pcall(function() m = build.read_transf(eo.transf) end)
+	if m then out.position = { x = m[13], y = m[14], z = m[15] } end
+	pcall(function()
+		local res = eo.edgeObjectConstruction
+		if type(res) == "string" and res ~= "" then
+			out.model = res
+			out.sources[#out.sources + 1] = "edgeObjectConstruction"
+		end
+	end)
+	from_proposal = from_proposal or {}
+	if not out.model and from_proposal.modelId then
+		pcall(function()
+			local name = env.api.res.modelRep.getName(from_proposal.modelId)
+			if type(name) == "string" and name ~= "" then
+				out.model = name
+				out.sources[#out.sources + 1] = "modelRep"
+			end
+		end)
+	end
+	if from_proposal.left ~= nil then out.left = from_proposal.left and true or false end
+	out.name = from_proposal.name
+	if not out.name then
+		pcall(function() out.name = component(env, id, "NAME").name end)
+	end
+	if type(out.model) == "string" and out.model:find("one_way", 1, true) then out.oneWay = true end
+	if not out.position then out.problem = "no position" elseif not out.model then out.problem = "no model" end
+	return out
+end
+
+function world.describe_edge_object(o)
+	o = o or {}
+	local p = o.position
+	return string.format("param=%s position=%s model=%s (%s) name=%s left=%s oneWay=%s problem=%s",
+		tostring(o.param), p and string.format("%.1f,%.1f,%.1f", p.x, p.y, p.z) or "nil", tostring(o.model),
+		table.concat(o.sources or {}, ","), tostring(o.name), tostring(o.left), tostring(o.oneWay), tostring(o.problem))
+end
+
+--- Stops/signals on an edge of this game: {{id, side, position}}.
+function world.edge_objects_of(env, edge)
+	local out = {}
+	local comp = component(env, edge, "BASE_EDGE")
+	if not comp then return out end
+	for _, entry in ipairs(build.edge_objects_of(comp)) do
+		local o = world.edge_object_info(env, entry[1])
+		out[#out + 1] = { id = entry[1], side = entry[2], position = o.position }
+	end
+	return out
+end
+
 return world

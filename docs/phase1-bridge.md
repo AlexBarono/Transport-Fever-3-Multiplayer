@@ -343,3 +343,11 @@ Aufbauend auf v12 wurde Code für vollständige Konstruktionen (Bahnhöfe/Depots
 - Ein echter Spielerbau mit gleicher Segmentzahl kurz nach einer Kopie wurde für die Kopie gehalten. Fix v15: nur Bauten mit `isPlayerBuild=false` gelten als Kopie.
 - `actions.lua`: `api.type.Mat4f.cols` fehlt in TF3, und nicht jedes userdata hat `asTable`. Fix v15: `build.read_transf` und eigenes `to_plain`.
 - Haltestellen auf Straßen: Bau-Ereignis entfernt die Kante und legt sie mit `comp.objects` neu an; `edgeObjectsToAdd[i]` hat `name`, `playerEntity`. Noch nicht übertragen.
+
+### Probe v15: Haltestellen und Signale
+
+Token `o;<segment>;<side>;<param>;x,y,z;<model>;<name>;<flags>` hinter dem Segment, auf dem das Objekt sitzt (flags: `n` neu, `l` links, `w` Einbahn, sonst `-`).
+- Sender: Objekte aus `comp.objects` der neuen Segmente. Was schon auf einem entfernten Segment lag, gilt als bestehend; der Rest ist neu. Daten aus der Komponente `EDGE_OBJECT` (`param`, `transf`, `edgeObjectConstruction`), sonst `modelRep.getName(modelInstance.modelId)` aus `edgeObjectsToAdd`, dazu `left`/`name`.
+- Empfänger: Objekte auf seinen entfernten Kanten werden über die Position (3 m) zugeordnet und mit ihrer Id in `comp.objects` übernommen. Nicht zugeordnete eigene Objekte kommen in `edgeObjectsToRemove` (der andere Spieler hat sie entfernt), nicht gefundene gesendete kommen in `edgeObjectsToAdd`.
+- Nummerierung neuer Objekte in `comp.objects` ist nicht dokumentiert: `build.replay` versucht erst einen eigenen Zähler (-1, -2, …, wie die TF2-Mod), dann hinter Segmenten und Knoten.
+- Das erste Objekt pro Version wird vollständig geloggt (`stop/signal … read: …`).

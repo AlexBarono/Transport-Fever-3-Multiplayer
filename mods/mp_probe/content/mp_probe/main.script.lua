@@ -253,6 +253,7 @@ function main.finder(env)
 		find_node = function(position) return world.find_node(nodes(), position) end,
 		find_edge = function(a, b) return world.find_edge(env, a, b) end,
 		find_construction = function(file, position) return world.find_construction(env, file, position) end,
+		edge_objects_of = function(edge) return world.edge_objects_of(env, edge) end,
 	}
 end
 
@@ -302,6 +303,12 @@ function main.replay_line(env, line, number, state, distance)
 		return
 	end
 	for _, note in ipairs(notes or {}) do logger.info("replay note: " .. note) end
+	if #(data.objects or {}) > 0 or #(data.objects_to_remove or {}) > 0 then
+		local kept = 0
+		for _, o in ipairs(data.objects) do if o.entity then kept = kept + 1 end end
+		logger.info(string.format("replay stops/signals: %d sent, %d already here, %d to add, %d to remove",
+			#data.objects, kept, #data.objects - kept, #(data.objects_to_remove or {})))
+	end
 	if not found then
 		logger.info("replay SKIPPED: the build " .. tostring(missing))
 		return
@@ -473,6 +480,15 @@ function main.capture_build(state, s, param, label)
 		to_add = param[1].toAdd,
 		to_remove = param[1].toRemove,
 		construction = function(id) return cons[tostring(id)] end,
+		edge_object = function(id, from_proposal)
+			local o = world.edge_object_info(env, id, from_proposal)
+			if s.edge_object_logged ~= main.PROBE_VERSION then
+				-- First stop/signal of this version: everything that was read, for the docs.
+				logger.info("stop/signal " .. tostring(id) .. " read: " .. world.describe_edge_object(o))
+				s.edge_object_logged = main.PROBE_VERSION
+			end
+			return o
+		end,
 		read_transf = function(t)
 			local m, how = build.read_transf(t)
 			if m and s.transf_logged ~= main.PROBE_VERSION then
