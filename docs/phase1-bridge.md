@@ -252,3 +252,20 @@ Zur Ursache aus Lauf 10: TF3 hat kein `streetTypeRep`/`trackTypeRep` wie TF2 (`a
 - **Prüfung.** Die Zeile `proposal check` endet jetzt mit `lanes 4/4 lane[1] width 3 modes 3`. Fehlen die Spuren oder stimmt die erste nicht, wird nicht gesendet. Direkt vor dem Senden steht der vollständige erste Segment-Eintrag im Log (`---- replay proposal SimpleProposal/table edge[1]`), mit Spuren und Vorrang.
 - **Nur noch `SimpleProposal`.** `WorldBuildProposal` und `StreetProposal` sind entfernt, weil der Befehl sie nicht entschlüsseln kann. Wirft der Befehl einen inhaltlichen Fehler (`Unknown exception`), probiert der Mod keine weiteren Signaturen mehr. Das ergibt nur eine Fehlermeldung des Spiels pro Nachbau statt vier, und die Zeile lautet `replay: failed, SimpleProposal/table: the game rejected the proposal (…)`.
 - **Ruhezeit enger.** Als Kopie gilt nur ein Bau in der Ruhezeit mit genauso vielen Segmenten wie der Nachbau und ohne Konstruktionen. Stadtgebäude und andere Spielerbauten in diesen 10 Sekunden werden normal behandelt.
+
+## Ergebnis Lauf 11 (06.10.2026, Probe v11 + DLL v6)
+
+Logs: [logs/probe-log-11-mp_probe.txt](../logs/probe-log-11-mp_probe.txt), [logs/probe-log-11-context.txt](../logs/probe-log-11-context.txt), [logs/proxy-log-11.txt](../logs/proxy-log-11.txt)
+
+**Der Nachbau funktioniert.** Der Nutzer hat zwei Straßen gebaut, beide wurden 40 m daneben automatisch nachgebaut („hat geklappt“). Gleise wurden in diesem Lauf nicht getestet. Kein Hängen, keine Warnungen oder Assertions des Spiels nach dem Laden.
+
+- Aufzeichnung im Format B3 mit Fahrspuren, z. B. 4 Knoten/3 Segmente (524 Zeichen):
+  `t1;::/infrastructure/street/town/town_old_small.street_template;::/infrastructure/street/town/town_old.street;11.11,3,0.15,0,3,0.15|11.11,5,0,0,28,-0.5|11.11,5,0,1,28,0.5|11.11,3,0.15,1,3,-0.15`, Segment-Ende `;-1;1;0;1;2,2;2,2`
+- Ablauf: DLL `TF3MP_IN=replay 329` → Sim Pool 11 `replay #1 requested as script event (signature 1, 524 characters)` → Simulation Thread `replay event received`, `replay #1: 4 nodes, 3 segments, moved by 0.2,40.0, player 29125`.
+- `refused fields: edge.params: build.lua:310: cannot write to read only member (3x); edge.params: build.lua:224: no writable member 'params' (3x)`. Das ist harmlos, `params.precedenceNode0/1 = 2` stand trotzdem richtig drin.
+- `replay proposal check SimpleProposal/table: complete, nodes 4/4, edges 3/3, … owner 29125, lanes 4/4 lane[1] width 3 modes 3`
+- Kante 1 im gesendeten Vorschlag: `comp.{roadTemplate, roadStyle, roadType = 1, distance = 0, position0/1, laneConfigs (#4: width/speed/forward/height/offset/transportModes(#15)), roadDevelopmentLocked = false, edgeDecorations}`, `streetEdge.precedenceNode0/1 = 2`, `playerOwned.player = 29125`.
+- `replay result (SimpleProposal/table): BUILT, success=true, costs 9054, new entities 0, critical false` (zweiter Nachbau: 2 Segmente, costs 8024). `res.proposal.proposal.addedSegments` #3 mit neuen Entity-Ids 32029/32031/32032, `addedNodes` #4, `errorState.messages/warnings` leer, `resultEntities` #0 (bei Straßen normal, das gilt nur für Konstruktionen).
+- `build right after a replay (probably the copy, not captured): segments=3 nodes=4 … player build=false`. Das ist die Kopie selbst; sie wurde richtig nicht erneut aufgezeichnet.
+
+Damit ist der Kern von Phase 1 auf einem PC gezeigt: Spielerbau → Textzeile → DLL → Mod → derselbe Bau im Spiel. Gültige Form: `api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(SimpleProposal, Context, true), callback)` mit ganzen Listen in `streetProposal.nodesToAdd/edgesToAdd` und `comp.laneConfigs` aus dem Original. Offen: Gleise (B3 mit `type 1`), Anschluss an bestehende Knoten (`foreign_nodes`), Bahnhöfe/Konstruktionen.
