@@ -9,7 +9,9 @@
  *     LOCALAPPDATA, see docs/native-entry-point.md), and
  *   - starts the UDP peer link from net.c if alut_proxy.ini enables it
  *     (phase 1, step 2), and
- *   - tests the Lua <-> DLL bridge from bridge.c (phase 1, step 3).
+ *   - runs the Lua <-> DLL bridge from bridge.c (phase 1, step 3), which
+ *     hands captured build lines to net.c and received ones to the mod
+ *     (phase 1, step 4).
  *
  * DllMain runs under the loader lock, so it only uses kernel32/user32 and
  * leaves Winsock to the network thread.
@@ -37,7 +39,8 @@ int proxy_file_next_to_dll(char *out, const char *name)
 
 void proxy_log(const char *fmt, ...)
 {
-	char line[600];
+	/* wvsprintfA writes at most 1024 characters after the timestamp. */
+	char line[1100];
 	SYSTEMTIME t;
 	va_list args;
 	int len;

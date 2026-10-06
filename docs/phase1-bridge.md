@@ -269,3 +269,16 @@ Logs: [logs/probe-log-11-mp_probe.txt](../logs/probe-log-11-mp_probe.txt), [logs
 - `build right after a replay (probably the copy, not captured): segments=3 nodes=4 … player build=false`. Das ist die Kopie selbst; sie wurde richtig nicht erneut aufgezeichnet.
 
 Damit ist der Kern von Phase 1 auf einem PC gezeigt: Spielerbau → Textzeile → DLL → Mod → derselbe Bau im Spiel. Gültige Form: `api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(SimpleProposal, Context, true), callback)` mit ganzen Listen in `streetProposal.nodesToAdd/edgesToAdd` und `comp.laneConfigs` aus dem Original. Offen: Gleise (B3 mit `type 1`), Anschluss an bestehende Knoten (`foreign_nodes`), Bahnhöfe/Konstruktionen.
+
+## Netzwerk-Übertragung (Probe v12 + DLL v7)
+
+Lauf 11 hat gezeigt, dass eine aufgezeichnete Zeile auf einem PC wieder gebaut wird. Jetzt geht die Zeile über die DLL:
+
+1. Der Mod schreibt nach jeder aufgezeichneten Straße ohne fremde Knoten `net send <Zeile>` ins Log.
+2. Die DLL liest die Zeile aus `stdout.txt` und schickt sie per UDP an das andere Spiel (`TF3MP/1 LINE <token> <Zeile>`, Wiederholung jede Sekunde bis `TF3MP/1 GOT <token>`). Bei `mode=loopback` landet sie direkt im eigenen Eingang.
+3. Die DLL bietet die älteste empfangene Zeile über `TF3MP_IN=line <token> <net|loop> <Zeile>` an. Der Mod liest sie im nächsten Brücken-Tick, bestätigt mit `net received token=<token>` (bei jedem Tick, solange die DLL sie noch anbietet) und baut sie genau einmal: Der Token steht im Spielstand-Zustand. Das Token enthält die Prozess-ID der sendenden DLL, damit nach einem Neustart keine Zeile verschluckt wird.
+4. Gebaut wird wie bisher im Event-Zustand (Script-Event `mp_probe_replay`), `net` an derselben Stelle, `loop` 40 m daneben.
+
+Kein Echo: Ein nachgebauter Bau kommt mit `isPlayerBuild=false` an (Lauf 11) und wird nicht aufgezeichnet. Der alte DLL-Auslöser `replay <seq>` entfällt; der Mod versteht ihn weiterhin.
+
+Noch offen: Gleise, Straßen mit Anschluss an bestehende Knoten (Knoten-IDs unterscheiden sich zwischen den Spielen, Suche über die Position nötig), Bahnhöfe. Der Mitspieler bezahlt die nachgebaute Straße bisher selbst.

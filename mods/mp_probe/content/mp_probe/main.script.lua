@@ -11,7 +11,7 @@ local build = require("/mp_probe/build.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 11
+main.PROBE_VERSION = 12
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -59,6 +59,15 @@ main.REPLAY_EVENT = "mp_probe_replay"
 main.BRIDGE_EVERY = 50
 main.BRIDGE_ENV = "TF3MP_IN"
 
+--- Network transfer (phase 1, step 4). A build that can be rebuilt elsewhere is logged once more
+-- behind SEND_MARKER; the DLL picks the line out of stdout.txt and sends it to the other game (or,
+-- with mode=loopback, straight back to this one). A received line arrives in TF3MP_IN as
+-- "line <token> <kind> <text>" and stays there until the mod logs RECEIVED_MARKER with the token.
+-- kind "net" came from the other PC and is built in place; kind "loop" is the one-PC test and is
+-- built REPLAY_SIDE_OFFSET metres beside the original.
+main.SEND_MARKER = "net send "
+main.RECEIVED_MARKER = "net received token="
+
 --- Engine tables listed one by one, each with its own line budget (probe.MAX_LINES).
 main.LISTED_ROOTS = {
 	"api.engine", "api.type", "api.res", "api.cmd",
@@ -100,7 +109,10 @@ function main.bridge_tick(env, seq, s)
 	local ok, value = pcall(getenv, main.BRIDGE_ENV)
 	if not ok then value = "ERR " .. tostring(value) end
 	if value ~= last_bridge_in then
-		logger.info("bridge in " .. main.BRIDGE_ENV .. "=" .. tostring(value))
+		-- A received build line is long; its start is enough here.
+		local text = tostring(value)
+		if #text > 120 then text = text:sub(1, 120) .. "... (" .. #text .. " characters)" end
+		logger.info("bridge in " .. main.BRIDGE_ENV .. "=" .. text)
 		last_bridge_in = value
 	end
 	local request = type(value) == "string" and tonumber(string.match(value, "^replay (%d+)"))
@@ -108,6 +120,26 @@ function main.bridge_tick(env, seq, s)
 		s.last_replay_request = request
 		main.request_replay(env, s, request)
 	end
+	if type(value) == "string" and s then main.receive_line(env, s, value) end
+end
+
+--- Handles a "line <token> <kind> <text>" value from the DLL. The DLL keeps the value until it sees
+-- the acknowledgement in stdout.txt, so the same token can be read again by the next tick; it is
+-- built only once (the token is kept in the savegame state) but acknowledged every time.
+function main.receive_line(env, s, value)
+	local token, kind, line = string.match(value, "^line (%S+) (%a+) (.+)$")
+	if not token then return end
+	logger.info(main.RECEIVED_MARKER .. token .. " kind=" .. kind .. " (" .. #line .. " characters)")
+	if token == s.last_line_token then return end
+	s.last_line_token = token
+	local offset = kind == "loop" and main.REPLAY_SIDE_OFFSET or 0
+	local param = { line = line, number = token, offset = offset, source = kind }
+	if main.send_replay_event(env, param) then
+		logger.info("line " .. token .. " (" .. kind .. ") handed to the event state")
+		return
+	end
+	logger.info("line " .. token .. ": no script event possible, building in the update state")
+	main.replay_line(env, line, token, nil, offset)
 end
 
 --- Argument lists tried for api.cmd.makeScriptingSendEventCmd; TF2's equivalent took
@@ -132,21 +164,29 @@ function main.request_replay(env, s, request)
 	end
 	s.replays_requested = (s.replays_requested or 0) + 1
 	local param = { line = line, request = request, number = s.replays_requested }
+	local signature = main.send_replay_event(env, param)
+	if signature then
+		logger.info("replay #" .. param.number .. " requested as script event (signature " .. signature .. ", " ..
+			#line .. " characters)")
+		return
+	end
+	logger.info("replay: no script event possible, replaying in the update state")
+	main.replay_line(env, line, param.number)
+end
+
+--- Sends param to handleEvent as a REPLAY_EVENT script event. Returns the signature number that
+-- worked, or nil.
+function main.send_replay_event(env, param)
 	local api = env.api
 	for i, make_args in ipairs(main.EVENT_ARGS) do
 		local ok, err = pcall(function()
 			local args = make_args(main.REPLAY_EVENT, param)
 			api.cmd.sendCommand(api.cmd.makeScriptingSendEventCmd(args[1], args[2], args[3], args[4]))
 		end)
-		if ok then
-			logger.info("replay #" .. param.number .. " requested as script event (signature " .. i .. ", " ..
-				#line .. " characters)")
-			return
-		end
+		if ok then return i end
 		logger.info("replay event signature " .. i .. ": " .. tostring(err):sub(1, 200))
 	end
-	logger.info("replay: no script event possible, replaying in the update state")
-	main.replay_line(env, line, param.number)
+	return nil
 end
 
 function main.is_replay_event(src, id, name)
@@ -181,11 +221,12 @@ function main.log_replay_result(result, success, label, outcome)
 	if ok and #lines > 0 then log_lines("replay result fields", lines) end
 end
 
---- Rebuilds a captured line beside the original.
--- @param number number which replay of this session this is (for the log)
+--- Rebuilds a captured line, by default REPLAY_SIDE_OFFSET metres beside the original.
+-- @param number number|string which replay or received line this is (for the log)
 -- @param state table|nil script state; when given, the quiet time for the copy's own build event
 --   is stored there
-function main.replay_line(env, line, number, state)
+-- @param distance number|nil side offset in metres; 0 builds in place (line from the other PC)
+function main.replay_line(env, line, number, state, distance)
 	if type(line) ~= "string" then
 		logger.info("replay: no line in the request")
 		return
@@ -202,8 +243,12 @@ function main.replay_line(env, line, number, state)
 		s.quiet_segments = #data.segments
 		state:set(s)
 	end
-	local dx, dy = build.side_offset(data, main.REPLAY_SIDE_OFFSET)
-	build.offset(data, dx, dy)
+	distance = distance or main.REPLAY_SIDE_OFFSET
+	local dx, dy = 0, 0
+	if distance ~= 0 then
+		dx, dy = build.side_offset(data, distance)
+		build.offset(data, dx, dy)
+	end
 	local player = current_player(env)
 	logger.info(string.format("replay #%s: %d nodes, %d segments, moved by %.1f,%.1f, player %s",
 		tostring(number), #data.nodes, #data.segments, dx, dy, tostring(player)))
@@ -333,6 +378,7 @@ function main.capture_build(state, s, param, label)
 		s.last_build = line
 		state:set(s)
 		logger.info("capture stored for replay (" .. #line .. " characters)")
+		logger.info(main.SEND_MARKER .. line)
 	end
 end
 
@@ -340,6 +386,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	if main.is_replay_event(src, id, name) then
 		local line = type(param) == "table" and param.line or nil
 		local number = type(param) == "table" and param.number or nil
+		local distance = type(param) == "table" and tonumber(param.offset) or nil
 		logger.info("replay event received (src=" .. tostring(src) .. " id=" .. tostring(id) .. ", line " ..
 			(line and (#line .. " characters") or "missing") .. ")")
 		if not line then
@@ -347,7 +394,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			local s = state:get() or {}
 			line = s.last_build
 		end
-		main.replay_line(_G, line, number, state)
+		main.replay_line(_G, line, number, state, distance)
 		return
 	end
 	local s = state:get() or {}

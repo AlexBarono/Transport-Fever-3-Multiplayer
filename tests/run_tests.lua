@@ -945,6 +945,72 @@ test("a replay request travels as script event with the line, the event state bu
 	end)
 end)
 
+test("a stored capture is logged behind the send marker for the DLL", function()
+	with_engine_api({}, function()
+		logged = {}
+		local main = fresh_main()
+		main.handleEvent(nil, mock_state(), "", "apply_command", "onPostBuildProposal", player_build_param())
+		local found
+		for _, line in ipairs(logged) do
+			local at = line:find(main.SEND_MARKER, 1, true)
+			if at then found = line:sub(at + #main.SEND_MARKER) end
+		end
+		assert(found and found:sub(1, 3) == "B3 ", table.concat(logged, "\n"))
+		assert(build.deserialize(found), "the sent line parses")
+	end)
+end)
+
+test("a line from the other PC is built in place, once, and acknowledged on every tick", function()
+	local line = build.serialize(run5_street())
+	with_engine_api({ bridge_value = "line 4711.1 net " .. line }, function(t)
+		logged = {}
+		local s = {}
+		fresh_main().bridge_tick(t.env, 1, s)
+		fresh_main().bridge_tick(t.env, 2, s)
+		assert(#t.events == 1, "built once: " .. #t.events)
+		local acks = 0
+		for _, l in ipairs(logged) do
+			if l:find("net received token=4711.1 kind=net (" .. #line .. " characters)", 1, true) then acks = acks + 1 end
+		end
+		assert(acks == 2, "acknowledged on every tick: " .. acks .. "\n" .. table.concat(logged, "\n"))
+		local ev = t.events[1]
+		assert(ev[4].line == line and ev[4].offset == 0 and ev[4].source == "net")
+		logged = {}
+		fresh_main().handleEvent(nil, mock_state(), ev[1], ev[2], ev[3], ev[4])
+		assert(contains(logged, "replay #4711.1: 3 nodes, 2 segments, moved by 0.0,0.0"), table.concat(logged, "\n"))
+		assert(contains(logged, "replay result (SimpleProposal/table): BUILT"))
+		local nodes = sent_lists(t.sent[1].proposal)
+		assert(math.abs(nodes[1].comp.position.x - (-2888.017)) < 0.001, "built in place")
+	end)
+end)
+
+test("a loopback line is built beside the original", function()
+	local line = build.serialize(run5_street())
+	with_engine_api({ bridge_value = "line 9.2 loop " .. line }, function(t)
+		logged = {}
+		local s = { last_line_token = "9.1" }
+		fresh_main().bridge_tick(t.env, 1, s)
+		assert(#t.events == 1 and s.last_line_token == "9.2")
+		local ev = t.events[1]
+		assert(ev[4].offset == fresh_main().REPLAY_SIDE_OFFSET and ev[4].source == "loop")
+		logged = {}
+		fresh_main().handleEvent(nil, mock_state(), ev[1], ev[2], ev[3], ev[4])
+		assert(not contains(logged, "moved by 0.0,0.0"), table.concat(logged, "\n"))
+		assert(contains(logged, "replay result (SimpleProposal/table): BUILT"))
+		local nodes = sent_lists(t.sent[1].proposal)
+		assert(math.abs(nodes[1].comp.position.x - (-2888.017)) > 1, "moved beside")
+	end)
+end)
+
+test("without script events a received line is built in the update state", function()
+	with_engine_api({ bridge_value = "line 1.1 net " .. build.serialize(run5_street()), no_events = true }, function(t)
+		logged = {}
+		fresh_main().bridge_tick(t.env, 1, {})
+		assert(contains(logged, "line 1.1: no script event possible, building in the update state"), table.concat(logged, "\n"))
+		assert(#t.sent == 1)
+	end)
+end)
+
 test("a replay that builds nothing is reported as such", function()
 	with_engine_api({ build = { builds = {} } }, function(t)
 		logged = {}

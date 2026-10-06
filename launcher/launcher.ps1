@@ -127,9 +127,15 @@ function Get-ConnectionStatus($gameDir) {
 	$lines = @(Get-Content $log -Tail 3000)
 	$start = 0
 	for ($i = $lines.Count - 1; $i -ge 0; $i--) { if ($lines[$i] -match 'alut proxy v\S+ loaded') { $start = $i; break } }
-	$net = @($lines[$start..($lines.Count - 1)] | Where-Object { $_ -match ' net: | loaded| unloaded' })
+	$net = @($lines[$start..($lines.Count - 1)] | Where-Object { $_ -match ' net: | loaded| unloaded|bridge: the mod has line' })
 	$text = ($net | Select-Object -Last 12) -join "`r`n"
-	if ($net -match 'net: connected to') { $head = 'VERBUNDEN - die beiden Spiele haben sich gefunden.' }
+	if ($net -match 'net: loopback') {
+		$head = if ($net -match 'bridge: the mod has line') { 'ALLEIN-TEST: eine Straße ist durch die ganze Kette gelaufen.' } else { 'Allein-Test aktiv. Baue im Spiel eine Straße, dann erneut prüfen.' }
+	}
+	elseif ($net -match 'net: connected to') {
+		$head = 'VERBUNDEN - die beiden Spiele haben sich gefunden.'
+		if ($net -match 'delivered to the peer|received from the peer') { $head += "`r`nStraßen wurden übertragen (siehe die 'line'-Zeilen unten)." }
+	}
 	elseif ($net -match 'net: off') { $head = 'Netzwerk ist aus (keine Einstellungen gespeichert).' }
 	else { $head = 'Noch keine Verbindung zum Partner.' }
 	return "$head`r`n`r`n$text"
@@ -139,7 +145,7 @@ function Get-ConnectionStatus($gameDir) {
 $steam = Get-SteamRoot
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Transport Fever 3 Multiplayer (Test)'
-$form.Size = New-Object System.Drawing.Size(560, 560)
+$form.Size = New-Object System.Drawing.Size(560, 583)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -166,53 +172,59 @@ $browse.Add_Click({
 $form.Controls.Add($browse)
 
 $roleBox = New-Object System.Windows.Forms.GroupBox
-$roleBox.Text = 'Wer bist du?'; $roleBox.Location = New-Object System.Drawing.Point(15, 70); $roleBox.Size = New-Object System.Drawing.Size(515, 75)
+$roleBox.Text = 'Wer bist du?'; $roleBox.Location = New-Object System.Drawing.Point(15, 70); $roleBox.Size = New-Object System.Drawing.Size(515, 98)
 $hostRadio = New-Object System.Windows.Forms.RadioButton
 $hostRadio.Text = 'Gastgeber (der andere verbindet sich mit mir)'; $hostRadio.Location = New-Object System.Drawing.Point(12, 20); $hostRadio.Size = New-Object System.Drawing.Size(490, 22)
 $clientRadio = New-Object System.Windows.Forms.RadioButton
 $clientRadio.Text = 'Mitspieler (ich verbinde mich mit dem Gastgeber)'; $clientRadio.Location = New-Object System.Drawing.Point(12, 45); $clientRadio.Size = New-Object System.Drawing.Size(490, 22)
-$roleBox.Controls.AddRange(@($hostRadio, $clientRadio))
+$loopRadio = New-Object System.Windows.Forms.RadioButton
+$loopRadio.Text = 'Allein testen (eigene Straßen werden 40 m daneben nachgebaut)'; $loopRadio.Location = New-Object System.Drawing.Point(12, 70); $loopRadio.Size = New-Object System.Drawing.Size(490, 22)
+$roleBox.Controls.AddRange(@($hostRadio, $clientRadio, $loopRadio))
 $form.Controls.Add($roleBox)
 
-Add-Label 'IP-Adresse des Gastgebers:' 15 158 200 | Out-Null
+Add-Label 'IP-Adresse des Gastgebers:' 15 181 200 | Out-Null
 $ipBox = New-Object System.Windows.Forms.TextBox
-$ipBox.Location = New-Object System.Drawing.Point(215, 155); $ipBox.Size = New-Object System.Drawing.Size(150, 23)
+$ipBox.Location = New-Object System.Drawing.Point(215, 178); $ipBox.Size = New-Object System.Drawing.Size(150, 23)
 $form.Controls.Add($ipBox)
-Add-Label 'Port:' 380 158 40 | Out-Null
+Add-Label 'Port:' 380 181 40 | Out-Null
 $portBox = New-Object System.Windows.Forms.TextBox
-$portBox.Location = New-Object System.Drawing.Point(420, 155); $portBox.Size = New-Object System.Drawing.Size(110, 23)
+$portBox.Location = New-Object System.Drawing.Point(420, 178); $portBox.Size = New-Object System.Drawing.Size(110, 23)
 $form.Controls.Add($portBox)
 
-$myIp = Add-Label ("Deine IP-Adresse(n) im Heimnetz: " + (Get-LocalIPs)) 15 188 515 20
+$myIp = Add-Label ("Deine IP-Adresse(n) im Heimnetz: " + (Get-LocalIPs)) 15 211 515 20
 $hint = Add-Label ("Gastgeber: diese IP dem Mitspieler schicken. Windows fragt beim ersten Spielstart evtl. nach einer Firewall-Freigabe - erlauben.`r`n" +
-	"Übers Internet geht das nur mit Portfreigabe (UDP) am Router oder einem gemeinsamen VPN wie Tailscale oder ZeroTier.") 15 208 515 64
+	"Übers Internet geht das nur mit Portfreigabe (UDP) am Router oder einem gemeinsamen VPN wie Tailscale oder ZeroTier.") 15 231 515 64
 $hint.ForeColor = [System.Drawing.Color]::DimGray
 
 $install = New-Object System.Windows.Forms.Button
-$install.Text = 'Installieren / Speichern'; $install.Location = New-Object System.Drawing.Point(15, 278); $install.Size = New-Object System.Drawing.Size(165, 32)
+$install.Text = 'Installieren / Speichern'; $install.Location = New-Object System.Drawing.Point(15, 301); $install.Size = New-Object System.Drawing.Size(165, 32)
 $startGame = New-Object System.Windows.Forms.Button
-$startGame.Text = 'Spiel starten'; $startGame.Location = New-Object System.Drawing.Point(190, 278); $startGame.Size = New-Object System.Drawing.Size(110, 32)
+$startGame.Text = 'Spiel starten'; $startGame.Location = New-Object System.Drawing.Point(190, 301); $startGame.Size = New-Object System.Drawing.Size(110, 32)
 $check = New-Object System.Windows.Forms.Button
-$check.Text = 'Verbindung prüfen'; $check.Location = New-Object System.Drawing.Point(310, 278); $check.Size = New-Object System.Drawing.Size(125, 32)
+$check.Text = 'Verbindung prüfen'; $check.Location = New-Object System.Drawing.Point(310, 301); $check.Size = New-Object System.Drawing.Size(125, 32)
 $remove = New-Object System.Windows.Forms.Button
-$remove.Text = 'Entfernen'; $remove.Location = New-Object System.Drawing.Point(445, 278); $remove.Size = New-Object System.Drawing.Size(85, 32)
+$remove.Text = 'Entfernen'; $remove.Location = New-Object System.Drawing.Point(445, 301); $remove.Size = New-Object System.Drawing.Size(85, 32)
 $form.Controls.AddRange(@($install, $startGame, $check, $remove))
 
 $out = New-Object System.Windows.Forms.TextBox
 $out.Multiline = $true; $out.ReadOnly = $true; $out.ScrollBars = 'Vertical'
-$out.Location = New-Object System.Drawing.Point(15, 322); $out.Size = New-Object System.Drawing.Size(515, 185)
+$out.Location = New-Object System.Drawing.Point(15, 345); $out.Size = New-Object System.Drawing.Size(515, 185)
 $out.Font = New-Object System.Drawing.Font('Consolas', 8.5)
 $form.Controls.Add($out)
 
 function Update-Fields {
 	$ipBox.Enabled = $clientRadio.Checked
+	$portBox.Enabled = -not $loopRadio.Checked
 }
 $hostRadio.Add_CheckedChanged({ Update-Fields })
 $clientRadio.Add_CheckedChanged({ Update-Fields })
+$loopRadio.Add_CheckedChanged({ Update-Fields })
 
 # Vorhandene Einstellungen übernehmen
 $cfg = Read-Ini (Join-Path $gameBox.Text 'alut_proxy.ini')
-if ($cfg.mode -eq 'client') { $clientRadio.Checked = $true } else { $hostRadio.Checked = $true }
+if ($cfg.mode -eq 'client') { $clientRadio.Checked = $true }
+elseif ($cfg.mode -eq 'loopback') { $loopRadio.Checked = $true }
+else { $hostRadio.Checked = $true }
 $ipBox.Text = $cfg.host
 $portBox.Text = $cfg.port
 Update-Fields
@@ -222,14 +234,16 @@ function Show-Error($msg) { [System.Windows.Forms.MessageBox]::Show($msg, 'Fehle
 
 $install.Add_Click({
 	try {
-		$mode = if ($clientRadio.Checked) { 'client' } else { 'host' }
+		$mode = if ($clientRadio.Checked) { 'client' } elseif ($loopRadio.Checked) { 'loopback' } else { 'host' }
 		$port = $portBox.Text.Trim()
 		if ($port -notmatch '^\d+$' -or [int]$port -lt 1024 -or [int]$port -gt 65535) { throw 'Der Port muss eine Zahl zwischen 1024 und 65535 sein (Standard 47800).' }
 		$ip = $ipBox.Text.Trim()
 		$parsed = $null
 		if ($mode -eq 'client' -and -not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) { throw 'Bitte die IP-Adresse des Gastgebers eingeben, z. B. 192.168.1.10.' }
 		$n = Install-All $gameBox.Text.Trim() $mode $port $ip $steam
-		$role = if ($mode -eq 'client') { "Mitspieler, verbindet sich mit $($ip):$port" } else { "Gastgeber, wartet auf Port $port" }
+		$role = if ($mode -eq 'client') { "Mitspieler, verbindet sich mit $($ip):$port" }
+			elseif ($mode -eq 'loopback') { 'Allein testen, eigene Straßen kommen 40 m daneben zurück' }
+			else { "Gastgeber, wartet auf Port $port" }
 		$out.Text = "Installiert.`r`nRolle: $role`r`nMod kopiert in $n Steam-Konto/Konten.`r`n`r`nJetzt 'Spiel starten', einen Spielstand laden und danach 'Verbindung prüfen'."
 	} catch { Show-Error $_.Exception.Message }
 })

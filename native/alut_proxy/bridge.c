@@ -1,13 +1,21 @@
 /*
- * Lua <-> DLL bridge test (phase 1).
+ * Lua <-> DLL bridge (phase 1).
  *
  * TF3 mods run in a Lua sandbox without io, so the file exchange of the TF2
- * multiplayer mod is not possible. This tests two other ways:
- *   - Lua -> DLL: the mp_probe mod writes "[mp_probe]bridge out seq=N" with
- *     debugPrint into stdout.txt; this thread tails that file.
+ * multiplayer mod is not possible. Instead:
+ *   - Lua -> DLL: the mp_probe mod writes tagged lines with debugPrint into
+ *     stdout.txt; this thread tails that file.
  *   - DLL -> Lua: this thread sets the environment variable TF3MP_IN with
- *     _putenv_s of ucrtbase.dll, the C runtime the game itself uses, so the
- *     mod's os.getenv("TF3MP_IN") should see it.
+ *     _putenv_s of ucrtbase.dll, the C runtime the game itself uses, and the
+ *     mod reads it with os.getenv("TF3MP_IN") every bridge tick.
+ *
+ * Lines the DLL reacts to:
+ *   "net send <line>"           a build the mod captured; goes to net.c
+ *   "net received token=<t> "   the mod has the received line <t>; it is
+ *                               dropped and the next one offered
+ *   "bridge out seq=<n>"        a bridge tick; TF3MP_IN is refreshed with
+ *                               "line <token> <kind> <line>" for the oldest
+ *                               received line, or "ack <n>" if there is none
  * Results go to alut_proxy.log. Built without the C runtime (see build.bat),
  * so only kernel32 functions and hand-written string helpers are used.
  */
@@ -15,7 +23,8 @@
 
 #define TAIL_INTERVAL_MS 500
 #define READ_CHUNK 8192
-#define LINE_MAX_LEN 1024
+/* A captured build line plus the game's log prefix. */
+#define LINE_MAX_LEN (NET_LINE_MAX + 256)
 
 typedef int (__cdecl *putenv_s_fn)(const char *name, const char *value);
 
@@ -26,13 +35,13 @@ static char stdout_path[MAX_PATH];
 static char read_buf[READ_CHUNK];
 static char line_buf[LINE_MAX_LEN];
 static int line_len;
+static int line_cut;
+static char env_value[NET_LINE_MAX + 64];
 
 /* Without the "[mp_probe]" tag, in case debugPrint separates its arguments. */
 static const char MARKER[] = "bridge out seq=";
-/* The mod logs this each time it stores a build; the DLL then asks for one replay of it. The mod
- * itself limits the number of replays and ignores the copy's own build event. */
-static const char CAPTURE_MARKER[] = "capture stored for replay";
-static int replay_requested;
+static const char SEND_MARKER[] = "net send ";
+static const char RECEIVED_MARKER[] = "net received token=";
 
 static const char *find(const char *hay, const char *needle)
 {
@@ -55,74 +64,104 @@ static void set_env(const char *value)
 	if (!putenv_s)
 		return;
 	err = putenv_s("TF3MP_IN", value);
-	proxy_log("bridge: TF3MP_IN=%s (%s)", value, err == 0 ? "ok" : "failed");
+	/* A build line is long; the log only needs its start. */
+	proxy_log("bridge: TF3MP_IN=%.80s%s (%s)", value, lstrlenA(value) > 80 ? "..." : "", err == 0 ? "ok" : "failed");
 }
 
-/* Finds the newest Steam\userdata\<id>\3493540\local\crash_dump\stdout.txt.
- * The DLL sits in Steam\steamapps\common\Transport Fever 3, three levels below Steam. */
-static int find_stdout(void)
+/* Offers the oldest received line to the mod, or acknowledges the tick. */
+static void refresh_env(unsigned long seq)
 {
-	char steam[MAX_PATH], pattern[MAX_PATH], candidate[MAX_PATH];
+	if (!net_inbox_value(env_value, sizeof(env_value)))
+		wsprintfA(env_value, "ack %lu", seq);
+	set_env(env_value);
+}
+
+/* Picks the newest <steam>\userdata\<id>\3493540\local\crash_dump\stdout.txt into stdout_path. */
+static void search_userdata(const char *steam, FILETIME *newest)
+{
+	char pattern[MAX_PATH], candidate[MAX_PATH];
 	WIN32_FIND_DATAA entry;
 	WIN32_FILE_ATTRIBUTE_DATA attr;
-	FILETIME newest = { 0, 0 };
 	HANDLE search;
+
+	if (lstrlenA(steam) > MAX_PATH - 80)
+		return;
+	wsprintfA(pattern, "%s\\userdata\\*", steam);
+	search = FindFirstFileA(pattern, &entry);
+	if (search == INVALID_HANDLE_VALUE)
+		return;
+	do {
+		if (entry.cFileName[0] == '.' || !(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+			continue;
+		wsprintfA(candidate, "%s\\userdata\\%s\\3493540\\local\\crash_dump\\stdout.txt", steam, entry.cFileName);
+		if (GetFileAttributesExA(candidate, GetFileExInfoStandard, &attr) &&
+		    CompareFileTime(&attr.ftLastWriteTime, newest) > 0) {
+			*newest = attr.ftLastWriteTime;
+			lstrcpyA(stdout_path, candidate);
+		}
+	} while (FindNextFileA(search, &entry));
+	FindClose(search);
+}
+
+/* Finds stdout.txt under the Steam folder. Steam keeps userdata in its own folder, which the
+ * registry names; the game may sit in another Steam library. As a fallback the DLL's own path is
+ * used: in the main library it is Steam\steamapps\common\Transport Fever 3\alut.dll. */
+static int find_stdout(void)
+{
+	char steam[MAX_PATH];
+	FILETIME newest = { 0, 0 };
+	DWORD size = sizeof(steam);
 	int i, levels = 0;
 
-	if (!proxy_file_next_to_dll(steam, "x"))
-		return 0;
+	if (RegGetValueA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "SteamPath", RRF_RT_REG_SZ, NULL, steam, &size) == ERROR_SUCCESS)
+		search_userdata(steam, &newest);
+	if (stdout_path[0] || !proxy_file_next_to_dll(steam, "x"))
+		return stdout_path[0] != 0;
 	for (i = lstrlenA(steam) - 1; i > 0; i--) {
 		if (steam[i] == '\\' && ++levels == 4) {
 			steam[i] = 0;
 			break;
 		}
 	}
-	if (levels < 4)
-		return 0;
-	wsprintfA(pattern, "%s\\userdata\\*", steam);
-	search = FindFirstFileA(pattern, &entry);
-	if (search == INVALID_HANDLE_VALUE)
-		return 0;
-	do {
-		if (entry.cFileName[0] == '.' || !(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-			continue;
-		wsprintfA(candidate, "%s\\userdata\\%s\\3493540\\local\\crash_dump\\stdout.txt", steam, entry.cFileName);
-		if (GetFileAttributesExA(candidate, GetFileExInfoStandard, &attr) &&
-		    CompareFileTime(&attr.ftLastWriteTime, &newest) > 0) {
-			newest = attr.ftLastWriteTime;
-			lstrcpyA(stdout_path, candidate);
-		}
-	} while (FindNextFileA(search, &entry));
-	FindClose(search);
+	if (levels == 4)
+		search_userdata(steam, &newest);
 	return stdout_path[0] != 0;
 }
 
 static void handle_line(void)
 {
 	const char *hit, *p;
-	char value[48];
+	char token[32];
 	unsigned long seq = 0;
+	int n = 0;
 
 	line_buf[line_len] = 0;
-	if (find(line_buf, CAPTURE_MARKER)) {
-		proxy_log("bridge: the mod stored a build for replay");
-		replay_requested = 1;
+	hit = find(line_buf, SEND_MARKER);
+	if (hit) {
+		if (line_cut)
+			proxy_log("bridge: captured line longer than %d characters, not sent", LINE_MAX_LEN - 1);
+		else
+			net_send_line(hit + sizeof(SEND_MARKER) - 1);
+		return;
+	}
+	hit = find(line_buf, RECEIVED_MARKER);
+	if (hit) {
+		for (p = hit + sizeof(RECEIVED_MARKER) - 1; *p && *p != ' ' && n < (int)sizeof(token) - 1; p++)
+			token[n++] = *p;
+		token[n] = 0;
+		if (net_inbox_ack(token)) {
+			proxy_log("bridge: the mod has line %s", token);
+			/* Offer the next line right away instead of on the next tick. */
+			refresh_env(0);
+		}
+		return;
 	}
 	hit = find(line_buf, MARKER);
 	if (!hit)
 		return;
 	for (p = hit + sizeof(MARKER) - 1; *p >= '0' && *p <= '9'; p++)
 		seq = seq * 10 + (unsigned long)(*p - '0');
-	proxy_log("bridge: got from Lua: bridge out seq=%lu", seq);
-	if (replay_requested == 1) {
-		/* One tick after the capture, ask the mod to rebuild it (phase 1 test on one PC). */
-		replay_requested = 0;
-		wsprintfA(value, "replay %lu", seq);
-		proxy_log("bridge: asking the mod to replay the stored build");
-	} else {
-		wsprintfA(value, "ack %lu", seq);
-	}
-	set_env(value);
+	refresh_env(seq);
 }
 
 static DWORD WINAPI bridge_thread(LPVOID arg)
@@ -158,6 +197,7 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 			if (first || size.QuadPart < offset.QuadPart) {
 				offset.QuadPart = first ? size.QuadPart : 0;
 				line_len = 0;
+				line_cut = 0;
 				first = 0;
 			}
 			SetFilePointerEx(file, offset, NULL, FILE_BEGIN);
@@ -168,8 +208,12 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 					if (c == '\n') {
 						handle_line();
 						line_len = 0;
-					} else if (c != '\r' && line_len < LINE_MAX_LEN - 1) {
-						line_buf[line_len++] = c;
+						line_cut = 0;
+					} else if (c != '\r') {
+						if (line_len < LINE_MAX_LEN - 1)
+							line_buf[line_len++] = c;
+						else
+							line_cut = 1;
 					}
 				}
 			}
