@@ -43,6 +43,29 @@ local function contains(lines, needle)
 	return false
 end
 
+--- transportModes as the engine hands them out (run 5): keys 0..15, true for the given modes.
+local function modes(...)
+	local t = {}
+	for k = 0, 15 do t[k] = false end
+	for _, k in ipairs({ ... }) do t[k] = true end
+	return t
+end
+
+-- The four lanes of town_old_small (run 5 raw dump): sidewalk, two car lanes, sidewalk.
+local function town_old_small_lanes()
+	local function lane(width, height, forward, transport_modes, offset)
+		return { speed = 11.109999656677, width = width, height = height, forward = forward,
+			transportModes = transport_modes, offset = offset }
+	end
+	return {
+		lane(3, 0.15000000596046, false, modes(0, 1), 0.15000000596046),
+		lane(5, 0, false, modes(1, 2, 3), -0.5),
+		lane(5, 0, true, modes(1, 2, 3), 0.5),
+		lane(3, 0.15000000596046, true, modes(0, 1), -0.15000000596046),
+	}
+end
+local TOWN_LANES = "11.11,3,0.15,0,3,0.15|11.11,5,0,0,14,-0.5|11.11,5,0,1,14,0.5|11.11,3,0.15,1,3,-0.15"
+
 -- Street build of run 5 (logs/probe-log-5-mp_probe.txt, "player #1"): 3 new nodes, 2 new segments.
 local function run5_street()
 	local function node(entity, x, y, z)
@@ -56,7 +79,10 @@ local function run5_street()
 			roadStyle = "::/infrastructure/street/town/town_old.street",
 			tangent0 = { x = t0[1], y = t0[2], z = t0[3] },
 			tangent1 = { x = t1[1], y = t1[2], z = t1[3] },
-		} }
+			laneConfigs = town_old_small_lanes(),
+		},
+		params = { precedenceNode0 = 2, precedenceNode1 = 2 },
+		streetEdge = { precedenceNode0 = 2, precedenceNode1 = 2 } }
 	end
 	return {
 		addedNodes = {
@@ -383,16 +409,16 @@ test("serialize turns a captured street into one line with placeholder ids", fun
 	local line, info = build.serialize(run5_street())
 	assert(info.nodes == 3 and info.segments == 2, info.nodes .. "/" .. info.segments)
 	assert(info.foreign_nodes == 0, "all three nodes are new")
-	assert(line:sub(1, 2) == "B2", line)
+	assert(line:sub(1, 2) == "B3", line)
 	assert(line:find("n-1;-2888.017,-3941.508,1.675", 1, true), line)
 	assert(line:find("s-1;0;-1;-2;", 1, true), line)
 	assert(line:find("s-2;0;-2;-3;", 1, true), line)
 	assert(not line:find("51389", 1, true), "engine ids must not travel")
-	assert(line:find(" t1;::/infrastructure/street/town/town_old_small.street_template;::/infrastructure/street/town/town_old.street ", 1, true), line)
-	assert(line:find("s-2;0;-2;-3;69.474,54.226,-0.336;69.474,54.226,-0.47;-1;1;0;1", 1, true), line)
+	assert(line:find(" t1;::/infrastructure/street/town/town_old_small.street_template;::/infrastructure/street/town/town_old.street;" .. TOWN_LANES .. " ", 1, true), line)
+	assert(line:find("s-2;0;-2;-3;69.474,54.226,-0.336;69.474,54.226,-0.47;-1;1;0;1;2,2;2,2", 1, true), line)
 	local _, templates = line:gsub("town_old_small", "")
-	assert(templates == 1, "the template is written once")
-	assert(#line < 400, "a street build fits in a short line: " .. #line)
+	assert(templates == 1, "the template and its lanes are written once")
+	assert(#line < 600, "a street build fits in a short line: " .. #line)
 end)
 
 test("serialize counts nodes the player connected to", function()
@@ -400,6 +426,18 @@ test("serialize counts nodes the player connected to", function()
 	proposal.addedNodes = { proposal.addedNodes[1] }
 	local _, info = build.serialize(proposal)
 	assert(info.foreign_nodes == 3, info.foreign_nodes)
+end)
+
+test("serialize gives each lane layout its own road token and marks missing params", function()
+	local proposal = run5_street()
+	local seg = proposal.addedSegments[2]
+	seg.comp.laneConfigs = { { speed = 33.3, width = 3.5, height = 0, forward = true, transportModes = modes(4), offset = 0 } }
+	seg.params = nil
+	local line = build.serialize(proposal)
+	assert(line:find(" t2;::/infrastructure/street/town/town_old_small.street_template;::/infrastructure/street/town/town_old.street;33.3,3.5,0,1,16,0 ", 1, true), line)
+	assert(line:find("s-2;0;-2;-3;69.474,54.226,-0.336;69.474,54.226,-0.47;-1;1;0;2;-;2,2", 1, true), line)
+	seg.comp.laneConfigs = {}
+	assert(build.serialize(proposal):find("/town_old.street;- ", 1, true), "a segment without lanes says so")
 end)
 
 test("deserialize restores positions, tangents and node links", function()
@@ -414,17 +452,26 @@ test("deserialize restores positions, tangents and node links", function()
 	assert(data.segments[1].roadType == 1 and data.segments[1].distance == 0)
 	assert(data.segments[2].roadStyle == "::/infrastructure/street/town/town_old.street")
 	assert(math.abs(data.segments[1].tangent0.y - 54.226) < 0.001, data.segments[1].tangent0.y)
+	local lanes = data.segments[1].lanes
+	assert(#lanes == 4 and lanes[1].width == 3 and lanes[1].forward == false and lanes[1].modes == 3)
+	assert(lanes[2].modes == 14 and lanes[3].forward == true and lanes[3].offset == 0.5)
+	assert(math.abs(lanes[4].offset + 0.15) < 1e-9 and math.abs(lanes[1].speed - 11.11) < 1e-9)
+	assert(data.segments[1].params[1] == 2 and data.segments[2].streetEdge[2] == 2)
 end)
 
 test("deserialize rejects broken lines", function()
 	assert(build.deserialize("n-1;1,2,3") == nil, "a line without a version is rejected")
 	assert(build.deserialize("B99 n-1;1,2,3") == nil, "a newer format is rejected")
-	assert(build.deserialize("B2 n-1;1,2") == nil, "a short position is rejected")
-	assert(build.deserialize("B2 s-1;0;-1") == nil, "a short segment is rejected")
-	assert(build.deserialize("B2 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;7") == nil, "an undefined road type is rejected")
-	assert(build.deserialize("B1 s-1;0;-1;-2;1,0,0;1,0,0;-1") == nil, "format 1 lacks the road type")
+	assert(build.deserialize("B3 n-1;1,2") == nil, "a short position is rejected")
+	assert(build.deserialize("B3 s-1;0;-1") == nil, "a short segment is rejected")
+	assert(build.deserialize("B3 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;7;-;-") == nil, "an undefined road type is rejected")
+	assert(build.deserialize("B3 t1;a;b;1,2,3 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a short lane is rejected")
+	assert(build.deserialize("B3 t1;a;b s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a road token without lanes is rejected")
+	assert(build.deserialize("B2 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1") == nil, "format 2 lacks the lanes")
+	local no_lanes = assert(build.deserialize("B3 t1;a;b;- s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-"))
+	assert(no_lanes.segments[1].lanes == nil and no_lanes.segments[1].params == nil)
 	assert(build.deserialize(42) == nil)
-	local data = assert(build.deserialize("B2"), "an empty proposal parses")
+	local data = assert(build.deserialize("B3"), "an empty proposal parses")
 	assert(#data.nodes == 0 and #data.segments == 0)
 end)
 
@@ -432,6 +479,8 @@ end)
 -- list gives a copy, so a change only reaches the owner when it is assigned back. Unknown fields
 -- and values of the wrong kind raise, as the C++ binding does.
 local STRUCT = {}
+--- Marks a known field whose value is nil (run 5: a track segment has params = nil).
+local NIL = {}
 
 local function struct_info(v)
 	local mt = type(v) == "table" and getmetatable(v)
@@ -452,11 +501,13 @@ local function new_struct(type_name, store, lists, opts)
 		__index = function(_, k)
 			local v = store[k]
 			if v == nil then error("no field " .. tostring(k) .. " in " .. type_name) end
+			if v == NIL then return nil end
 			return copy_value(v)
 		end,
 		__newindex = function(_, k, v)
 			local old = store[k]
 			if old == nil then error("cannot set unknown field " .. tostring(k) .. " of " .. type_name) end
+			if info.opts.ignore_writes and info.opts.ignore_writes[k] then return end
 			if lists[k] then
 				local items = vector_items(v)
 				if not items then
@@ -473,8 +524,7 @@ local function new_struct(type_name, store, lists, opts)
 			if old_info and (struct_info(v) or {}).type_name ~= old_info.type_name then
 				error("Error decoding " .. old_info.type_name .. " for " .. k)
 			end
-			if info.opts.ignore_writes and info.opts.ignore_writes[k] then return end
-			store[k] = copy_value(v)
+			store[k] = v == nil and NIL or copy_value(v)
 		end,
 	})
 end
@@ -486,15 +536,15 @@ function copy_value(v)
 		for k, x in pairs(info.store) do store[k] = copy_value(x) end
 		return new_struct(info.type_name, store, info.lists, info.opts)
 	end
-	if type(v) == "table" and not vector_items(v) then
-		local list = {}
-		for i = 1, #v do list[i] = copy_value(v[i]) end
-		return list
+	if type(v) == "table" and v ~= NIL and not vector_items(v) then
+		local copy = {}
+		for k, x in pairs(v) do copy[k] = copy_value(x) end
+		return copy
 	end
 	return v
 end
 
---- A struct with the given fields; the value "list" marks a list field.
+--- A struct with the given fields; the value "list" marks a list field, NIL a field that is nil.
 local function struct(type_name, fields, opts)
 	local store, lists = {}, {}
 	for k, v in pairs(fields) do
@@ -536,12 +586,15 @@ test("the struct mock hands out copies, as TF3 did in run 9", function()
 end)
 
 --- Mock of the TF3 types used when rebuilding.
--- @param opts table|nil { layouts = set of proposal type names that exist (default all),
---   refuse_tables = lists only take Vector_* objects, lose_positions = node positions are
---   silently not stored, builds = set of proposal types the game builds (default all),
---   required_args = number of arguments makeWorldBuildProposalCmd insists on }
+-- @param opts table { layouts = set of proposal type names that exist (default all),
+--   refuse_tables = lists only take Vector_* objects, lose_positions / lose_lanes = node positions
+--   or segment lanes are silently not stored, empty_modes = a new LaneConfig hands out an empty
+--   transportModes table, builds = set of proposal types the game builds (default all),
+--   required_args = number of arguments makeWorldBuildProposalCmd insists on, content_error =
+--   makeWorldBuildProposalCmd fails like run 10 }
 local function mock_types(opts)
 	local function vec3(x, y, z) return struct("Vec3f", { x = x or 0, y = y or 0, z = z or 0 }) end
+	local list_opts = { refuse_tables = opts.refuse_tables, ignore_writes = opts.lose_lanes and { laneConfigs = true } or nil }
 	local t = {
 		Vec3f = { new = vec3 },
 		Context = { new = function()
@@ -549,6 +602,11 @@ local function mock_types(opts)
 				gatherFields = true, checkTerrainAlignment = false })
 		end },
 		PlayerOwned = { new = function() return struct("PlayerOwned", { player = -1 }) end },
+		BaseEdgeStreet = { new = function() return struct("BaseEdgeStreet", { precedenceNode0 = 0, precedenceNode1 = 0 }) end },
+		LaneConfig = { new = function()
+			return struct("LaneConfig", { speed = 0, width = 0, height = 0, forward = false, offset = 0,
+				transportModes = opts.empty_modes and {} or modes() })
+		end },
 		NodeAndEntity = { new = function()
 			return struct("NodeAndEntity", { entity = 0, comp = struct("BaseNode", { position = vec3() },
 				{ ignore_writes = opts.lose_positions and { position = true } or nil }) })
@@ -559,16 +617,18 @@ local function mock_types(opts)
 				comp = struct("BaseEdge", {
 					node0 = 0, node1 = 0, position0 = vec3(), position1 = vec3(), tangent0 = vec3(), tangent1 = vec3(),
 					type = 0, typeIndex = 0, roadTemplate = "", roadStyle = "", roadType = 0, distance = 0,
-				}),
+					laneConfigs = "list",
+				}, list_opts),
+				params = NIL,
+				streetEdge = struct("BaseEdgeStreet", { precedenceNode0 = 0, precedenceNode1 = 0 }),
 				playerOwned = struct("PlayerOwned", { player = -1 }),
 			})
 		end },
 		Vector_NodeAndEntity = { new = vector },
 		Vector_SegmentAndEntity = { new = vector },
+		Vector_LaneConfig = { new = vector },
 	}
-	local list_opts = { refuse_tables = opts.refuse_tables }
-	local function exists(name) return opts.layouts == nil or opts.layouts[name] end
-	if exists("SimpleProposal") then
+	if opts.layouts == nil or opts.layouts.SimpleProposal then
 		t.SimpleProposal = { new = function()
 			return struct("SimpleProposal", {
 				streetProposal = struct("SimpleStreetProposal", { nodesToAdd = "list", edgesToAdd = "list" }, list_opts),
@@ -576,38 +636,13 @@ local function mock_types(opts)
 			})
 		end }
 	end
-	if exists("WorldBuildProposal") then
-		t.WorldBuildProposal = { new = function()
-			return struct("WorldBuildProposal", {
-				proposal = struct("Proposal", {
-					proposal = struct("StreetProposal", { addedNodes = "list", addedSegments = "list" }, list_opts),
-					toAdd = "list", toRemove = "list",
-				}),
-				context = t.Context.new(),
-			})
-		end }
-	end
-	if exists("StreetProposal") then
-		t.StreetProposal = { new = function()
-			return struct("StreetProposal", { addedNodes = "list", addedSegments = "list" }, list_opts)
-		end }
-	end
 	return t
 end
 
---- The node and edge lists a sent proposal carries, read the way the game would.
+--- The node and edge lists a sent SimpleProposal carries, read the way the game would.
 local function sent_lists(proposal)
-	local name = type_name_of(proposal)
-	if name == "SimpleProposal" then
-		local sp = proposal.streetProposal
-		return sp.nodesToAdd, sp.edgesToAdd
-	elseif name == "WorldBuildProposal" then
-		local inner = proposal.proposal.proposal
-		return inner.addedNodes, inner.addedSegments
-	elseif name == "StreetProposal" then
-		return proposal.addedNodes, proposal.addedSegments
-	end
-	return {}, {}
+	local sp = proposal.streetProposal
+	return sp.nodesToAdd, sp.edgesToAdd
 end
 
 --- api mock for rebuilding: the game "builds" a sent proposal with segments (one new entity per
@@ -619,9 +654,14 @@ local function mock_build_api(opts)
 		type = mock_types(opts),
 		cmd = {
 			makeWorldBuildProposalCmd = function(proposal, context, flag)
-				if opts.required_args and select("#", proposal, context, flag) ~= opts.required_args then
-					error("wrong number of arguments")
+				if type_name_of(proposal) ~= "SimpleProposal" then
+					error("Error decoding argument #2: The lua object can't be cast to desired type")
 				end
+				if opts.required_args and select("#", proposal, context, flag) ~= opts.required_args then
+					error("bad argument #3 to 'makeWorldBuildProposalCmd' (wrong number of arguments)")
+				end
+				-- Like the game, the error points at the line in build.lua that made the call.
+				if opts.content_error then error("Unknown exception", 2) end
 				return { proposal = proposal, context = context, flag = flag }
 			end,
 			sendCommand = function(cmd, callback)
@@ -650,10 +690,11 @@ end
 
 test("replay assigns whole lists to a SimpleProposal whose lists are copies", function()
 	local env, sent = mock_build_api()
-	local logs, results = {}, {}
+	local logs, results, inspected = {}, {}, {}
 	local ok, message = build.replay(env, street_data(), {
 		log = function(line) logs[#logs + 1] = line end,
 		on_result = function(_, success, label, outcome) results[#results + 1] = { label, outcome, success } end,
+		inspect = function(label, _, edge_list) inspected[#inspected + 1] = label .. " " .. #edge_list end,
 		player = 29125,
 	})
 	assert(ok, message)
@@ -672,14 +713,23 @@ test("replay assigns whole lists to a SimpleProposal whose lists are copies", fu
 	assert(math.abs(edges[2].comp.position1.x + 2749.069) < 0.001, "position1 is the end node's position")
 	assert(edges[1].playerOwned.player == 29125)
 	assert(math.abs(nodes[1].comp.position.z - 1.675) < 0.001)
+	local lanes = edges[2].comp.laneConfigs
+	assert(#lanes == 4, "lanes " .. #lanes)
+	assert(lanes[1].width == 3 and lanes[1].forward == false and math.abs(lanes[1].offset - 0.15) < 1e-9)
+	assert(lanes[3].forward == true and lanes[3].transportModes[3] == true and lanes[3].transportModes[0] == false)
+	assert(build.modes_to_mask(lanes[4].transportModes) == 3)
+	assert(edges[1].params.precedenceNode0 == 2 and edges[1].params.precedenceNode1 == 2, "missing params are created")
+	assert(edges[2].streetEdge.precedenceNode1 == 2)
 	assert(sent[1].context.player == 29125 and sent[1].context.cleanupStreetGraph == true)
-	assert(contains(logs, "proposal check SimpleProposal/table: complete, nodes 3/3, edges 2/2, node[1] -3 at -2888.0,-3941.5,1.7, edge[1] -1 type 0 nodes -3->-4 tangent0 69.5,54.2,-0.2 template town_old_small.street_template owner 29125"),
+	assert(contains(logs, "proposal check SimpleProposal/table: complete, nodes 3/3, edges 2/2, node[1] -3 at -2888.0,-3941.5,1.7, edge[1] -1 type 0 nodes -3->-4 tangent0 69.5,54.2,-0.2 template town_old_small.street_template owner 29125, lanes 4/4 lane[1] width 3 modes 3"),
 		table.concat(logs, "\n"))
+	assert(not contains(logs, "refused fields"), table.concat(logs, "\n"))
+	assert(#inspected == 1 and inspected[1] == "SimpleProposal/table 2", table.concat(inspected, "|"))
 	assert(#results == 1 and results[1][1] == "SimpleProposal/table" and results[1][2].built == true)
 	assert(results[1][2].costs == 1000 and results[1][2].entities == 5)
 end)
 
-test("lists that refuse a Lua table get TF3's vector type", function()
+test("lists that refuse a Lua table get TF3's vector types, lanes included", function()
 	local env, sent = mock_build_api({ refuse_tables = true })
 	local logs = {}
 	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
@@ -688,7 +738,15 @@ test("lists that refuse a Lua table get TF3's vector type", function()
 	assert(contains(logs, "proposal check SimpleProposal/table: INCOMPLETE, nodes 0/3, edges 0/2"))
 	assert(contains(logs, "proposal check SimpleProposal/vector: complete, nodes 3/3, edges 2/2"))
 	local nodes, edges = sent_lists(sent[1].proposal)
-	assert(#nodes == 3 and #edges == 2)
+	assert(#nodes == 3 and #edges == 2 and #edges[1].comp.laneConfigs == 4)
+end)
+
+test("transport modes are set even when the engine's copy has no keys", function()
+	local env, sent = mock_build_api({ empty_modes = true })
+	local ok, message = build.replay(env, street_data())
+	assert(ok, message)
+	local _, edges = sent_lists(sent[1].proposal)
+	assert(build.modes_to_mask(edges[1].comp.laneConfigs[2].transportModes) == 14)
 end)
 
 test("a proposal that does not read back complete is never sent", function()
@@ -699,56 +757,83 @@ test("a proposal that does not read back complete is never sent", function()
 	assert(#sent == 0, "nothing at the map origin")
 	assert(contains(logs, "proposal check SimpleProposal/table: INCOMPLETE, nodes 3/3, edges 2/2, node[1] -3 at 0.0,0.0,0.0, expected at -2888.0,-3941.5,1.7"),
 		table.concat(logs, "\n"))
-	assert(contains(logs, "proposal check WorldBuildProposal/vector: INCOMPLETE"))
+	assert(contains(logs, "proposal check SimpleProposal/vector: INCOMPLETE"))
 end)
 
-test("when the game builds nothing, the next layout is tried", function()
-	local env, sent = mock_build_api({ builds = { WorldBuildProposal = true } })
+test("segments whose lanes do not come through are never sent", function()
+	local env, sent = mock_build_api({ lose_lanes = true })
+	local logs = {}
+	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
+	assert(not ok and #sent == 0, message)
+	assert(contains(logs, "lanes 0/4, expected lane[1] width 3 modes 3"), table.concat(logs, "\n"))
+end)
+
+test("a replay the game does not build is reported as nothing built", function()
+	local env, sent = mock_build_api({ builds = {} })
 	local logs, verdicts = {}, {}
 	local ok, message = build.replay(env, street_data(), {
 		log = function(line) logs[#logs + 1] = line end,
 		on_result = function(_, _, label, outcome) verdicts[#verdicts + 1] = label .. "=" .. tostring(outcome.built) end,
-		player = 7,
 	})
-	assert(ok and message == "WorldBuildProposal/table: sent with signature 1", message)
-	assert(#sent == 2, "sent " .. #sent)
-	assert(sent[2].layout == "WorldBuildProposal")
-	assert(table.concat(verdicts, " ") == "SimpleProposal/table=false WorldBuildProposal/table=true", table.concat(verdicts, " "))
-	assert(contains(logs, "SimpleProposal/table: sent with signature 1, but nothing was built; trying the next layout"),
-		table.concat(logs, "\n"))
-	assert(sent[2].proposal.context.player == 7, "the WorldBuildProposal carries the player's context")
-	local nodes, edges = sent_lists(sent[2].proposal)
-	assert(#nodes == 3 and #edges == 2)
+	assert(not ok and message == "nothing built with any layout (1 sent)", message)
+	assert(#sent == 1 and verdicts[1] == "SimpleProposal/table=false", table.concat(verdicts, " "))
+end)
+
+test("a proposal the game cannot compute is not sent again with other signatures", function()
+	local env, sent = mock_build_api({ content_error = true })
+	local logs = {}
+	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
+	assert(not ok and message:find("^SimpleProposal/table: the game rejected the proposal %(.*Unknown exception%)$"), message)
+	assert(#sent == 0)
+	assert(contains(logs, "SimpleProposal/table signature 1: "), table.concat(logs, "\n"))
+	assert(not contains(logs, "signature 2"), "run 10: the other signatures only repeat the failure")
 end)
 
 test("replay logs every failed signature on its own line", function()
 	local env, sent = mock_build_api({ required_args = 99 })
 	local logs = {}
 	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
-	assert(not ok and message == "no layout could be filled and sent", message)
+	assert(not ok and message == "SimpleProposal/table: no signature worked", message)
 	assert(#sent == 0)
 	assert(contains(logs, "SimpleProposal/table signature 5: "), table.concat(logs, "\n"))
-	assert(contains(logs, "StreetProposal/table signature 1: "))
 end)
 
-test("a missing proposal type is logged and skipped", function()
-	local env, sent = mock_build_api({ layouts = { StreetProposal = true } })
+test("a missing proposal type is logged", function()
+	local env, sent = mock_build_api({ layouts = {} })
 	local logs = {}
 	local ok, message = build.replay(env, street_data(), { log = function(line) logs[#logs + 1] = line end })
-	assert(ok and message == "StreetProposal/table: sent with signature 1", message)
+	assert(not ok and message == "no layout could be filled and sent", message)
 	assert(contains(logs, "SimpleProposal/table: "), table.concat(logs, "\n"))
-	assert(contains(logs, "WorldBuildProposal/vector: "))
-	assert(#sent == 1)
+	assert(#sent == 0)
 end)
 
 test("outcome counts new entities and costs, not the success flag", function()
 	local built = build.outcome({ resultEntities = { 4, 5 }, resultProposalData = { costs = 300,
-		errorState = { critical = false, messages = { "a" }, warnings = { "b" } } } })
+		errorState = { critical = false, messages = { "a" }, warnings = { { text = "b" } } } } })
 	assert(built.built == true and built.entities == 2 and built.costs == 300 and built.critical == false)
 	assert(built.messages[1] == "message: a" and built.messages[2] == "warning: b", table.concat(built.messages, "|"))
 	local empty = build.outcome({ resultEntities = {}, resultProposalData = { costs = 0 } })
 	assert(empty.built == false, "run 9: an empty proposal reports success with costs 0")
 	assert(build.outcome(nil).built == nil, "no result: unknown")
+end)
+
+test("modes_to_mask reads keys 0..15 and lanes survive a round trip", function()
+	assert(build.modes_to_mask(modes(0, 1)) == 3)
+	assert(build.modes_to_mask(modes(15)) == 32768)
+	assert(build.modes_to_mask({}) == 0)
+	local text = build.lanes_to_string(town_old_small_lanes())
+	assert(text == TOWN_LANES, text)
+	local lanes = assert(build.lanes_from_string(text))
+	assert(build.lanes_to_string((function()
+		local out = {}
+		for i, l in ipairs(lanes) do
+			local m = {}
+			for k = 0, 15 do m[k] = math.floor(l.modes / 2 ^ k) % 2 == 1 end
+			out[i] = { speed = l.speed, width = l.width, height = l.height, forward = l.forward, transportModes = m, offset = l.offset }
+		end
+		return out
+	end)()) == text)
+	assert(build.lanes_to_string({}) == "-" and build.lanes_from_string("-") == nil)
 end)
 
 test("append uses push_back when index assignment fails and reports a nil list", function()
@@ -826,6 +911,9 @@ test("a replay request travels as script event with the line, the event state bu
 		assert(contains(logged, "replay #1: 3 nodes, 2 segments, moved by"))
 		assert(contains(logged, "player 29125"))
 		assert(contains(logged, "replay proposal check SimpleProposal/table: complete, nodes 3/3, edges 2/2"))
+		assert(contains(logged, "---- replay proposal SimpleProposal/table edge[1]"), table.concat(logged, "\n"))
+		assert(contains(logged, "edge[1].comp.laneConfigs = table (#4)"))
+		assert(contains(logged, "edge[1].comp.laneConfigs[1].width = number 3"))
 		assert(contains(logged, "replay: sent, SimpleProposal/table: sent with signature 1"))
 		assert(contains(logged, "replay result (SimpleProposal/table): BUILT, success=true, costs 1000, new entities 5"),
 			table.concat(logged, "\n"))
@@ -839,6 +927,16 @@ test("a replay request travels as script event with the line, the event state bu
 		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
 		assert(contains(logged, "build right after a replay (probably the copy, not captured): segments=2 nodes=3 constructions=0 new entities=1 player build=true"),
 			table.concat(logged, "\n"))
+		-- Run 10: town buildings and other player builds in the quiet time are not taken for the copy.
+		logged = {}
+		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", town_build_param())
+		assert(not contains(logged, "build right after a replay"), table.concat(logged, "\n"))
+		local other = player_build_param()
+		other[1].proposal.addedSegments = { other[1].proposal.addedSegments[1] }
+		other[1].proposal.addedNodes = { other[1].proposal.addedNodes[1], other[1].proposal.addedNodes[2] }
+		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", other)
+		assert(contains(logged, "capture player build nodes=2 segments=1"), table.concat(logged, "\n"))
+		state:set(s)
 		-- Later builds are captured again.
 		t.advance(fresh_main().REPLAY_QUIET_MS)
 		logged = {}
@@ -847,19 +945,28 @@ test("a replay request travels as script event with the line, the event state bu
 	end)
 end)
 
-test("a replay that builds nothing is reported as such and tries the next layout", function()
+test("a replay that builds nothing is reported as such", function()
 	with_engine_api({ build = { builds = {} } }, function(t)
 		logged = {}
 		local state = mock_state()
 		fresh_main().handleEvent(nil, state, "mp_probe", "mp_probe_replay", "mp_probe_replay",
 			{ line = build.serialize(run5_street()), number = 1 })
-		assert(#t.sent == 3, "every layout is tried once: " .. #t.sent)
+		assert(#t.sent == 1, "sent " .. #t.sent)
 		assert(contains(logged, "replay result (SimpleProposal/table): NOTHING BUILT, success=true, costs 0, new entities 0"),
 			table.concat(logged, "\n"))
 		assert(contains(logged, "replay result warning: nothing to build"))
-		assert(contains(logged, "replay WorldBuildProposal/table: sent with signature 1, but nothing was built; trying the next layout"))
-		assert(contains(logged, "replay result (StreetProposal/table): NOTHING BUILT"))
-		assert(contains(logged, "replay: failed, nothing built with any layout (3 sent)"))
+		assert(contains(logged, "replay: failed, nothing built with any layout (1 sent)"))
+	end)
+end)
+
+test("a proposal the game rejects is logged once", function()
+	with_engine_api({ build = { content_error = true } }, function(t)
+		logged = {}
+		fresh_main().handleEvent(nil, mock_state(), "mp_probe", "mp_probe_replay", "mp_probe_replay",
+			{ line = build.serialize(run5_street()), number = 1 })
+		assert(#t.sent == 0)
+		assert(contains(logged, "replay: failed, SimpleProposal/table: the game rejected the proposal ("), table.concat(logged, "\n"))
+		assert(contains(logged, "Unknown exception)"))
 	end)
 end)
 
@@ -906,10 +1013,10 @@ test("a new probe version gives a savegame its replays back", function()
 	logged = {}
 	local state = mock_state()
 	state:set({ probe_version = main.PROBE_VERSION, subscribed = main.PROBE_VERSION, replays_requested = 3,
-		replay_version = main.PROBE_VERSION - 1, last_build = "B2" })
+		replay_version = main.PROBE_VERSION - 1, last_build = "B3" })
 	main.update(nil, state, 0)
 	assert(state:get().replays_requested == 0)
-	assert(state:get().last_build == "B2", "the capture stays")
+	assert(state:get().last_build == "B3", "the capture stays")
 	state:get().replays_requested = 2
 	fresh_main().update(nil, state, 0)
 	assert(state:get().replays_requested == 2, "reset once per version")

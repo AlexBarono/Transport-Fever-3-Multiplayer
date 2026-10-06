@@ -11,7 +11,7 @@ local build = require("/mp_probe/build.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 10
+main.PROBE_VERSION = 11
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -35,8 +35,9 @@ main.ENTITY_COMPONENTS = {
 main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay" }
 
 --- Replay test (phase 1, one PC). The copy is built this many metres beside the original so both
--- are visible; at most MAX_REPLAYS per savegame session, and builds arriving within REPLAY_QUIET_MS
--- of game time after a replay are not captured, so the copy does not trigger yet another copy.
+-- are visible; at most MAX_REPLAYS per savegame session. A build with as many segments as the copy
+-- that arrives within REPLAY_QUIET_MS of game time after a replay is taken for the copy and not
+-- captured, so the copy does not trigger yet another copy.
 main.REPLAY_SIDE_OFFSET = 40
 main.MAX_REPLAYS = 3
 main.REPLAY_QUIET_MS = 10000
@@ -189,16 +190,17 @@ function main.replay_line(env, line, number, state)
 		logger.info("replay: no line in the request")
 		return
 	end
-	local now = main.game_time(env)
-	if state and now then
-		local s = state:get() or {}
-		s.quiet_until = now + main.REPLAY_QUIET_MS
-		state:set(s)
-	end
 	local data, err = build.deserialize(line)
 	if not data then
 		logger.info("replay: bad line (" .. tostring(err) .. ")")
 		return
+	end
+	local now = main.game_time(env)
+	if state and now then
+		local s = state:get() or {}
+		s.quiet_until = now + main.REPLAY_QUIET_MS
+		s.quiet_segments = #data.segments
+		state:set(s)
 	end
 	local dx, dy = build.side_offset(data, main.REPLAY_SIDE_OFFSET)
 	build.offset(data, dx, dy)
@@ -206,8 +208,13 @@ function main.replay_line(env, line, number, state)
 	logger.info(string.format("replay #%s: %d nodes, %d segments, moved by %.1f,%.1f, player %s",
 		tostring(number), #data.nodes, #data.segments, dx, dy, tostring(player)))
 	local ok, message = build.replay(env, data, {
-		log = function(line) logger.info("replay " .. line) end,
+		log = function(text) logger.info("replay " .. text) end,
 		on_result = main.log_replay_result,
+		-- What the game holds for the first segment just before sending, lanes included.
+		inspect = function(label, _, edge_list)
+			local ok_f, lines = pcall(probe.fields, edge_list[1], "edge[1]", 4, main.RESULT_DUMP_LINES)
+			if ok_f and #lines > 0 then log_lines("replay proposal " .. label .. " edge[1]", lines) end
+		end,
 		player = player,
 	})
 	logger.info("replay: " .. (ok and "sent, " or "failed, ") .. message)
@@ -265,6 +272,12 @@ function main.is_player_build(param)
 		return false
 	end)
 	return ok and result
+end
+
+--- Number of road or track segments a build adds.
+function main.segment_count(param)
+	local ok, n = pcall(function() return #param[1].proposal.addedSegments end)
+	return ok and type(n) == "number" and n or 0
 end
 
 --- Number of constructions (stations, depots, ...) a build adds. Run 9: a station arrived as 25
@@ -348,8 +361,11 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	if player_build then key = key .. "|player" end
 	if name == "onPostBuildProposal" then
 		local now = main.game_time(_G)
-		if now and now < (s.quiet_until or -1) then
+		if now and now < (s.quiet_until or -1) and main.segment_count(param) == s.quiet_segments
+			and main.construction_count(param) == 0 then
 			-- Most likely the copy itself: it confirms the build independently of the result callback.
+			-- Run 10: town buildings arrive in the quiet time too; they have constructions and no
+			-- segments, so they no longer count.
 			logger.info("build right after a replay (probably the copy, not captured): " .. main.describe_build(param))
 		elseif player_build then
 			local constructions = main.construction_count(param)
