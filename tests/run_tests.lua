@@ -107,6 +107,22 @@ test("list keeps array entries and shows scalar values", function()
 	assert(contains(lines, "param[2] = string x"))
 end)
 
+test("fields finds known names on objects pairs() cannot enumerate", function()
+	-- Simulate C++ userdata: fields only reachable through __index, nothing visible to pairs().
+	local function opaque(fields)
+		return setmetatable({}, { __index = function(_, k)
+			if fields[k] == nil then error("no field " .. tostring(k)) end
+			return fields[k]
+		end })
+	end
+	local proposal = opaque({ streetProposal = opaque({ edgesToAdd = { opaque({ entity = -1, type = 0 }) } }) })
+	local lines = probe.fields({ proposal, opaque({}), { 45276 }, false }, "param", 6)
+	assert(contains(lines, "param[1].streetProposal = table"), table.concat(lines, "\n"))
+	assert(contains(lines, "param[1].streetProposal.edgesToAdd = table (#1)"))
+	assert(contains(lines, "param[1].streetProposal.edgesToAdd[1].entity = number -1"))
+	assert(contains(lines, "param[3][1] = number 45276"))
+end)
+
 test("list honours an explicit line budget", function()
 	local big = {}
 	for i = 1, 50 do big["k" .. i] = i end
@@ -134,6 +150,7 @@ local function mock_engine_env(opts)
 	local components = {
 		[10] = { gameTime = 42000 },
 		[20] = { balance = 5000000 },
+		[1] = { stopIndex = 1 }, [2] = { stopIndex = 2 }, [3] = { stopIndex = 4 },
 	}
 	local counts = { [1] = 3, [2] = 2 }
 	return { api = {
@@ -146,7 +163,7 @@ local function mock_engine_env(opts)
 			},
 			system = {
 				lineSystem = { getLines = function() return { 7, 8 } end },
-				transportVehicleSystem = { getVehicles = function() return { 1, 2 } end },
+				transportVehicleSystem = { getVehicles = function() error("Error decoding argument #2") end },
 			},
 			getComponent = function(entity, comp)
 				if comp == nil then error("bad component type") end
@@ -167,11 +184,12 @@ test("snapshot reads time, money, counts and vehicle positions through api.engin
 	assert(snap.fields.n_transport_vehicle == 3)
 	assert(snap.fields.n_station == 2)
 	assert(snap.fields.n_line == 2)
-	-- vehicles 1 and 2: (1+10+1) + (2+10+1) after rounding
-	assert(snap.fields.vehicle_pos_sum == 25, tostring(snap.fields.vehicle_pos_sum))
+	-- vehicles 1, 2, 3: (1+10+1) + (2+10+1) + (3+10+1) after rounding
+	assert(snap.fields.vehicle_pos_sum == 39, tostring(snap.fields.vehicle_pos_sum))
+	assert(snap.fields.vehicle_stop_sum == 7, tostring(snap.fields.vehicle_stop_sum))
 	assert(snap.errors.n_town ~= nil, "TOWN is not in the mock ComponentType")
 	local line = probe.format_snapshot(snap)
-	assert(line:find("game_time=42000 money=5000000 n_line=2 n_station=2 n_transport_vehicle=3 vehicle_pos_sum=25", 1, true), line)
+	assert(line:find("game_time=42000 money=5000000 n_line=2 n_station=2 n_transport_vehicle=3 vehicle_pos_sum=39 vehicle_stop_sum=7", 1, true), line)
 	assert(line:find("n_town=ERR", 1, true), line)
 	assert(contains(probe.format_errors(snap), "n_town: "))
 end)

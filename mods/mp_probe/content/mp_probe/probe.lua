@@ -165,13 +165,26 @@ function probe.snapshot(env)
 	try("n_line", function()
 		return #engine.system.lineSystem.getLines()
 	end)
-	-- Sum of all vehicle positions: diverges as soon as any vehicle moves differently.
+	-- Vehicle checksums diverge as soon as any vehicle moves differently. Run 3 showed that
+	-- transportVehicleSystem.getVehicles() wants arguments, so vehicles are collected by component.
+	local function vehicles()
+		local list = {}
+		engine.forEachEntityWithComponent(function(v) list[#list + 1] = v end, ct.TRANSPORT_VEHICLE)
+		table.sort(list)
+		return list
+	end
 	try("vehicle_pos_sum", function()
-		local vehicles = engine.system.transportVehicleSystem.getVehicles()
 		local sum = 0
-		for i = 1, #vehicles do
-			local p = engine.util.vehicle.getPosition(vehicles[i])
+		for _, v in ipairs(vehicles()) do
+			local p = engine.util.vehicle.getPosition(v)
 			sum = sum + round(p.x) + round(p.y) + round(p.z)
+		end
+		return sum
+	end)
+	try("vehicle_stop_sum", function()
+		local sum = 0
+		for _, v in ipairs(vehicles()) do
+			sum = sum + engine.getComponent(v, ct.TRANSPORT_VEHICLE).stopIndex
 		end
 		return sum
 	end)
@@ -183,6 +196,59 @@ function probe.snapshot(env)
 		end)
 	end
 	return result
+end
+
+--- Field names tried on engine objects that cannot be enumerated with pairs (C++ userdata such as
+-- the build proposal). Taken from the TF2 API; whatever exists in TF3 shows up in the log.
+probe.KNOWN_FIELDS = {
+	"proposal", "context", "streetProposal", "toAdd", "toRemove",
+	"constructionsToAdd", "constructionsToRemove", "edgesToAdd", "edgesToRemove",
+	"nodesToAdd", "nodesToRemove", "edgeObjectsToAdd", "edgeObjectsToRemove",
+	"addedSegments", "removedSegments", "addedNodes", "removedNodes", "new2oldSegments",
+	"old2newSegments", "frozenEdges", "frozenNodes", "fileName", "params", "transf", "name",
+	"playerEntity", "player", "cleanupStreetGraph", "gatherBuildings", "gatherFields",
+	"checkTerrainAlignment", "costs", "errorState", "critical", "messages", "warnings",
+	"collisionInfo", "entity", "type", "streetType", "trackType", "comp", "node0", "node1",
+	"tangent0", "tangent1", "position", "x", "y", "z",
+}
+
+--- Probes probe.KNOWN_FIELDS on a value (recursing into whatever is found) and on array entries.
+-- @return table lines like "param[1].streetProposal = userdata (#3)"
+function probe.fields(value, name, max_depth, max_lines)
+	local lines = {}
+	max_lines = max_lines or 400
+	local function describe(v)
+		local t = type(v)
+		if t == "number" or t == "boolean" or t == "string" then return t .. " " .. tostring(v):sub(1, 80) end
+		local ok, n = pcall(function() return #v end)
+		if ok and type(n) == "number" then return t .. " (#" .. n .. ")" end
+		return t
+	end
+	local function walk(v, path, depth)
+		if #lines >= max_lines or depth > max_depth then return end
+		local t = type(v)
+		if t ~= "table" and t ~= "userdata" then return end
+		local ok_len, n = pcall(function() return #v end)
+		if ok_len and type(n) == "number" then
+			for i = 1, math.min(n, 3) do
+				local ok, child = pcall(function() return v[i] end)
+				if ok and child ~= nil then
+					lines[#lines + 1] = path .. "[" .. i .. "] = " .. describe(child)
+					walk(child, path .. "[" .. i .. "]", depth + 1)
+				end
+			end
+		end
+		for _, field in ipairs(probe.KNOWN_FIELDS) do
+			local ok, child = pcall(function() return v[field] end)
+			if ok and child ~= nil then
+				lines[#lines + 1] = path .. "." .. field .. " = " .. describe(child)
+				walk(child, path .. "." .. field, depth + 1)
+			end
+			if #lines >= max_lines then return end
+		end
+	end
+	walk(value, name, 1)
+	return lines
 end
 
 --- Formats a snapshot as one sorted, diff-friendly log line.

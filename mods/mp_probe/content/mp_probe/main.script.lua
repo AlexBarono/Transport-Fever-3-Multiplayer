@@ -10,7 +10,7 @@ local probe = require("/mp_probe/probe.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 3
+main.PROBE_VERSION = 4
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -91,6 +91,9 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	logger.info("event src=" .. tostring(src) .. " id=" .. tostring(id) .. " name=" .. tostring(name) .. " #" .. count)
 	local ok, lines = pcall(probe.list, param, "param", main.EVENT_PARAM_DEPTH, nil, main.EVENT_PARAM_LINES)
 	if ok then log_lines("param of " .. tostring(name) .. " #" .. count, lines) end
+	-- Build proposals arrive as C++ userdata that pairs() cannot enumerate; probe known field names.
+	local ok_f, field_lines = pcall(probe.fields, param, "param", 6, main.EVENT_PARAM_LINES)
+	if ok_f and #field_lines > 0 then log_lines("fields of " .. tostring(name) .. " #" .. count, field_lines) end
 end
 
 -- The engine loads resource files (unlike modules loaded with require) by calling the global data().

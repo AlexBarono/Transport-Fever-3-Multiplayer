@@ -44,3 +44,17 @@ Log: [logs/probe-log-2-mp_probe.txt](../logs/probe-log-2-mp_probe.txt), Kontext:
 ## Determinismus-Test (mit Probe v3)
 
 In einer Spielsitzung: Spielstand „Test2“ laden, 5 Minuten ohne Eingabe und ohne Geschwindigkeitsänderung laufen lassen, denselben Stand erneut laden, wieder 5 Minuten laufen lassen. Der Update-Zähler ist im Spielstand gespeichert, also beginnen beide Läufe bei derselben Zahl. Stimmen die `snapshot`-Zeilen beider Läufe (inkl. `vehicle_pos_sum`) überein, ist die Simulation bei gleicher Ausgangslage deterministisch.
+
+## Lauf 3 (06.10.2026, „Test2“ zweimal geladen, Probe v3)
+
+Log: [logs/probe-log-3-mp_probe.txt](../logs/probe-log-3-mp_probe.txt), Kontext: [logs/probe-log-3-context.txt](../logs/probe-log-3-context.txt)
+
+**Determinismus-Vergleich nicht möglich:** „Test2“ wurde direkt vor dem zweiten Laden überschrieben (11:05:01 gespeichert, 11:05:08 geladen). Der zweite Lauf setzte deshalb beim Stand des ersten fort (Updates 3000–7800, dann 8100–11400) statt beim selben Startpunkt.
+
+**Gelesen:** Geld über `ACCOUNT.balance`, Linien über `lineSystem.getLines()`. Die Zahl der Bahnhöfe stieg auch ohne Eingriff (16 → 19); das Spiel baut also selbst (vermutlich Städte, z. B. Haltestellen).
+
+**Bauvorschläge:** `onPostBuildProposal` liefert `{userdata, userdata, {neue Entity-IDs}, false}`. Die beiden userdata (vermutlich Vorschlag und Kontext) lassen sich nicht mit `pairs` durchlaufen. Fünf Vorschläge kamen, bevor der Spieler etwas baute, also ebenfalls vom Spiel selbst.
+
+**Fehler:** `transportVehicleSystem.getVehicles()` erwartet Argumente („Error decoding argument #2“).
+
+**Probe v4:** Fahrzeuge über `forEachEntityWithComponent(TRANSPORT_VEHICLE)` sammeln, Prüfsummen über Positionen und `stopIndex`; bekannte Feldnamen aus TF2 (`streetProposal`, `edgesToAdd`, `constructionsToAdd`, …) gezielt auf den Bauvorschlag anwenden.
