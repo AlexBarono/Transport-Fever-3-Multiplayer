@@ -8,7 +8,8 @@
  *   - writes alut_proxy.log next to itself (the game process has no
  *     LOCALAPPDATA, see docs/native-entry-point.md), and
  *   - starts the UDP peer link from net.c if alut_proxy.ini enables it
- *     (phase 1, step 2).
+ *     (phase 1, step 2), and
+ *   - tests the Lua <-> DLL bridge from bridge.c (phase 1, step 3).
  *
  * DllMain runs under the loader lock, so it only uses kernel32/user32 and
  * leaves Winsock to the network thread.
@@ -72,8 +73,10 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 		proxy_file_next_to_dll(log_path, "alut_proxy.log");
 		proxy_log("alut proxy v" PROXY_VERSION " loaded");
 		net_start();
+		bridge_start();
 	} else if (reason == DLL_PROCESS_DETACH) {
 		net_stop();
+		bridge_stop();
 		proxy_log("alut proxy v" PROXY_VERSION " unloaded");
 	}
 	return TRUE;

@@ -51,3 +51,11 @@ powershell -ExecutionPolicy Bypass -File uninstall.ps1
 ```
 
 `install.ps1` benennt beim ersten Mal die signierte Original-`alut.dll` in `alut_orig.dll` um und kopiert den Proxy als `alut.dll` in den Spielordner. `uninstall.ps1` stellt das Original wieder her. Alternativ stellt Steam über „Dateien auf Fehler überprüfen“ das Original wieder her (dann bleibt nur eine überflüssige `alut_orig.dll` liegen).
+
+## Brückentest Lua ↔ DLL (v4)
+
+`bridge.c` testet, wie der Lua-Mod und die DLL ohne `io` Daten austauschen können (siehe `docs/phase1-bridge.md`):
+
+- Die DLL liest `stdout.txt` des Spiels mit und meldet jede Zeile `bridge out seq=N` des Mods `mp_probe` (v5) in `alut_proxy.log`.
+- Danach setzt sie die Umgebungsvariable `TF3MP_IN=ack N` über `_putenv_s` aus `ucrtbase.dll`. Der Mod liest sie mit `os.getenv` und schreibt `bridge in TF3MP_IN=ack N` ins Spiel-Log.
+- Gleich beim Start setzt die DLL `TF3MP_IN=hello`.
