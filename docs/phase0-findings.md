@@ -58,3 +58,27 @@ Log: [logs/probe-log-3-mp_probe.txt](../logs/probe-log-3-mp_probe.txt), Kontext:
 **Fehler:** `transportVehicleSystem.getVehicles()` erwartet Argumente („Error decoding argument #2“).
 
 **Probe v4:** Fahrzeuge über `forEachEntityWithComponent(TRANSPORT_VEHICLE)` sammeln, Prüfsummen über Positionen und `stopIndex`; bekannte Feldnamen aus TF2 (`streetProposal`, `edgesToAdd`, `constructionsToAdd`, …) gezielt auf den Bauvorschlag anwenden.
+
+## Lauf 4 (06.10.2026, „Det“ zweimal geladen, Probe v4): Determinismus-Test
+
+Log: [logs/probe-log-4-mp_probe.txt](../logs/probe-log-4-mp_probe.txt), Kontext: [logs/probe-log-4-context.txt](../logs/probe-log-4-context.txt)
+
+**Ergebnis: Die Simulation war in diesem Test deterministisch.** „Det“ wurde einmal gespeichert und zweimal geladen (11:16:11 und 11:18:49), beide Läufe starten bei Update 11700 / `game_time` 2340000. Alle 8 Snapshots, die in beiden Läufen vorkommen (Updates 11700–13800, 7 Minuten Spielzeit), sind in jedem Wert identisch: `game_time`, `money`, `n_construction`, `n_line`, `n_sim_person`, `n_station`, `n_town`, `n_transport_vehicle`, `vehicle_stop_sum`. Das Geld allein ändert sich mit jeder Lieferung und jedem Kostenposten und stimmte trotzdem auf die Einheit.
+
+**Grenzen:** Gleicher PC, gleiche Spielversion. Ob zwei verschiedene PCs (andere CPU) gleich rechnen, ist offen. Die Fahrzeugpositionen konnten noch nicht verglichen werden (`util.vehicle.getPosition` liefert nil).
+
+**Bauvorschlag-Format** (`onPostBuildProposal`, `param` = `{context, result, neueEntityIds, false}`):
+
+```
+param[1].proposal: addedSegments, removedSegments, addedNodes, removedNodes,
+                   edgeObjectsToAdd, edgeObjectsToRemove, new2oldSegments,
+                   old2newSegments, frozenNodes
+param[1].toAdd[i]: fileName, params, transf, name, playerEntity, frozenNodes
+param[1].toRemove
+param[2]: costs, errorState {critical, messages, warnings}, collisionInfo
+param[3]: Liste der neu erzeugten Entity-IDs
+```
+
+`playerEntity = -1` und leere `fileName` bei den Vorschlägen ohne Spielereingriff passen dazu, dass das Spiel (Städte) selbst baut.
+
+**Bewertung für den Plan:** Die Voraussetzung für Lockstep ist erfüllt, soweit ein einzelner PC das prüfen kann. Offene Phase-0-Punkte: nativer Einstiegspunkt (welche DLLs lädt TF3, ist ein Proxy-DLL-Ansatz möglich) und ein Determinismus-Test zwischen zwei PCs.
