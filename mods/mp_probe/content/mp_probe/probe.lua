@@ -223,6 +223,9 @@ probe.KNOWN_FIELDS = {
 	"start", "center", "radius", "angle", "length", "p0", "p1", "t0", "t1", "pos", "tangent",
 	"nodes", "edges", "segment", "segments", "data", "owner", "ownerEntity", "width", "speed",
 	"hasBus", "tramTrackType", "catenary", "edgeType", "edgeTypeName",
+	-- Command results and TF3 segment fields (run 5 raw dump).
+	"resultProposalData", "resultEntities", "result", "proposalData", "roadTemplate", "roadStyle",
+	"roadType", "distance", "playerOwned", "position0", "position1",
 }
 
 --- Probes probe.KNOWN_FIELDS on a value (recursing into whatever is found) and on array entries.

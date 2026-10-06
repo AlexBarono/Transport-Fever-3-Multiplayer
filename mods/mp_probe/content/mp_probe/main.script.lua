@@ -11,7 +11,7 @@ local build = require("/mp_probe/build.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 7
+main.PROBE_VERSION = 8
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -32,17 +32,22 @@ main.ENTITY_COMPONENTS = {
 
 --- Events the engine only delivers on subscription. Build proposals are what a multiplayer
 -- bridge has to capture and replay, so their parameter structure is dumped once.
-main.SUBSCRIBED_EVENTS = { "onPostBuildProposal" }
+main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay" }
 
 --- Replay test (phase 1, one PC). The copy is built this many metres beside the original so both
--- are visible; at most MAX_REPLAYS per game session, and builds arriving within REPLAY_QUIET_UPDATES
--- after a replay are not captured, so the copy does not trigger yet another copy.
+-- are visible; at most MAX_REPLAYS per game session, and builds arriving within REPLAY_QUIET_MS of
+-- game time after a replay are not captured, so the copy does not trigger yet another copy.
 main.REPLAY_SIDE_OFFSET = 40
 main.MAX_REPLAYS = 3
-main.REPLAY_QUIET_UPDATES = 50
+main.REPLAY_QUIET_MS = 10000
 main.replays_done = 0
-main.updates = 0
 main.quiet_until = -1
+
+--- Run 7 showed that TF3 runs update() in rotating "Sim Pool" Lua states and handleEvent() in the
+-- "Simulation Thread" state; module variables are not shared between them. Captures happen in
+-- handleEvent, so the replay runs there too: update() only forwards the DLL's request as a script
+-- event with this name.
+main.REPLAY_EVENT = "mp_probe_replay"
 
 --- Bridge test (phase 1). The sandbox has no io, so the TF2 file exchange is impossible. Candidate
 -- channels: Lua -> DLL through tagged lines in stdout.txt (the DLL tails the log), DLL -> Lua through
@@ -82,7 +87,9 @@ end
 local last_bridge_in = false
 
 --- Sends one numbered line towards the DLL and logs whatever the DLL put into the environment.
-function main.bridge_tick(env, seq)
+-- A value "replay N" asks for a replay; N is remembered in the savegame state so that the next Sim
+-- Pool state, which has its own last_bridge_in, does not act on the same request again.
+function main.bridge_tick(env, seq, s)
 	logger.info("bridge out seq=" .. seq)
 	local getenv = env.os and env.os.getenv
 	if not getenv then return end
@@ -91,41 +98,70 @@ function main.bridge_tick(env, seq)
 	if value ~= last_bridge_in then
 		logger.info("bridge in " .. main.BRIDGE_ENV .. "=" .. tostring(value))
 		last_bridge_in = value
-		if type(value) == "string" and string.find(value, "replay", 1, true) then
-			main.replay_last(env)
-		end
+	end
+	local request = type(value) == "string" and tonumber(string.match(value, "^replay (%d+)"))
+	if request and s and request > (s.last_replay_request or 0) then
+		s.last_replay_request = request
+		main.request_replay(env, s)
 	end
 end
 
---- Engine types whose fresh instances are described once before the first replay, so the log
--- shows which fields and list methods they really have (run 6 had to guess).
-main.DESCRIBED_TYPES = {
-	"SimpleProposal", "WorldBuildProposal", "StreetProposal", "Vector_NodeAndEntity", "Vector_SegmentAndEntity",
+--- Argument lists tried for api.cmd.makeScriptingSendEventCmd; TF2's equivalent took
+-- (fileName, id, name, param).
+main.EVENT_ARGS = {
+	function(name) return { "mp_probe", name, name, {} } end,
+	function(name) return { name, name, {} } end,
+	function(name) return { name, {} } end,
 }
-local types_described = false
 
-function main.describe_types(env)
-	if types_described then return end
-	types_described = true
-	local t = env.api and env.api.type
-	if not t then return end
-	for _, name in ipairs(main.DESCRIBED_TYPES) do
-		local ok, value = pcall(function() return t[name].new() end)
-		if ok and value ~= nil then
-			local lines = {}
-			pcall(probe.list, value, name, 2, lines, 40)
-			pcall(function()
-				for _, line in ipairs(probe.fields(value, name, 3, 60)) do lines[#lines + 1] = line end
-			end)
-			log_lines("type " .. name, lines)
-		else
-			logger.info("type " .. name .. ": new() failed (" .. tostring(value):sub(1, 150) .. ")")
+--- Asks the event state to replay. Falls back to replaying right here if no script event can be
+-- sent, using the line the event state stored in the savegame state.
+function main.request_replay(env, s)
+	local api = env.api
+	for i, make_args in ipairs(main.EVENT_ARGS) do
+		local ok, err = pcall(function()
+			local args = make_args(main.REPLAY_EVENT)
+			api.cmd.sendCommand(api.cmd.makeScriptingSendEventCmd(args[1], args[2], args[3], args[4]))
+		end)
+		if ok then
+			logger.info("replay requested as script event (signature " .. i .. ")")
+			return
 		end
+		logger.info("replay event signature " .. i .. ": " .. tostring(err):sub(1, 200))
 	end
+	logger.info("replay: no script event possible, replaying in the update state")
+	main.pending_replay = s and s.last_build
+	main.replay_last(env)
 end
 
---- Rebuilds the last captured build beside the original. The DLL asks for this by setting
--- TF3MP_IN=replay, which is the end-to-end test of phase 1 on a single PC.
+function main.is_replay_event(src, id, name)
+	return name == main.REPLAY_EVENT or id == main.REPLAY_EVENT or src == main.REPLAY_EVENT
+end
+
+--- Game time in milliseconds (200 per update), or nil if the engine is not reachable.
+function main.game_time(env)
+	local ok, t = pcall(function()
+		local engine = env.api.engine
+		return engine.getComponent(engine.util.getWorld(), env.api.type.ComponentType.GAME_TIME).gameTime
+	end)
+	return ok and t or nil
+end
+
+local function current_player(env)
+	local ok, player = pcall(function() return env.api.engine.util.getPlayer() end)
+	return ok and player or nil
+end
+
+--- Logs what the game reports after it executed a replayed build.
+function main.log_replay_result(result, success, layout)
+	logger.info("replay result (" .. tostring(layout) .. "): success=" .. tostring(success) ..
+		" result=" .. type(result))
+	local ok, lines = pcall(probe.fields, result, "res", 5, 80)
+	if ok and #lines > 0 then log_lines("replay result fields", lines) end
+end
+
+--- Rebuilds the last captured build beside the original. Runs in the event state, where the
+-- capture stored main.pending_replay.
 function main.replay_last(env)
 	local line = main.pending_replay
 	if not line then
@@ -138,8 +174,8 @@ function main.replay_last(env)
 	end
 	main.pending_replay = nil
 	main.replays_done = main.replays_done + 1
-	main.quiet_until = main.updates + main.REPLAY_QUIET_UPDATES
-	main.describe_types(env)
+	local now = main.game_time(env)
+	if now then main.quiet_until = now + main.REPLAY_QUIET_MS end
 	local data, err = build.deserialize(line)
 	if not data then
 		logger.info("replay: bad line (" .. tostring(err) .. ")")
@@ -147,10 +183,15 @@ function main.replay_last(env)
 	end
 	local dx, dy = build.side_offset(data, main.REPLAY_SIDE_OFFSET)
 	build.offset(data, dx, dy)
-	logger.info(string.format("replay #%d: %d nodes, %d segments, moved by %.1f,%.1f",
-		main.replays_done, #data.nodes, #data.segments, dx, dy))
-	local ok, message = build.replay(env, data, function(attempt) logger.info("replay attempt " .. attempt) end)
-	logger.info("replay: " .. (ok and "ok, " or "failed, ") .. message)
+	local player = current_player(env)
+	logger.info(string.format("replay #%d: %d nodes, %d segments, moved by %.1f,%.1f, player %s",
+		main.replays_done, #data.nodes, #data.segments, dx, dy, tostring(player)))
+	local ok, message = build.replay(env, data, {
+		log = function(attempt) logger.info("replay attempt " .. attempt) end,
+		on_result = main.log_replay_result,
+		player = player,
+	})
+	logger.info("replay: " .. (ok and "sent, " or "failed, ") .. message)
 end
 
 function main.update(_user_params, state, _dt)
@@ -169,12 +210,10 @@ function main.update(_user_params, state, _dt)
 		s.subscribed = main.PROBE_VERSION
 	end
 
-	if main.pending_replay == nil and s.last_build then main.pending_replay = s.last_build end
-
 	s.updates = (s.updates or 0) + 1
-	main.updates = s.updates
 	if s.updates % main.BRIDGE_EVERY == 0 then
-		pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY)
+		local ok, err = pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY, s)
+		if not ok then logger.info("bridge tick failed: " .. tostring(err):sub(1, 200)) end
 	end
 	if s.updates % main.SNAPSHOT_EVERY == 0 then
 		local snap = probe.snapshot(_G)
@@ -239,6 +278,11 @@ function main.capture_build(state, s, param, label)
 end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
+	if main.is_replay_event(src, id, name) then
+		logger.info("replay event received (src=" .. tostring(src) .. " id=" .. tostring(id) .. ")")
+		main.replay_last(_G)
+		return
+	end
 	local s = state:get() or {}
 	-- Event counts live in the savegame; start over for each probe version so a new version dumps again.
 	if s.seen_events_version ~= main.PROBE_VERSION then
@@ -249,7 +293,8 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	local player_build = name == "onPostBuildProposal" and main.is_player_build(param)
 	if player_build then key = key .. "|player" end
 	if player_build then
-		if main.updates < main.quiet_until then
+		local now = main.game_time(_G)
+		if now and now < main.quiet_until then
 			logger.info("capture skipped: build arrived right after a replay (probably the copy)")
 		else
 			main.capture_build(state, s, param, "player build")

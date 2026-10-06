@@ -6,7 +6,7 @@
 local build = {}
 
 --- Wire format version, part of every line so an old client can reject a new line.
-build.VERSION = 1
+build.VERSION = 2
 
 local function round(x)
 	return math.floor(x * 1000 + 0.5) / 1000
@@ -32,6 +32,7 @@ end
 function build.serialize(proposal)
 	local parts = { "B" .. build.VERSION }
 	local placeholder = {}
+	local road_ids, road_count = {}, 0
 	local info = { nodes = 0, segments = 0, foreign_nodes = 0 }
 	local nodes = proposal.addedNodes
 	for i = 1, #nodes do
@@ -53,10 +54,25 @@ function build.serialize(proposal)
 			n1 = comp.node1
 			info.foreign_nodes = info.foreign_nodes + 1
 		end
+		if comp.roadTemplate == nil or comp.roadStyle == nil then
+			error("segment " .. tostring(seg.entity) .. " has no roadTemplate/roadStyle", 0)
+		end
 		info.segments = i
+		-- TF3 keeps the street or track type in the segment itself (run 5 raw dump):
+		-- comp.roadTemplate/roadStyle are resource paths, roadType is 1 for streets and 0 for tracks.
+		-- Each template/style pair is written once as a "t" token and referenced by number.
+		local road_key = comp.roadTemplate .. ";" .. comp.roadStyle
+		local road = road_ids[road_key]
+		if not road then
+			road_count = road_count + 1
+			road = road_count
+			road_ids[road_key] = road
+			parts[#parts + 1] = "t" .. road .. ";" .. road_key
+		end
 		parts[#parts + 1] = table.concat({
 			"s" .. (-i), seg.type, n0, n1,
 			vec_to_string(comp.tangent0), vec_to_string(comp.tangent1), comp.typeIndex,
+			comp.roadType or -1, comp.distance or 0, road,
 		}, ";")
 	end
 	return table.concat(parts, " "), info
@@ -64,10 +80,12 @@ end
 
 --- Parses a line produced by build.serialize.
 -- @return table|nil data { version, nodes = {{id, position}}, segments = {{id, type, node0, node1,
---   tangent0, tangent1, typeIndex}} }, or nil plus an error message
+--   tangent0, tangent1, typeIndex, roadType, distance, roadTemplate, roadStyle}} }, or nil plus an
+--   error message
 function build.deserialize(line)
 	if type(line) ~= "string" then return nil, "not a string" end
 	local data = { nodes = {}, segments = {} }
+	local roads = {}
 	for token in string.gmatch(line, "%S+") do
 		local kind = token:sub(1, 1)
 		if kind == "B" then
@@ -75,6 +93,10 @@ function build.deserialize(line)
 			if data.version ~= build.VERSION then
 				return nil, "unsupported version " .. tostring(token:sub(2))
 			end
+		elseif kind == "t" then
+			local id, template, style = string.match(token, "^t(%d+);([^;]+);([^;]+)$")
+			if not id then return nil, "bad road token " .. token end
+			roads[tonumber(id)] = { template = template, style = style }
 		elseif kind == "n" then
 			local id, pos = string.match(token, "^n(%-?%d+);(.+)$")
 			local position = id and vec_from_string(pos)
@@ -83,7 +105,9 @@ function build.deserialize(line)
 		elseif kind == "s" then
 			local fields = {}
 			for field in string.gmatch(token:sub(2), "[^;]+") do fields[#fields + 1] = field end
-			if #fields ~= 7 then return nil, "bad segment token " .. token end
+			if #fields ~= 10 then return nil, "bad segment token " .. token end
+			local road = roads[tonumber(fields[10])]
+			if not road then return nil, "unknown road type in " .. token end
 			local t0, t1 = vec_from_string(fields[5]), vec_from_string(fields[6])
 			if not t0 or not t1 then return nil, "bad tangent in " .. token end
 			data.segments[#data.segments + 1] = {
@@ -94,6 +118,10 @@ function build.deserialize(line)
 				tangent0 = t0,
 				tangent1 = t1,
 				typeIndex = tonumber(fields[7]),
+				roadType = tonumber(fields[8]),
+				distance = tonumber(fields[9]),
+				roadTemplate = road.template,
+				roadStyle = road.style,
 			}
 		end
 	end
@@ -147,10 +175,13 @@ build.LAYOUTS = {
 }
 
 --- Builds a proposal from parsed data with one entry of build.LAYOUTS.
+-- @param player number|nil player entity that will own the new segments
 -- @return userdata proposal (raises on failure, callers use pcall)
-function build.make_proposal(env, data, layout)
+function build.make_proposal(env, data, layout, player)
 	local api = env.api
 	local proposal, node_list, edge_list = layout.make(api.type)
+	local positions = {}
+	for _, node in ipairs(data.nodes) do positions[node.id] = node.position end
 	for _, node in ipairs(data.nodes) do
 		local entry = api.type.NodeAndEntity.new()
 		entry.entity = node.id
@@ -166,6 +197,23 @@ function build.make_proposal(env, data, layout)
 		set_vec(entry.comp.tangent0, seg.tangent0)
 		set_vec(entry.comp.tangent1, seg.tangent1)
 		if seg.typeIndex then pcall(function() entry.comp.typeIndex = seg.typeIndex end) end
+		-- Without its template the segment has no street or track type; run 7 showed the game then
+		-- accepts the command and silently builds nothing.
+		entry.comp.roadTemplate = seg.roadTemplate
+		entry.comp.roadStyle = seg.roadStyle
+		if seg.roadType then entry.comp.roadType = seg.roadType end
+		if seg.distance then pcall(function() entry.comp.distance = seg.distance end) end
+		pcall(function()
+			if positions[seg.node0] then set_vec(entry.comp.position0, positions[seg.node0]) end
+			if positions[seg.node1] then set_vec(entry.comp.position1, positions[seg.node1]) end
+		end)
+		if player then
+			pcall(function()
+				local owned = api.type.PlayerOwned.new()
+				owned.player = player
+				entry.playerOwned = owned
+			end)
+		end
 		build.append(edge_list, entry)
 	end
 	return proposal
@@ -181,17 +229,38 @@ build.CMD_ARGS = {
 	function(proposal) return { proposal } end,
 }
 
+--- Builds the command context like a player build: owned by `player`, with street graph
+-- cleanup and terrain alignment, as TF2 scripts did.
+function build.make_context(env, player)
+	local context = env.api.type.Context.new()
+	pcall(function()
+		if player then context.player = player end
+		context.cleanupStreetGraph = true
+		context.gatherBuildings = true
+		context.gatherFields = true
+		context.checkTerrainAlignment = true
+	end)
+	return context
+end
+
 --- Sends a proposal, trying every signature in build.CMD_ARGS.
 -- @param log function|nil receives one line per failed attempt
+-- @param on_result function|nil callback(result, success) the game calls once it has executed the
+--   command; this is the only place that says whether the build really happened
 -- @return boolean ok, string message
-function build.send(env, proposal, log)
+function build.send(env, proposal, log, on_result, player)
 	local api = env.api
 	local context = nil
-	pcall(function() context = api.type.Context.new() end)
+	pcall(function() context = build.make_context(env, player) end)
 	for i, make_args in ipairs(build.CMD_ARGS) do
 		local ok, err = pcall(function()
 			local args = make_args(proposal, context)
-			api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(args[1], args[2], args[3]))
+			local cmd = api.cmd.makeWorldBuildProposalCmd(args[1], args[2], args[3])
+			if on_result then
+				api.cmd.sendCommand(cmd, on_result)
+			else
+				api.cmd.sendCommand(cmd)
+			end
 		end)
 		if ok then return true, "sent with signature " .. i end
 		if log then log("signature " .. i .. ": " .. tostring(err):sub(1, 200)) end
@@ -221,16 +290,22 @@ function build.side_offset(data, distance)
 end
 
 --- Rebuilds a serialized line in the running game, trying every layout.
--- @param log function|nil receives one line per failed attempt (the game log cuts long lines)
+-- @param opts table|nil { log = function(line), on_result = function(result, success, layout),
+--   player = entity }
 -- @return boolean ok, string message
-function build.replay(env, data, log)
+function build.replay(env, data, opts)
+	opts = opts or {}
+	local log = opts.log
 	if not (env.api and env.api.type and env.api.cmd) then return false, "api missing" end
 	for _, layout in ipairs(build.LAYOUTS) do
-		local ok, proposal = pcall(build.make_proposal, env, data, layout)
+		local ok, proposal = pcall(build.make_proposal, env, data, layout, opts.player)
 		if ok then
+			local on_result = opts.on_result and function(result, success)
+				opts.on_result(result, success, layout.name)
+			end
 			local sent, message = build.send(env, proposal, function(line)
 				if log then log(layout.name .. " " .. line) end
-			end)
+			end, on_result, opts.player)
 			if sent then return true, layout.name .. ": " .. message end
 		elseif log then
 			log(layout.name .. ": " .. tostring(proposal):sub(1, 200))

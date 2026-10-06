@@ -51,6 +51,9 @@ local function run5_street()
 	local function segment(entity, node0, node1, t0, t1)
 		return { entity = entity, type = 0, comp = {
 			type = 0, node0 = node0, node1 = node1, typeIndex = -1,
+			roadType = 1, distance = 0,
+			roadTemplate = "::/infrastructure/street/town/town_old_small.street_template",
+			roadStyle = "::/infrastructure/street/town/town_old.street",
 			tangent0 = { x = t0[1], y = t0[2], z = t0[3] },
 			tangent1 = { x = t1[1], y = t1[2], z = t1[3] },
 		} }
@@ -263,7 +266,8 @@ test("update runs the probe once and snapshots periodically", function()
 	assert(error_headers == 1, "snapshot errors logged " .. error_headers .. " times")
 	assert(snapshots == 2, "snapshots " .. snapshots)
 	assert(state:get().probe_version == main.PROBE_VERSION)
-	assert(#state.subscribed == 1 and state.subscribed[1] == "onPostBuildProposal", "subscribed once")
+	assert(#state.subscribed == 2 and state.subscribed[1] == "onPostBuildProposal", "subscribed once")
+	assert(state.subscribed[2] == main.REPLAY_EVENT, "our own replay event is subscribed too")
 	assert(contains(logged, "subscribe onPostBuildProposal: ok"))
 end)
 
@@ -375,11 +379,15 @@ test("serialize turns a captured street into one line with placeholder ids", fun
 	local line, info = build.serialize(run5_street())
 	assert(info.nodes == 3 and info.segments == 2, info.nodes .. "/" .. info.segments)
 	assert(info.foreign_nodes == 0, "all three nodes are new")
-	assert(line:sub(1, 2) == "B1", line)
+	assert(line:sub(1, 2) == "B2", line)
 	assert(line:find("n-1;-2888.017,-3941.508,1.675", 1, true), line)
 	assert(line:find("s-1;0;-1;-2;", 1, true), line)
 	assert(line:find("s-2;0;-2;-3;", 1, true), line)
 	assert(not line:find("51389", 1, true), "engine ids must not travel")
+	assert(line:find(" t1;::/infrastructure/street/town/town_old_small.street_template;::/infrastructure/street/town/town_old.street ", 1, true), line)
+	assert(line:find("s-2;0;-2;-3;69.474,54.226,-0.336;69.474,54.226,-0.47;-1;1;0;1", 1, true), line)
+	local _, templates = line:gsub("town_old_small", "")
+	assert(templates == 1, "the template is written once")
 	assert(#line < 400, "a street build fits in a short line: " .. #line)
 end)
 
@@ -399,16 +407,20 @@ test("deserialize restores positions, tangents and node links", function()
 	assert(math.abs(data.nodes[1].position.x + 2888.017) < 0.001, data.nodes[1].position.x)
 	assert(data.segments[2].node0 == -2 and data.segments[2].node1 == -3)
 	assert(data.segments[1].type == 0 and data.segments[1].typeIndex == -1)
+	assert(data.segments[1].roadType == 1 and data.segments[1].distance == 0)
+	assert(data.segments[2].roadStyle == "::/infrastructure/street/town/town_old.street")
 	assert(math.abs(data.segments[1].tangent0.y - 54.226) < 0.001, data.segments[1].tangent0.y)
 end)
 
 test("deserialize rejects broken lines", function()
 	assert(build.deserialize("n-1;1,2,3") == nil, "a line without a version is rejected")
 	assert(build.deserialize("B99 n-1;1,2,3") == nil, "a newer format is rejected")
-	assert(build.deserialize("B1 n-1;1,2") == nil, "a short position is rejected")
-	assert(build.deserialize("B1 s-1;0;-1") == nil, "a short segment is rejected")
+	assert(build.deserialize("B2 n-1;1,2") == nil, "a short position is rejected")
+	assert(build.deserialize("B2 s-1;0;-1") == nil, "a short segment is rejected")
+	assert(build.deserialize("B2 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;7") == nil, "an undefined road type is rejected")
+	assert(build.deserialize("B1 s-1;0;-1;-2;1,0,0;1,0,0;-1") == nil, "format 1 lacks the road type")
 	assert(build.deserialize(42) == nil)
-	local data = assert(build.deserialize("B1"), "an empty proposal parses")
+	local data = assert(build.deserialize("B2"), "an empty proposal parses")
 	assert(#data.nodes == 0 and #data.segments == 0)
 end)
 
@@ -480,7 +492,7 @@ test("replay falls back to WorldBuildProposal and fills C++-style vectors", func
 	local env, sent = mock_build_api({ layout = "WorldBuildProposal", vectors = true })
 	local data = assert(build.deserialize(build.serialize(run5_street())))
 	local attempts = {}
-	local ok, message = build.replay(env, data, function(line) attempts[#attempts + 1] = line end)
+	local ok, message = build.replay(env, data, { log = function(line) attempts[#attempts + 1] = line end })
 	assert(ok, message)
 	assert(message:find("WorldBuildProposal", 1, true), message)
 	assert(#sent[1].proposal.proposal.addedSegments == 2)
@@ -492,7 +504,7 @@ test("replay logs every failed signature on its own line", function()
 	local env, sent = mock_build_api({ layout = "SimpleProposal", required_args = 99 })
 	local data = assert(build.deserialize(build.serialize(run5_street())))
 	local attempts = {}
-	local ok, message = build.replay(env, data, function(line) attempts[#attempts + 1] = line end)
+	local ok, message = build.replay(env, data, { log = function(line) attempts[#attempts + 1] = line end })
 	assert(not ok and message == "no layout worked", message)
 	assert(#sent == 0)
 	assert(contains(attempts, "SimpleProposal signature 5: "), table.concat(attempts, "\n"))
@@ -519,22 +531,100 @@ test("side_offset points at a right angle to the first segment", function()
 	assert(math.abs(data.nodes[1].position.x - (-2888.017 + dx)) < 0.001)
 end)
 
-test("replay_last builds at most MAX_REPLAYS copies and ignores the copy's own build event", function()
-	local main = load_resource("/mp_probe/main.script.lua")
-	main.MAX_REPLAYS = 1
-	logged = {}
-	local env = mock_build_api({ layout = "SimpleProposal" })
-	local state = mock_state()
-	main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
-	main.replay_last(env)
-	assert(contains(logged, "replay: ok, SimpleProposal: sent with signature 1"), table.concat(logged, "\n"))
-	assert(contains(logged, "replay #1: 3 nodes, 2 segments, moved by"))
-	-- The copy arrives as a new player build right after the replay and must not be stored again.
-	main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
-	assert(contains(logged, "capture skipped: build arrived right after a replay"))
-	main.pending_replay = "B1"
-	main.replay_last(env)
-	assert(contains(logged, "replay: limit of 1 reached"))
+--- Global engine mock for the main script: game time, player and the build/event commands.
+local function with_engine_api(opts, fn)
+	opts = opts or {}
+	local env, sent = mock_build_api({ layout = "SimpleProposal" })
+	local game_time = 1000
+	env.api.type.ComponentType = { GAME_TIME = 100 }
+	env.api.type.PlayerOwned = { new = function() return {} end }
+	env.api.engine = {
+		util = { getWorld = function() return 10 end, getPlayer = function() return 29125 end },
+		getComponent = function(_, comp) if comp == 100 then return { gameTime = game_time } end end,
+	}
+	local events = {}
+	env.api.cmd.makeScriptingSendEventCmd = function(a, b, c, d)
+		if opts.no_events then error("no script events") end
+		return { event = { a, b, c, d } }
+	end
+	local real_send = env.api.cmd.sendCommand
+	env.api.cmd.sendCommand = function(cmd, callback)
+		if cmd.event then events[#events + 1] = cmd.event return end
+		real_send(cmd)
+		if callback then callback({ resultEntities = { 9 } }, true) end
+	end
+	local saved_api, saved_os = api, os
+	api = env.api
+	local ok, err = pcall(fn, {
+		env = { api = env.api, os = { getenv = function() return opts.bridge_value end } },
+		sent = sent, events = events,
+		advance = function(ms) game_time = game_time + ms end,
+	})
+	api, os = saved_api, saved_os
+	if not ok then error(err, 0) end
+end
+
+test("a replay request from update becomes a script event, the event state builds the copy", function()
+	with_engine_api({ bridge_value = "replay 7" }, function(t)
+		local main = load_resource("/mp_probe/main.script.lua")
+		logged = {}
+		local state = mock_state()
+		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+		local s = {}
+		main.bridge_tick(t.env, 1, s)
+		main.bridge_tick(t.env, 2, s)
+		assert(#t.events == 1, "the same request is forwarded once: " .. #t.events)
+		assert(s.last_replay_request == 7)
+		assert(contains(logged, "replay requested as script event (signature 1)"))
+		local ev = t.events[1]
+		main.handleEvent(nil, state, ev[1], ev[2], ev[3], ev[4])
+		assert(contains(logged, "replay event received"), table.concat(logged, "\n"))
+		assert(contains(logged, "replay #1: 3 nodes, 2 segments, moved by"))
+		assert(contains(logged, "player 29125"))
+		assert(contains(logged, "replay: sent, SimpleProposal: sent with signature 1"))
+		assert(contains(logged, "replay result (SimpleProposal): success=true"))
+		local edge = t.sent[1].proposal.streetProposal.edgesToAdd[1]
+		assert(edge.comp.roadTemplate == "::/infrastructure/street/town/town_old_small.street_template")
+		assert(edge.comp.roadType == 1)
+		assert(edge.playerOwned.player == 29125)
+		assert(t.sent[1].context.player == 29125 and t.sent[1].context.cleanupStreetGraph == true)
+		-- The copy's own build event comes back within the quiet time and is not captured again.
+		t.advance(2000)
+		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+		assert(contains(logged, "capture skipped: build arrived right after a replay"))
+		-- Later builds are captured again.
+		t.advance(main.REPLAY_QUIET_MS)
+		logged = {}
+		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+		assert(contains(logged, "capture stored for replay"))
+	end)
+end)
+
+test("without script events the update state replays the line from the savegame state", function()
+	with_engine_api({ bridge_value = "replay 3", no_events = true }, function(t)
+		local main = load_resource("/mp_probe/main.script.lua")
+		logged = {}
+		local s = { last_build = build.serialize(run5_street()) }
+		main.bridge_tick(t.env, 1, s)
+		assert(contains(logged, "replay event signature 3: "), table.concat(logged, "\n"))
+		assert(contains(logged, "replay: no script event possible, replaying in the update state"))
+		assert(contains(logged, "replay: sent, SimpleProposal"))
+		assert(#t.sent == 1)
+	end)
+end)
+
+test("replay_last stops after MAX_REPLAYS", function()
+	with_engine_api({}, function(t)
+		local main = load_resource("/mp_probe/main.script.lua")
+		main.MAX_REPLAYS = 1
+		logged = {}
+		main.pending_replay = build.serialize(run5_street())
+		main.replay_last(t.env)
+		main.pending_replay = build.serialize(run5_street())
+		main.replay_last(t.env)
+		assert(contains(logged, "replay: limit of 1 reached"))
+		assert(#t.sent == 1)
+	end)
 end)
 
 test("replay without the engine api says so", function()

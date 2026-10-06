@@ -138,3 +138,25 @@ Folgerungen für Probe v8:
 3. Auch `WorldBuildProposal` als eigenen Versuch senden, nicht nur als Rückfall, falls `SimpleProposal` ohne Fehler angenommen wird.
 4. Prüfen, ob `sendCommand` aus einem „Sim Pool“-Thread überhaupt wirkt. Notfalls den Nachbau im Event-Handler (Simulation Thread) auslösen, etwa über ein Event per `makeScriptingSendEventCmd`.
 5. Gemeinsamen Zustand (letzte Aufzeichnung, Zähler, Ruhezeit) nur über `state` führen, nicht über Modul-Variablen.
+
+## Probe v8 (Antwort auf Lauf 7)
+
+**Wahrscheinliche Hauptursache, warum keine Kopie entstand:** Der nachgebaute Vorschlag hatte keinen Straßen- oder Gleistyp. Im Roh-Dump aus Lauf 5 (`logs/probe-log-5-mp_probe.txt`, ab Zeile 2560) steht, wo TF3 ihn speichert: nicht wie in TF2 als `streetEdge.streetType` bzw. `trackEdge.trackType`, sondern direkt im Segment:
+
+```
+comp.roadTemplate = "::/infrastructure/street/town/town_old_small.street_template"   (Straße)
+comp.roadStyle    = "::/infrastructure/street/town/town_old.street"
+comp.roadType     = 1    (Straße; Gleis = 0, Template "::/infrastructure/track/simple/simple.street_template")
+comp.distance     = 0    (Gleis: 5)
+comp.laneConfigs, comp.position0/position1, playerOwned.player = 29125, params.precedenceNode0/1 = 2
+```
+
+Straßen und Gleise sind in TF3 also derselbe Segmenttyp; nur das Template unterscheidet sie.
+
+Änderungen in v8:
+
+- **Format B2:** Jedes Segment trägt `roadType`, `distance` und einen Verweis auf ein `t`-Token mit `roadTemplate;roadStyle`. Jedes Template steht nur einmal in der Zeile. Beispiel: `B2 n-1;x,y,z … t1;<template>;<style> s-1;0;-1;-2;t0;t1;-1;1;0;1`.
+- Beim Nachbau werden `roadTemplate`, `roadStyle`, `roadType`, `distance`, `position0/1` und `playerOwned` (aktueller Spieler) gesetzt. Der Kontext bekommt `player`, `cleanupStreetGraph`, `gatherBuildings`, `gatherFields` und `checkTerrainAlignment = true`.
+- `sendCommand` bekommt einen Rückruf. `replay result (...): success=...` und die Felder des Ergebnisses (`resultProposalData`, `errorState`, `costs`, `resultEntities`) stehen danach im Log, so dass ein still verworfener Befehl jetzt einen Grund hat.
+- **Lua-Zustände:** Der Nachbau läuft jetzt in `handleEvent` (Simulation Thread), wo auch die Aufzeichnung liegt. `update` leitet die Anforderung der DLL nur als Skript-Event `mp_probe_replay` weiter (`makeScriptingSendEventCmd`, drei Signaturen). Klappt kein Event, baut `update` die Zeile aus dem Spielstand-Zustand nach (`last_build`). Welche Anforderung schon erledigt ist, steht im Spielstand-Zustand (`last_replay_request`), damit der nächste Sim-Pool-Zustand sie nicht noch einmal ausführt.
+- Die Ruhezeit nach einem Nachbau läuft über die Spielzeit (10 s), nicht mehr über einen Update-Zähler.
