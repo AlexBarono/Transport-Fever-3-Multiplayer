@@ -315,5 +315,26 @@ test("handleEvent logs each event type once", function()
 	assert(contains(logged, "---- param of onX"))
 end)
 
+test("bridge_tick logs outgoing lines and only changed incoming values", function()
+	local main = load_resource("/mp_probe/main.script.lua")
+	logged = {}
+	local value = nil
+	local env = { os = { getenv = function(name) return name == "TF3MP_IN" and value or nil end } }
+	main.bridge_tick(env, 1)
+	value = "hello 1"
+	main.bridge_tick(env, 2)
+	main.bridge_tick(env, 3)
+	assert(contains(logged, "bridge out seq=3"))
+	assert(contains(logged, "bridge in TF3MP_IN=nil"))
+	local hellos = 0
+	for _, l in ipairs(logged) do if l:find("TF3MP_IN=hello 1", 1, true) then hellos = hellos + 1 end end
+	assert(hellos == 1, "logged " .. hellos)
+end)
+
+test("capabilities reports whether os.getenv sees the environment", function()
+	local lines = probe.capabilities({ os = { getenv = function() return "C:\\x" end } })
+	assert(contains(lines, "os.getenv('PATH'): length 4"))
+end)
+
 print(string.format("%d passed, %d failed", passed, failures))
 if failures > 0 then os.exit(1) end

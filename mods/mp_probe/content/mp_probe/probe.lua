@@ -59,6 +59,12 @@ function probe.capabilities(env, opts)
 		lines[#lines + 1] = name .. ": " .. (has(env, name) and "yes" or "no")
 	end
 
+	-- os.getenv is the candidate channel from the DLL into Lua; check it sees the process environment.
+	if has(env, "os.getenv") then
+		local ok, v = pcall(env.os.getenv, "PATH")
+		lines[#lines + 1] = "os.getenv('PATH'): " .. (ok and (v and ("length " .. #v) or "nil") or "failed")
+	end
+
 	-- A C module that is not shipped with the game; only proves whether native loading is reachable.
 	if has(env, "require") then
 		local ok, err = pcall(env.require, "socket")

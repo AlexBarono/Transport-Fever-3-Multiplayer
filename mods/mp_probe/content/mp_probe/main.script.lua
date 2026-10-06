@@ -29,6 +29,12 @@ main.ENTITY_COMPONENTS = {
 -- bridge has to capture and replay, so their parameter structure is dumped once.
 main.SUBSCRIBED_EVENTS = { "onPostBuildProposal" }
 
+--- Bridge test (phase 1). The sandbox has no io, so the TF2 file exchange is impossible. Candidate
+-- channels: Lua -> DLL through tagged lines in stdout.txt (the DLL tails the log), DLL -> Lua through
+-- the process environment (the DLL calls _putenv_s on the shared CRT, Lua reads os.getenv).
+main.BRIDGE_EVERY = 50
+main.BRIDGE_ENV = "TF3MP_IN"
+
 --- Engine tables listed one by one, each with its own line budget (probe.MAX_LINES).
 main.LISTED_ROOTS = {
 	"api.engine", "api.type", "api.res", "api.cmd",
@@ -57,6 +63,22 @@ function main.run_probe(env)
 	end
 end
 
+-- false so that a first nil (variable not set) is logged too.
+local last_bridge_in = false
+
+--- Sends one numbered line towards the DLL and logs whatever the DLL put into the environment.
+function main.bridge_tick(env, seq)
+	logger.info("bridge out seq=" .. seq)
+	local getenv = env.os and env.os.getenv
+	if not getenv then return end
+	local ok, value = pcall(getenv, main.BRIDGE_ENV)
+	if not ok then value = "ERR " .. tostring(value) end
+	if value ~= last_bridge_in then
+		logger.info("bridge in " .. main.BRIDGE_ENV .. "=" .. tostring(value))
+		last_bridge_in = value
+	end
+end
+
 function main.update(_user_params, state, _dt)
 	local s = state:get() or {}
 	if s.probe_version ~= main.PROBE_VERSION then
@@ -74,6 +96,9 @@ function main.update(_user_params, state, _dt)
 	end
 
 	s.updates = (s.updates or 0) + 1
+	if s.updates % main.BRIDGE_EVERY == 0 then
+		pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY)
+	end
 	if s.updates % main.SNAPSHOT_EVERY == 0 then
 		local snap = probe.snapshot(_G)
 		if s.snapshot_errors_logged ~= main.PROBE_VERSION then
