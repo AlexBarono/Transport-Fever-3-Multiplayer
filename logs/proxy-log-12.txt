@@ -1,0 +1,42 @@
+﻿2026-10-06 19:45:25 [40024] alut proxy v7 loaded
+2026-10-06 19:45:25 [40024] net: loopback, captured lines come back to this game
+2026-10-06 19:45:25 [40024] bridge: ucrtbase _putenv_s found
+2026-10-06 19:45:25 [40024] bridge: TF3MP_IN=hello (ok)
+2026-10-06 19:45:25 [40024] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 19:45:45 [40024] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 19:46:00 [40024] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 19:46:03 [40024] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 19:46:04 [40024] net: line 40024.1 (423 characters) queued for this game (loopback)
+2026-10-06 19:46:05 [40024] bridge: TF3MP_IN=line 40024.1 loop B3 n-1;-2843.945,-3894.836,1.714 n-2;-2779.847,-3888.979,1.007... (ok)
+2026-10-06 19:46:08 [40024] bridge: TF3MP_IN=line 40024.1 loop B3 n-1;-2843.945,-3894.836,1.714 n-2;-2779.847,-3888.979,1.007... (ok)
+2026-10-06 19:46:08 [40024] bridge: the mod has line 40024.1
+2026-10-06 19:46:08 [40024] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 19:46:10 [40024] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 19:46:13 [40024] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 19:46:15 [40024] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 19:46:18 [40024] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 19:46:20 [40024] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 19:46:23 [40024] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 19:46:25 [40024] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 19:46:28 [40024] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 19:46:30 [40024] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 19:46:33 [40024] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 19:46:35 [40024] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 19:46:38 [40024] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 19:46:40 [40024] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 19:46:43 [40024] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 19:46:45 [40024] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 19:46:48 [40024] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 19:46:50 [40024] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 19:46:53 [40024] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 19:46:55 [40024] net: line 40024.2 (254 characters) queued for this game (loopback)
+2026-10-06 19:46:56 [40024] bridge: TF3MP_IN=line 40024.2 loop B3 n-1;-2633.44,-3852.641,2.282 n-2;-2577.189,-3859.185,1.842 ... (ok)
+2026-10-06 19:46:58 [40024] bridge: TF3MP_IN=line 40024.2 loop B3 n-1;-2633.44,-3852.641,2.282 n-2;-2577.189,-3859.185,1.842 ... (ok)
+2026-10-06 19:46:58 [40024] bridge: the mod has line 40024.2
+2026-10-06 19:46:58 [40024] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-06 19:47:01 [40024] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 19:47:03 [40024] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 19:47:06 [40024] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 19:47:08 [40024] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 19:47:11 [40024] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 19:47:15 [40024] alut proxy v7 unloaded

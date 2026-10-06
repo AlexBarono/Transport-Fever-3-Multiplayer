@@ -282,3 +282,14 @@ Lauf 11 hat gezeigt, dass eine aufgezeichnete Zeile auf einem PC wieder gebaut w
 Kein Echo: Ein nachgebauter Bau kommt mit `isPlayerBuild=false` an (Lauf 11) und wird nicht aufgezeichnet. Der alte DLL-Auslöser `replay <seq>` entfällt; der Mod versteht ihn weiterhin.
 
 Noch offen: Gleise, Straßen mit Anschluss an bestehende Knoten (Knoten-IDs unterscheiden sich zwischen den Spielen, Suche über die Position nötig), Bahnhöfe. Der Mitspieler bezahlt die nachgebaute Straße bisher selbst.
+
+## Ergebnis Lauf 12 (06.10.2026, Probe v12 + DLL v7, Loopback über den Launcher)
+
+Logs: [logs/probe-log-12-mp_probe.txt](../logs/probe-log-12-mp_probe.txt), [logs/probe-log-12-context.txt](../logs/probe-log-12-context.txt), [logs/proxy-log-12.txt](../logs/proxy-log-12.txt)
+
+Der Nutzer hat mit `Start.bat` → „Allein testen“ installiert (`alut_proxy.ini`: `[net] mode=loopback port=47800`). Er hat eine Straße und ein Gleis gebaut, **beide Kopien sind erschienen.** Kein Hängen, keine Warnungen des Spiels außer den üblichen beim Laden.
+
+- Straße: `capture stored` 17:46:04 → `net send B3 …` → DLL `net: line 40024.1 (423 characters) queued for this game (loopback)` → `TF3MP_IN=line 40024.1 loop …` → Mod `net received token=40024.1 kind=loop (423 characters)` 17:46:08 → `replay #40024.1: 3 nodes, 2 segments, moved by -3.6,39.8` → `BUILT, success=true, costs 5531`.
+- Gleis (erstmals): Spur-Teil `27.777,4,0.53,1,16512,0`, `replay #40024.2: 2 nodes, 1 segments` → `BUILT, costs 1983`.
+- Vom Bau bis zur Kopie vergehen etwa 3–4 s, also ein bis zwei Bridge-Ticks.
+- Auffällig: Die DLL setzt `TF3MP_IN=line …` zweimal, bevor sie `the mod has line …` sieht. Gebaut wurde aber nur einmal, die Erkennung doppelter Zeilen über das Token wirkt.
