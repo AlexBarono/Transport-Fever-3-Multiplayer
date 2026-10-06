@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <stdarg.h>
 
-#define PROXY_VERSION "5"
+#define PROXY_VERSION "6"
 
 /* Appends one timestamped line to alut_proxy.log next to the DLL. */
 void proxy_log(const char *fmt, ...);

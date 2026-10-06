@@ -297,10 +297,10 @@ test("handleEvent dumps up to BUILD_DUMPS player builds and one town build", fun
 	end
 	assert(player_dumps == 2, "player dumps " .. player_dumps)
 	assert(town_dumps == 1, "town dumps " .. town_dumps)
-	assert(contains(logged, "capture onPostBuildProposal player #1 nodes=3 segments=2 foreign_nodes=0"))
+	assert(contains(logged, "capture player build nodes=3 segments=2 foreign_nodes=0"))
 	local stored = 0
 	for _, l in ipairs(logged) do if l:find("capture stored for replay", 1, true) then stored = stored + 1 end end
-	assert(stored == 2, "stored " .. stored)
+	assert(stored == 4, "every player build is captured, dumped or not: " .. stored)
 	local capped = 0
 	for _, l in ipairs(logged) do if l:find("dump of onPostBuildProposal", 1, true) then capped = capped + 1 end end
 	assert(capped == 3, "timing lines " .. capped)
@@ -412,27 +412,41 @@ test("deserialize rejects broken lines", function()
 	assert(#data.nodes == 0 and #data.segments == 0)
 end)
 
---- Mock of the TF3 types used when rebuilding, with the given proposal layout.
+--- A C++-vector-like list: index assignment raises, push_back works (as a TF3 Vector_* might).
+local function vector_list()
+	local items = {}
+	return setmetatable({}, {
+		__len = function() return #items end,
+		__index = function(_, k)
+			if k == "push_back" then return function(_, v) items[#items + 1] = v end end
+			return items[k]
+		end,
+		__newindex = function() error("cannot assign to a vector") end,
+	})
+end
+
+--- Mock of the TF3 types used when rebuilding. Only the type named in opts.layout exists.
 local function mock_build_api(opts)
 	opts = opts or {}
 	local sent = {}
+	local list = opts.vectors and vector_list or function() return {} end
 	local function vec() return { x = 0, y = 0, z = 0 } end
-	local function new_proposal()
-		local p = {}
-		if opts.layout == "added" then
-			p.addedNodes, p.addedSegments = {}, {}
-		else
-			p.streetProposal = { nodesToAdd = {}, edgesToAdd = {} }
-		end
-		return p
+	local types = {
+		Context = { new = function() return { context = true } end },
+		NodeAndEntity = { new = function() return { comp = { position = vec() } } end },
+		SegmentAndEntity = { new = function() return { comp = { tangent0 = vec(), tangent1 = vec() } } end },
+	}
+	if opts.layout == "SimpleProposal" then
+		types.SimpleProposal = { new = function()
+			return { streetProposal = { nodesToAdd = list(), edgesToAdd = list() } }
+		end }
+	elseif opts.layout == "WorldBuildProposal" then
+		types.WorldBuildProposal = { new = function()
+			return { proposal = { addedNodes = list(), addedSegments = list() }, toAdd = {} }
+		end }
 	end
 	local api = {
-		type = {
-			Proposal = { new = new_proposal },
-			Context = { new = function() return { context = true } end },
-			NodeAndEntity = { new = function() return { comp = { position = vec() } } end },
-			SegmentAndEntity = { new = function() return { comp = { tangent0 = vec(), tangent1 = vec() } } end },
-		},
+		type = types,
 		cmd = {
 			makeWorldBuildProposalCmd = function(proposal, context, flag)
 				if opts.required_args and select("#", proposal, context, flag) ~= opts.required_args then
@@ -447,39 +461,80 @@ local function mock_build_api(opts)
 	return { api = api }, sent
 end
 
-test("replay fills the streetProposal layout and sends one command", function()
-	local env, sent = mock_build_api({ needs_context = true })
+test("replay fills a SimpleProposal (TF2 layout) and sends one command", function()
+	local env, sent = mock_build_api({ layout = "SimpleProposal", needs_context = true })
 	local data = assert(build.deserialize(build.serialize(run5_street())))
 	local ok, message = build.replay(env, data)
 	assert(ok, message)
-	assert(message:find("streetProposal", 1, true), message)
+	assert(message == "SimpleProposal: sent with signature 1", message)
 	assert(#sent == 1, "commands sent: " .. #sent)
-	local proposal = sent[1].proposal
-	assert(#proposal.streetProposal.nodesToAdd == 3)
-	assert(#proposal.streetProposal.edgesToAdd == 2)
-	assert(proposal.streetProposal.edgesToAdd[1].entity == -1)
-	assert(proposal.streetProposal.edgesToAdd[2].comp.node0 == -2)
-	assert(math.abs(proposal.streetProposal.nodesToAdd[1].comp.position.z - 1.675) < 0.001)
+	local sp = sent[1].proposal.streetProposal
+	assert(#sp.nodesToAdd == 3 and #sp.edgesToAdd == 2)
+	assert(sp.edgesToAdd[1].entity == -1 and sp.edgesToAdd[2].comp.node0 == -2)
+	assert(sp.edgesToAdd[1].comp.typeIndex == -1)
+	assert(math.abs(sp.nodesToAdd[1].comp.position.z - 1.675) < 0.001)
 	assert(sent[1].context ~= nil, "the command gets a context")
 end)
 
-test("replay falls back to the addedSegments layout", function()
-	local env, sent = mock_build_api({ layout = "added" })
+test("replay falls back to WorldBuildProposal and fills C++-style vectors", function()
+	local env, sent = mock_build_api({ layout = "WorldBuildProposal", vectors = true })
 	local data = assert(build.deserialize(build.serialize(run5_street())))
-	local ok, message = build.replay(env, data)
+	local attempts = {}
+	local ok, message = build.replay(env, data, function(line) attempts[#attempts + 1] = line end)
 	assert(ok, message)
-	assert(message:find("added", 1, true), message)
-	assert(#sent[1].proposal.addedSegments == 2)
+	assert(message:find("WorldBuildProposal", 1, true), message)
+	assert(#sent[1].proposal.proposal.addedSegments == 2)
+	assert(#sent[1].proposal.proposal.addedNodes == 3)
+	assert(contains(attempts, "SimpleProposal: "), "the failed first layout is logged")
 end)
 
-test("replay reports when no command signature is accepted", function()
-	local env, sent = mock_build_api({ required_args = 99 })
+test("replay logs every failed signature on its own line", function()
+	local env, sent = mock_build_api({ layout = "SimpleProposal", required_args = 99 })
 	local data = assert(build.deserialize(build.serialize(run5_street())))
-	local ok, message = build.replay(env, data)
-	assert(not ok)
+	local attempts = {}
+	local ok, message = build.replay(env, data, function(line) attempts[#attempts + 1] = line end)
+	assert(not ok and message == "no layout worked", message)
 	assert(#sent == 0)
-	assert(message:find("no signature worked", 1, true), message)
-	assert(message:find("streetProposal", 1, true) and message:find("added", 1, true), message)
+	assert(contains(attempts, "SimpleProposal signature 5: "), table.concat(attempts, "\n"))
+	assert(contains(attempts, "WorldBuildProposal: "))
+	assert(contains(attempts, "StreetProposal: "))
+end)
+
+test("append uses push_back when index assignment fails and reports a nil list", function()
+	local v = vector_list()
+	build.append(v, "a")
+	build.append(v, "b")
+	assert(#v == 2 and v[2] == "b")
+	local ok, err = pcall(build.append, nil, "x")
+	assert(not ok and tostring(err):find("list is nil", 1, true))
+end)
+
+test("side_offset points at a right angle to the first segment", function()
+	local data = assert(build.deserialize(build.serialize(run5_street())))
+	local dx, dy = build.side_offset(data, 40)
+	local t = data.segments[1].tangent0
+	assert(math.abs(dx * t.x + dy * t.y) < 1e-6, "perpendicular")
+	assert(math.abs(math.sqrt(dx * dx + dy * dy) - 40) < 1e-6, "40 m")
+	build.offset(data, dx, dy)
+	assert(math.abs(data.nodes[1].position.x - (-2888.017 + dx)) < 0.001)
+end)
+
+test("replay_last builds at most MAX_REPLAYS copies and ignores the copy's own build event", function()
+	local main = load_resource("/mp_probe/main.script.lua")
+	main.MAX_REPLAYS = 1
+	logged = {}
+	local env = mock_build_api({ layout = "SimpleProposal" })
+	local state = mock_state()
+	main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+	main.replay_last(env)
+	assert(contains(logged, "replay: ok, SimpleProposal: sent with signature 1"), table.concat(logged, "\n"))
+	assert(contains(logged, "replay #1: 3 nodes, 2 segments, moved by"))
+	-- The copy arrives as a new player build right after the replay and must not be stored again.
+	main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+	assert(contains(logged, "capture skipped: build arrived right after a replay"))
+	main.pending_replay = "B1"
+	main.replay_last(env)
+	assert(contains(logged, "replay: limit of 1 reached"))
 end)
 
 test("replay without the engine api says so", function()

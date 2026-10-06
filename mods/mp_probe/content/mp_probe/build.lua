@@ -107,28 +107,55 @@ local function set_vec(target, v)
 	target.z = v.z
 end
 
---- Proposal layouts tried when rebuilding. TF2 fills proposal.streetProposal.edgesToAdd; the
--- proposal TF3 reports after a build uses addedSegments instead, and which one the build command
--- expects is unknown, so both are tried and the log says which worked.
-build.LAYOUTS = { "streetProposal", "added" }
+--- Appends to an engine list. Lists inside TF3 proposals may be C++ vectors rather than Lua
+-- tables, so after plain index assignment the usual vector methods are tried.
+function build.append(list, item)
+	if list == nil then error("list is nil", 0) end
+	local errors = {}
+	local attempts = {
+		function() list[#list + 1] = item end,
+		function() list:push_back(item) end,
+		function() list:add(item) end,
+		function() list:append(item) end,
+	}
+	for _, attempt in ipairs(attempts) do
+		local ok, err = pcall(attempt)
+		if ok then return end
+		errors[#errors + 1] = tostring(err):sub(1, 60)
+	end
+	error("cannot append (" .. table.concat(errors, " / ") .. ")", 0)
+end
 
---- Builds an api.type.Proposal from parsed data in one of build.LAYOUTS.
+--- Proposal layouts tried when rebuilding, in order. Run 6 showed that api.type.Proposal has
+-- neither streetProposal nor addedSegments. TF3 also offers SimpleProposal (TF2's input type,
+-- with streetProposal.nodesToAdd/edgesToAdd), WorldBuildProposal (matches makeWorldBuildProposalCmd
+-- and the param[1] the build event reports: proposal.addedNodes/addedSegments) and StreetProposal.
+-- Each entry returns the object to send plus the two lists to fill.
+build.LAYOUTS = {
+	{ name = "SimpleProposal", make = function(t)
+		local p = t.SimpleProposal.new()
+		return p, p.streetProposal.nodesToAdd, p.streetProposal.edgesToAdd
+	end },
+	{ name = "WorldBuildProposal", make = function(t)
+		local p = t.WorldBuildProposal.new()
+		return p, p.proposal.addedNodes, p.proposal.addedSegments
+	end },
+	{ name = "StreetProposal", make = function(t)
+		local p = t.StreetProposal.new()
+		return p, p.addedNodes, p.addedSegments
+	end },
+}
+
+--- Builds a proposal from parsed data with one entry of build.LAYOUTS.
 -- @return userdata proposal (raises on failure, callers use pcall)
 function build.make_proposal(env, data, layout)
 	local api = env.api
-	local proposal = api.type.Proposal.new()
-	local node_list, edge_list
-	if layout == "streetProposal" then
-		if proposal.streetProposal == nil then error("no streetProposal field") end
-		node_list, edge_list = proposal.streetProposal.nodesToAdd, proposal.streetProposal.edgesToAdd
-	else
-		node_list, edge_list = proposal.addedNodes, proposal.addedSegments
-	end
+	local proposal, node_list, edge_list = layout.make(api.type)
 	for _, node in ipairs(data.nodes) do
 		local entry = api.type.NodeAndEntity.new()
 		entry.entity = node.id
 		set_vec(entry.comp.position, node.position)
-		node_list[#node_list + 1] = entry
+		build.append(node_list, entry)
 	end
 	for _, seg in ipairs(data.segments) do
 		local entry = api.type.SegmentAndEntity.new()
@@ -139,7 +166,7 @@ function build.make_proposal(env, data, layout)
 		set_vec(entry.comp.tangent0, seg.tangent0)
 		set_vec(entry.comp.tangent1, seg.tangent1)
 		if seg.typeIndex then pcall(function() entry.comp.typeIndex = seg.typeIndex end) end
-		edge_list[#edge_list + 1] = entry
+		build.append(edge_list, entry)
 	end
 	return proposal
 end
@@ -155,39 +182,61 @@ build.CMD_ARGS = {
 }
 
 --- Sends a proposal, trying every signature in build.CMD_ARGS.
+-- @param log function|nil receives one line per failed attempt
 -- @return boolean ok, string message
-function build.send(env, proposal)
+function build.send(env, proposal, log)
 	local api = env.api
 	local context = nil
 	pcall(function() context = api.type.Context.new() end)
-	local errors = {}
 	for i, make_args in ipairs(build.CMD_ARGS) do
 		local ok, err = pcall(function()
 			local args = make_args(proposal, context)
 			api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(args[1], args[2], args[3]))
 		end)
 		if ok then return true, "sent with signature " .. i end
-		errors[#errors + 1] = i .. ": " .. tostring(err):sub(1, 100)
+		if log then log("signature " .. i .. ": " .. tostring(err):sub(1, 200)) end
 	end
-	return false, "no signature worked (" .. table.concat(errors, " | ") .. ")"
+	return false, "no signature worked"
 end
 
---- Rebuilds a serialized line in the running game.
+--- Moves every node of parsed data by (dx, dy). Only for the single-PC test, where the copy has
+-- to appear next to the original instead of on top of it.
+function build.offset(data, dx, dy)
+	for _, node in ipairs(data.nodes) do
+		node.position.x = node.position.x + dx
+		node.position.y = node.position.y + dy
+	end
+	return data
+end
+
+--- Offset of `distance` metres at a right angle to the first segment, so a straight road gets a
+-- parallel copy.
+function build.side_offset(data, distance)
+	local seg = data.segments[1]
+	if not seg then return 0, distance end
+	local tx, ty = seg.tangent0.x, seg.tangent0.y
+	local len = math.sqrt(tx * tx + ty * ty)
+	if len < 1e-6 then return 0, distance end
+	return -ty / len * distance, tx / len * distance
+end
+
+--- Rebuilds a serialized line in the running game, trying every layout.
+-- @param log function|nil receives one line per failed attempt (the game log cuts long lines)
 -- @return boolean ok, string message
-function build.replay(env, data)
+function build.replay(env, data, log)
 	if not (env.api and env.api.type and env.api.cmd) then return false, "api missing" end
-	local messages = {}
 	for _, layout in ipairs(build.LAYOUTS) do
 		local ok, proposal = pcall(build.make_proposal, env, data, layout)
 		if ok then
-			local sent, message = build.send(env, proposal)
-			if sent then return true, layout .. ": " .. message end
-			messages[#messages + 1] = layout .. ": " .. message
-		else
-			messages[#messages + 1] = layout .. ": " .. tostring(proposal):sub(1, 100)
+			local sent, message = build.send(env, proposal, function(line)
+				if log then log(layout.name .. " " .. line) end
+			end)
+			if sent then return true, layout.name .. ": " .. message end
+		elseif log then
+			log(layout.name .. ": " .. tostring(proposal):sub(1, 200))
 		end
 	end
-	return false, table.concat(messages, " || ")
+	return false, "no layout worked"
 end
 
 return build

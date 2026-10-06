@@ -11,7 +11,7 @@ local build = require("/mp_probe/build.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 6
+main.PROBE_VERSION = 7
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -33,6 +33,16 @@ main.ENTITY_COMPONENTS = {
 --- Events the engine only delivers on subscription. Build proposals are what a multiplayer
 -- bridge has to capture and replay, so their parameter structure is dumped once.
 main.SUBSCRIBED_EVENTS = { "onPostBuildProposal" }
+
+--- Replay test (phase 1, one PC). The copy is built this many metres beside the original so both
+-- are visible; at most MAX_REPLAYS per game session, and builds arriving within REPLAY_QUIET_UPDATES
+-- after a replay are not captured, so the copy does not trigger yet another copy.
+main.REPLAY_SIDE_OFFSET = 40
+main.MAX_REPLAYS = 3
+main.REPLAY_QUIET_UPDATES = 50
+main.replays_done = 0
+main.updates = 0
+main.quiet_until = -1
 
 --- Bridge test (phase 1). The sandbox has no io, so the TF2 file exchange is impossible. Candidate
 -- channels: Lua -> DLL through tagged lines in stdout.txt (the DLL tails the log), DLL -> Lua through
@@ -87,21 +97,59 @@ function main.bridge_tick(env, seq)
 	end
 end
 
---- Rebuilds the last captured build. The DLL asks for this by setting TF3MP_IN=replay, which is
--- the end-to-end test of phase 1 on a single PC: capture a road, rebuild it from the text line.
+--- Engine types whose fresh instances are described once before the first replay, so the log
+-- shows which fields and list methods they really have (run 6 had to guess).
+main.DESCRIBED_TYPES = {
+	"SimpleProposal", "WorldBuildProposal", "StreetProposal", "Vector_NodeAndEntity", "Vector_SegmentAndEntity",
+}
+local types_described = false
+
+function main.describe_types(env)
+	if types_described then return end
+	types_described = true
+	local t = env.api and env.api.type
+	if not t then return end
+	for _, name in ipairs(main.DESCRIBED_TYPES) do
+		local ok, value = pcall(function() return t[name].new() end)
+		if ok and value ~= nil then
+			local lines = {}
+			pcall(probe.list, value, name, 2, lines, 40)
+			pcall(function()
+				for _, line in ipairs(probe.fields(value, name, 3, 60)) do lines[#lines + 1] = line end
+			end)
+			log_lines("type " .. name, lines)
+		else
+			logger.info("type " .. name .. ": new() failed (" .. tostring(value):sub(1, 150) .. ")")
+		end
+	end
+end
+
+--- Rebuilds the last captured build beside the original. The DLL asks for this by setting
+-- TF3MP_IN=replay, which is the end-to-end test of phase 1 on a single PC.
 function main.replay_last(env)
 	local line = main.pending_replay
 	if not line then
 		logger.info("replay: nothing captured yet")
 		return
 	end
+	if main.replays_done >= main.MAX_REPLAYS then
+		logger.info("replay: limit of " .. main.MAX_REPLAYS .. " reached")
+		return
+	end
 	main.pending_replay = nil
+	main.replays_done = main.replays_done + 1
+	main.quiet_until = main.updates + main.REPLAY_QUIET_UPDATES
+	main.describe_types(env)
 	local data, err = build.deserialize(line)
 	if not data then
 		logger.info("replay: bad line (" .. tostring(err) .. ")")
 		return
 	end
-	local ok, message = build.replay(env, data)
+	local dx, dy = build.side_offset(data, main.REPLAY_SIDE_OFFSET)
+	build.offset(data, dx, dy)
+	logger.info(string.format("replay #%d: %d nodes, %d segments, moved by %.1f,%.1f",
+		main.replays_done, #data.nodes, #data.segments, dx, dy))
+	local ok, message = build.replay(env, data, function(attempt) logger.info("replay attempt " .. attempt) end)
 	logger.info("replay: " .. (ok and "ok, " or "failed, ") .. message)
 end
 
@@ -124,6 +172,7 @@ function main.update(_user_params, state, _dt)
 	if main.pending_replay == nil and s.last_build then main.pending_replay = s.last_build end
 
 	s.updates = (s.updates or 0) + 1
+	main.updates = s.updates
 	if s.updates % main.BRIDGE_EVERY == 0 then
 		pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY)
 	end
@@ -199,6 +248,13 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	local key = tostring(src) .. "|" .. tostring(id) .. "|" .. tostring(name)
 	local player_build = name == "onPostBuildProposal" and main.is_player_build(param)
 	if player_build then key = key .. "|player" end
+	if player_build then
+		if main.updates < main.quiet_until then
+			logger.info("capture skipped: build arrived right after a replay (probably the copy)")
+		else
+			main.capture_build(state, s, param, "player build")
+		end
+	end
 	local prev = s.seen_events[key]
 	local count = type(prev) == "number" and prev + 1 or 1
 	local limit = player_build and main.BUILD_DUMPS or 1
@@ -214,10 +270,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	-- Build proposals arrive as C++ userdata that pairs() cannot enumerate; probe known field names.
 	local ok_f, field_lines = pcall(probe.fields, param, "param", 7, budget)
 	if ok_f and #field_lines > 0 then log_lines("fields of " .. label, field_lines) end
-	if player_build then
-		main.capture_build(state, s, param, label)
-		main.dump_new_entities(_G, param[3], label)
-	end
+	if player_build then main.dump_new_entities(_G, param[3], label) end
 	if os.clock then
 		logger.info("dump of " .. label .. " took " .. string.format("%.2f", os.clock() - started) .. " s")
 	end

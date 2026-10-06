@@ -29,7 +29,8 @@ static int line_len;
 
 /* Without the "[mp_probe]" tag, in case debugPrint separates its arguments. */
 static const char MARKER[] = "bridge out seq=";
-/* The mod logs this once it has a build stored; the DLL then asks for the replay. */
+/* The mod logs this each time it stores a build; the DLL then asks for one replay of it. The mod
+ * itself limits the number of replays and ignores the copy's own build event. */
 static const char CAPTURE_MARKER[] = "capture stored for replay";
 static int replay_requested;
 
@@ -103,7 +104,7 @@ static void handle_line(void)
 	unsigned long seq = 0;
 
 	line_buf[line_len] = 0;
-	if (!replay_requested && find(line_buf, CAPTURE_MARKER)) {
+	if (find(line_buf, CAPTURE_MARKER)) {
 		proxy_log("bridge: the mod stored a build for replay");
 		replay_requested = 1;
 	}
@@ -115,7 +116,7 @@ static void handle_line(void)
 	proxy_log("bridge: got from Lua: bridge out seq=%lu", seq);
 	if (replay_requested == 1) {
 		/* One tick after the capture, ask the mod to rebuild it (phase 1 test on one PC). */
-		replay_requested = 2;
+		replay_requested = 0;
 		wsprintfA(value, "replay %lu", seq);
 		proxy_log("bridge: asking the mod to replay the stored build");
 	} else {

@@ -86,3 +86,14 @@ Bedeutung: Ein frisches `api.type.Proposal.new()` hat in TF3 weder `streetPropos
 - `api.type.Vector_NodeAndEntity.new`, `api.type.Vector_SegmentAndEntity.new` – die Listen sind wohl C++-Vektoren, keine Lua-Tabellen. Anhängen also eher über deren Methoden als über `list[#list + 1]`.
 
 Nächster Schritt für Probe v7: `WorldBuildProposal.new()` bzw. `StreetProposal.new()` anlegen, die vorhandenen Felder und Methoden ins Log schreiben und die Listen über die Vector-Typen befüllen. Danach erst die Signaturen von `makeWorldBuildProposalCmd` durchprobieren.
+
+## Probe v7 + DLL v6 (Antwort auf Lauf 6)
+
+- `build.lua` probiert jetzt die drei Typen, die TF3 wirklich hat, in dieser Reihenfolge: `SimpleProposal` (TF2-Muster mit `streetProposal.nodesToAdd`/`edgesToAdd`), `WorldBuildProposal` (`proposal.addedNodes`/`addedSegments`, passt zum Namen von `makeWorldBuildProposalCmd`) und `StreetProposal`.
+- Listen werden über `build.append` befüllt: erst `list[#list + 1]`, dann `push_back`, `add`, `append`, falls es C++-Vektoren sind.
+- Jeder Fehlversuch steht in einer eigenen Logzeile (`replay attempt ...`), damit das Spiel-Log nichts mehr abschneidet.
+- Vor dem ersten Wiederaufbau beschreibt der Mod frische Instanzen von `SimpleProposal`, `WorldBuildProposal`, `StreetProposal`, `Vector_NodeAndEntity` und `Vector_SegmentAndEntity` (`---- type ...`), damit die echten Felder im Log stehen.
+- Die Kopie entsteht 40 m neben dem Original (rechtwinklig zum ersten Segment), damit man sie sieht.
+- Schutz gegen eine Endlosschleife: höchstens 3 Wiederaufbauten pro Sitzung, und ein Bau, der innerhalb von 50 Updates nach einem Wiederaufbau kommt (die Kopie selbst), wird nicht aufgezeichnet.
+- Jeder Spielerbau wird aufgezeichnet, auch wenn sein Dump wegen `BUILD_DUMPS` entfällt.
+- DLL v6 fordert für jede neue Aufzeichnung einen Wiederaufbau an, nicht nur für die erste.
