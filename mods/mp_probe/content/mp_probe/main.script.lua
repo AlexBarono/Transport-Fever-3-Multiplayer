@@ -11,7 +11,7 @@ local build = require("/mp_probe/build.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 8
+main.PROBE_VERSION = 9
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -35,18 +35,17 @@ main.ENTITY_COMPONENTS = {
 main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay" }
 
 --- Replay test (phase 1, one PC). The copy is built this many metres beside the original so both
--- are visible; at most MAX_REPLAYS per game session, and builds arriving within REPLAY_QUIET_MS of
--- game time after a replay are not captured, so the copy does not trigger yet another copy.
+-- are visible; at most MAX_REPLAYS per savegame session, and builds arriving within REPLAY_QUIET_MS
+-- of game time after a replay are not captured, so the copy does not trigger yet another copy.
 main.REPLAY_SIDE_OFFSET = 40
 main.MAX_REPLAYS = 3
 main.REPLAY_QUIET_MS = 10000
-main.replays_done = 0
-main.quiet_until = -1
 
---- Run 7 showed that TF3 runs update() in rotating "Sim Pool" Lua states and handleEvent() in the
--- "Simulation Thread" state; module variables are not shared between them. Captures happen in
--- handleEvent, so the replay runs there too: update() only forwards the DLL's request as a script
--- event with this name.
+--- Runs 7 and 8: module variables survive neither between update() calls (rotating "Sim Pool"
+-- Lua states) nor between handleEvent() calls. Only the script state (state:get/set) persists, so
+-- every value that one call needs from another lives there. update() sends the DLL's replay
+-- request, together with the captured line, as a script event with this name; handleEvent()
+-- builds the copy from the line in the event parameter.
 main.REPLAY_EVENT = "mp_probe_replay"
 
 --- Bridge test (phase 1). The sandbox has no io, so the TF2 file exchange is impossible. Candidate
@@ -102,36 +101,47 @@ function main.bridge_tick(env, seq, s)
 	local request = type(value) == "string" and tonumber(string.match(value, "^replay (%d+)"))
 	if request and s and request > (s.last_replay_request or 0) then
 		s.last_replay_request = request
-		main.request_replay(env, s)
+		main.request_replay(env, s, request)
 	end
 end
 
 --- Argument lists tried for api.cmd.makeScriptingSendEventCmd; TF2's equivalent took
--- (fileName, id, name, param).
+-- (fileName, id, name, param). Run 8: signature 1 works.
 main.EVENT_ARGS = {
-	function(name) return { "mp_probe", name, name, {} } end,
-	function(name) return { name, name, {} } end,
-	function(name) return { name, {} } end,
+	function(name, param) return { "mp_probe", name, name, param } end,
+	function(name, param) return { name, name, param } end,
+	function(name, param) return { name, param } end,
 }
 
---- Asks the event state to replay. Falls back to replaying right here if no script event can be
--- sent, using the line the event state stored in the savegame state.
-function main.request_replay(env, s)
+--- Forwards a replay request with the line captured last (savegame state) to the event state.
+-- Falls back to replaying right here if no script event can be sent.
+function main.request_replay(env, s, request)
+	local line = s.last_build
+	if not line then
+		logger.info("replay: no captured build in the script state yet")
+		return
+	end
+	if (s.replays_requested or 0) >= main.MAX_REPLAYS then
+		logger.info("replay: limit of " .. main.MAX_REPLAYS .. " reached")
+		return
+	end
+	s.replays_requested = (s.replays_requested or 0) + 1
+	local param = { line = line, request = request, number = s.replays_requested }
 	local api = env.api
 	for i, make_args in ipairs(main.EVENT_ARGS) do
 		local ok, err = pcall(function()
-			local args = make_args(main.REPLAY_EVENT)
+			local args = make_args(main.REPLAY_EVENT, param)
 			api.cmd.sendCommand(api.cmd.makeScriptingSendEventCmd(args[1], args[2], args[3], args[4]))
 		end)
 		if ok then
-			logger.info("replay requested as script event (signature " .. i .. ")")
+			logger.info("replay #" .. param.number .. " requested as script event (signature " .. i .. ", " ..
+				#line .. " characters)")
 			return
 		end
 		logger.info("replay event signature " .. i .. ": " .. tostring(err):sub(1, 200))
 	end
 	logger.info("replay: no script event possible, replaying in the update state")
-	main.pending_replay = s and s.last_build
-	main.replay_last(env)
+	main.replay_line(env, line, param.number)
 end
 
 function main.is_replay_event(src, id, name)
@@ -160,22 +170,21 @@ function main.log_replay_result(result, success, layout)
 	if ok and #lines > 0 then log_lines("replay result fields", lines) end
 end
 
---- Rebuilds the last captured build beside the original. Runs in the event state, where the
--- capture stored main.pending_replay.
-function main.replay_last(env)
-	local line = main.pending_replay
-	if not line then
-		logger.info("replay: nothing captured yet")
+--- Rebuilds a captured line beside the original.
+-- @param number number which replay of this session this is (for the log)
+-- @param state table|nil script state; when given, the quiet time for the copy's own build event
+--   is stored there
+function main.replay_line(env, line, number, state)
+	if type(line) ~= "string" then
+		logger.info("replay: no line in the request")
 		return
 	end
-	if main.replays_done >= main.MAX_REPLAYS then
-		logger.info("replay: limit of " .. main.MAX_REPLAYS .. " reached")
-		return
-	end
-	main.pending_replay = nil
-	main.replays_done = main.replays_done + 1
 	local now = main.game_time(env)
-	if now then main.quiet_until = now + main.REPLAY_QUIET_MS end
+	if state and now then
+		local s = state:get() or {}
+		s.quiet_until = now + main.REPLAY_QUIET_MS
+		state:set(s)
+	end
 	local data, err = build.deserialize(line)
 	if not data then
 		logger.info("replay: bad line (" .. tostring(err) .. ")")
@@ -184,8 +193,8 @@ function main.replay_last(env)
 	local dx, dy = build.side_offset(data, main.REPLAY_SIDE_OFFSET)
 	build.offset(data, dx, dy)
 	local player = current_player(env)
-	logger.info(string.format("replay #%d: %d nodes, %d segments, moved by %.1f,%.1f, player %s",
-		main.replays_done, #data.nodes, #data.segments, dx, dy, tostring(player)))
+	logger.info(string.format("replay #%s: %d nodes, %d segments, moved by %.1f,%.1f, player %s",
+		tostring(number), #data.nodes, #data.segments, dx, dy, tostring(player)))
 	local ok, message = build.replay(env, data, {
 		log = function(attempt) logger.info("replay attempt " .. attempt) end,
 		on_result = main.log_replay_result,
@@ -271,7 +280,6 @@ function main.capture_build(state, s, param, label)
 	logger.info("capture line " .. line)
 	if info.segments > 0 and info.foreign_nodes == 0 then
 		s.last_build = line
-		main.pending_replay = line
 		state:set(s)
 		logger.info("capture stored for replay (" .. #line .. " characters)")
 	end
@@ -279,8 +287,16 @@ end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
 	if main.is_replay_event(src, id, name) then
-		logger.info("replay event received (src=" .. tostring(src) .. " id=" .. tostring(id) .. ")")
-		main.replay_last(_G)
+		local line = type(param) == "table" and param.line or nil
+		local number = type(param) == "table" and param.number or nil
+		logger.info("replay event received (src=" .. tostring(src) .. " id=" .. tostring(id) .. ", line " ..
+			(line and (#line .. " characters") or "missing") .. ")")
+		if not line then
+			-- The parameter did not come through; fall back to the script state.
+			local s = state:get() or {}
+			line = s.last_build
+		end
+		main.replay_line(_G, line, number, state)
 		return
 	end
 	local s = state:get() or {}
@@ -294,7 +310,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	if player_build then key = key .. "|player" end
 	if player_build then
 		local now = main.game_time(_G)
-		if now and now < main.quiet_until then
+		if now and now < (s.quiet_until or -1) then
 			logger.info("capture skipped: build arrived right after a replay (probably the copy)")
 		else
 			main.capture_build(state, s, param, "player build")

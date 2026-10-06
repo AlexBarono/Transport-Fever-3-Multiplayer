@@ -176,3 +176,10 @@ Der Nutzer hat eine Straße und ein Gleis gebaut. Keine Kopie, kein Hängen. **D
 - Spiel-Warnungen rund um den Nachbau: keine.
 
 Folgerung für Probe v9: Modul-Variablen gar nicht mehr für Daten zwischen Aufrufen verwenden. Der Replay-Zweig in `handleEvent` soll die Zeile aus `state:get().last_build` lesen und einen Marker wie `s.replayed_line` bzw. einen Zähler in `state` setzen, damit dieselbe Zeile nicht doppelt gebaut wird. Dasselbe gilt für `replays_done` und `quiet_until`. Achtung: `update` ruft bei jedem Update `state:set(s)` mit seiner eigenen Kopie auf. Kennt diese Kopie `last_build` noch nicht, könnte sie den Wert aus dem Event-Zustand wieder überschreiben. Daher in `update` nur die eigenen Felder ändern, oder die Replay-Daten in einem eigenen Feld führen, das nur der Event-Zustand schreibt.
+
+## Probe v9 (Antwort auf Lauf 8)
+
+- Keine Modul-Variablen mehr für Daten zwischen zwei Aufrufen. Lauf 8 zeigt, dass sie auch zwischen zwei `handleEvent`-Aufrufen im Simulation Thread verloren gehen.
+- Die Aufzeichnung steht nur im Skript-Zustand (`s.last_build`). `update` liest sie beim Replay-Wunsch der DLL von dort und schickt sie **im Parameter des Skript-Events** mit (`{line, request, number}`). `handleEvent` baut direkt aus `param.line` nach. Kommt der Parameter nicht an, nimmt es `last_build` aus dem Skript-Zustand.
+- Zähler (`replays_requested`, höchstens 3) und erledigte Anforderung (`last_replay_request`) führt `update` im Skript-Zustand. Die Ruhezeit für das Bau-Event der Kopie (`quiet_until`) schreibt der Nachbau in den Skript-Zustand.
+- Die Offline-Tests laden das Skript jetzt für jeden Aufruf neu, wie es das Spiel offenbar tut. Damit wäre der Fehler aus Lauf 8 schon offline aufgefallen.

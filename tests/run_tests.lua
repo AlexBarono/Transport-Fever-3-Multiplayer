@@ -564,21 +564,27 @@ local function with_engine_api(opts, fn)
 	if not ok then error(err, 0) end
 end
 
-test("a replay request from update becomes a script event, the event state builds the copy", function()
+-- TF3 keeps no module variables between calls (runs 7 and 8), so each call below loads a fresh copy
+-- of the script, as the game effectively does; only the shared script state carries over.
+local function fresh_main() return load_resource("/mp_probe/main.script.lua") end
+
+test("a replay request travels as script event with the line, the event state builds the copy", function()
 	with_engine_api({ bridge_value = "replay 7" }, function(t)
-		local main = load_resource("/mp_probe/main.script.lua")
 		logged = {}
 		local state = mock_state()
-		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
-		local s = {}
-		main.bridge_tick(t.env, 1, s)
-		main.bridge_tick(t.env, 2, s)
+		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+		local s = state:get()
+		assert(s.last_build, "the capture is kept in the script state")
+		fresh_main().bridge_tick(t.env, 1, s)
+		fresh_main().bridge_tick(t.env, 2, s)
 		assert(#t.events == 1, "the same request is forwarded once: " .. #t.events)
-		assert(s.last_replay_request == 7)
-		assert(contains(logged, "replay requested as script event (signature 1)"))
+		assert(s.last_replay_request == 7 and s.replays_requested == 1)
+		assert(contains(logged, "replay #1 requested as script event (signature 1"), table.concat(logged, "\n"))
 		local ev = t.events[1]
-		main.handleEvent(nil, state, ev[1], ev[2], ev[3], ev[4])
-		assert(contains(logged, "replay event received"), table.concat(logged, "\n"))
+		assert(ev[4].line == s.last_build, "the line travels in the event parameter")
+		state:set(s)
+		fresh_main().handleEvent(nil, state, ev[1], ev[2], ev[3], ev[4])
+		assert(contains(logged, "replay event received (src=mp_probe id=mp_probe_replay, line "))
 		assert(contains(logged, "replay #1: 3 nodes, 2 segments, moved by"))
 		assert(contains(logged, "player 29125"))
 		assert(contains(logged, "replay: sent, SimpleProposal: sent with signature 1"))
@@ -590,22 +596,33 @@ test("a replay request from update becomes a script event, the event state build
 		assert(t.sent[1].context.player == 29125 and t.sent[1].context.cleanupStreetGraph == true)
 		-- The copy's own build event comes back within the quiet time and is not captured again.
 		t.advance(2000)
-		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
 		assert(contains(logged, "capture skipped: build arrived right after a replay"))
 		-- Later builds are captured again.
-		t.advance(main.REPLAY_QUIET_MS)
+		t.advance(fresh_main().REPLAY_QUIET_MS)
 		logged = {}
-		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
 		assert(contains(logged, "capture stored for replay"))
 	end)
 end)
 
-test("without script events the update state replays the line from the savegame state", function()
+test("a replay event without a parameter falls back to the line in the script state", function()
+	with_engine_api({}, function(t)
+		logged = {}
+		local state = mock_state()
+		state:set({ last_build = build.serialize(run5_street()) })
+		fresh_main().handleEvent(nil, state, "mp_probe", "mp_probe_replay", "mp_probe_replay", nil)
+		assert(contains(logged, "line missing"), table.concat(logged, "\n"))
+		assert(contains(logged, "replay: sent, SimpleProposal"))
+		assert(#t.sent == 1)
+	end)
+end)
+
+test("without script events the update state replays the line from the script state", function()
 	with_engine_api({ bridge_value = "replay 3", no_events = true }, function(t)
-		local main = load_resource("/mp_probe/main.script.lua")
 		logged = {}
 		local s = { last_build = build.serialize(run5_street()) }
-		main.bridge_tick(t.env, 1, s)
+		fresh_main().bridge_tick(t.env, 1, s)
 		assert(contains(logged, "replay event signature 3: "), table.concat(logged, "\n"))
 		assert(contains(logged, "replay: no script event possible, replaying in the update state"))
 		assert(contains(logged, "replay: sent, SimpleProposal"))
@@ -613,17 +630,17 @@ test("without script events the update state replays the line from the savegame 
 	end)
 end)
 
-test("replay_last stops after MAX_REPLAYS", function()
+test("replay requests stop after MAX_REPLAYS and need a capture first", function()
 	with_engine_api({}, function(t)
-		local main = load_resource("/mp_probe/main.script.lua")
-		main.MAX_REPLAYS = 1
 		logged = {}
-		main.pending_replay = build.serialize(run5_street())
-		main.replay_last(t.env)
-		main.pending_replay = build.serialize(run5_street())
-		main.replay_last(t.env)
-		assert(contains(logged, "replay: limit of 1 reached"))
-		assert(#t.sent == 1)
+		local s = {}
+		fresh_main().request_replay(t.env, s, 1)
+		assert(contains(logged, "replay: no captured build in the script state yet"))
+		s.last_build = build.serialize(run5_street())
+		local main = fresh_main()
+		for i = 1, main.MAX_REPLAYS + 1 do fresh_main().request_replay(t.env, s, i) end
+		assert(#t.events == main.MAX_REPLAYS, "events " .. #t.events)
+		assert(contains(logged, "replay: limit of " .. main.MAX_REPLAYS .. " reached"))
 	end)
 end)
 
