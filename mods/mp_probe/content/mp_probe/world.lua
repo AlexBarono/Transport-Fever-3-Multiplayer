@@ -260,6 +260,15 @@ function world.describe_edge_object(o)
 		table.concat(o.sources or {}, ","), tostring(o.name), tostring(o.left), tostring(o.oneWay), tostring(o.problem))
 end
 
+--- The construction an edge belongs to (a depot's or station's own segment), or nil.
+function world.edge_construction(env, edge)
+	local ok, id = pcall(function()
+		return env.api.engine.system.streetConnectorSystem.getConstructionEntityForEdge(edge)
+	end)
+	if ok and type(id) == "number" and id >= 0 then return id end
+	return nil
+end
+
 --- Stops/signals on an edge of this game: {{id, side, position}}.
 function world.edge_objects_of(env, edge)
 	local out = {}

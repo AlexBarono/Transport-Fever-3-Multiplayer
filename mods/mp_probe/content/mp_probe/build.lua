@@ -598,14 +598,42 @@ function build.resolve(data, finder)
 		if type(seg.node0) == "string" then seg.node0 = ids[seg.node0] end
 		if type(seg.node1) == "string" then seg.node1 = ids[seg.node1] end
 	end
+	-- Demolished constructions first: the game removes their own connecting segments itself, and
+	-- naming such a segment again makes it assert (run 15, StreetProposal::RemoveSegment).
+	for _, d in ipairs(data.demolished) do
+		d.entity = finder.find_construction(d.file, d.position)
+		if not d.entity then
+			return false, "demolishes " .. d.file .. " which does not exist here", notes
+		end
+	end
+	local demolished = {}
+	for _, d in ipairs(data.demolished) do demolished[d.entity] = true end
+	local kept_removed, dropped_nodes = {}, {}
 	for _, r in ipairs(data.removed_segments) do
 		local a, b = finder.find_node(r.p0), finder.find_node(r.p1)
 		r.entity = a and b and a ~= b and finder.find_edge(a, b) or nil
-		if not r.entity then
+		local owner = r.entity and finder.edge_construction and finder.edge_construction(r.entity)
+		if r.entity and owner and demolished[owner] then
+			notes[#notes + 1] = "removed segment belongs to a demolished construction, the game removes it"
+			dropped_nodes[a], dropped_nodes[b] = true, true
+		elseif not r.entity and #data.demolished > 0 then
+			-- Run 15: a depot's own access segment lies a little differently in the copy.
+			notes[#notes + 1] = string.format("removed segment %.1f,%.1f to %.1f,%.1f not found; left to the demolished construction",
+				r.p0.x, r.p0.y, r.p1.x, r.p1.y)
+		elseif not r.entity then
 			return false, string.format("removes a road or track that does not exist here (%.1f,%.1f to %.1f,%.1f)",
 				r.p0.x, r.p0.y, r.p1.x, r.p1.y), notes
+		else
+			local twice = false
+			for _, k in ipairs(kept_removed) do if k.entity == r.entity then twice = true end end
+			if twice then
+				notes[#notes + 1] = "segment named twice for removal, kept once"
+			else
+				kept_removed[#kept_removed + 1] = r
+			end
 		end
 	end
+	data.removed_segments = kept_removed
 	-- Stops and signals: objects on the edges removed here either come back (same position) or
 	-- were removed by the other player. A sent object that is not here yet is added.
 	data.objects_to_remove = {}
@@ -639,14 +667,15 @@ function build.resolve(data, finder)
 			if not taken[k] then data.objects_to_remove[#data.objects_to_remove + 1] = h.id end
 		end
 	end
+	local removed_node_ids = {}
 	for _, n in ipairs(data.removed_nodes) do
 		n.entity = finder.find_node(n)
-		if not n.entity then notes[#notes + 1] = string.format("removed node near %.1f,%.1f not found", n.x, n.y) end
-	end
-	for _, d in ipairs(data.demolished) do
-		d.entity = finder.find_construction(d.file, d.position)
-		if not d.entity then
-			return false, "demolishes " .. d.file .. " which does not exist here", notes
+		if not n.entity then
+			notes[#notes + 1] = string.format("removed node near %.1f,%.1f not found", n.x, n.y)
+		elseif dropped_nodes[n.entity] or removed_node_ids[n.entity] then
+			n.entity = nil
+		else
+			removed_node_ids[n.entity] = true
 		end
 	end
 	return true, nil, notes
@@ -822,9 +851,12 @@ function build.node_entity(data, id)
 end
 
 --- How new stops/signals are numbered in a proposal; not documented for TF3, so build.replay
--- tries each. "own": a counter of their own (-1, -2, ..., the TF2 multiplayer mod's stop proposal);
--- "shared": behind nodes and segments, like nodes behind segments.
-build.OBJECT_NUMBERINGS = { "own", "shared" }
+-- tries each.
+-- Run 15: TF3 asserts "EdgeObjectEntityToIndex: entity.GetId() <= -400000000 && > -500000000", so
+-- new edge objects live in their own id range; whether the first is -400000000 or -400000001 is
+-- tried.
+build.OBJECT_NUMBERINGS = { "range0", "range1" }
+build.OBJECT_ID_BASE = -400000000
 
 --- Gives every sent stop/signal its id in this proposal: the local entity when it already exists
 -- here (build.resolve), otherwise a placeholder by data.object_numbering. Returns the new ones.
@@ -835,10 +867,10 @@ function build.number_objects(data)
 			o.proposal_id = o.entity
 		else
 			added[#added + 1] = o
-			if data.object_numbering == "shared" then
-				o.proposal_id = -(#data.segments + #data.nodes + #added)
+			if data.object_numbering == "range1" then
+				o.proposal_id = build.OBJECT_ID_BASE - #added
 			else
-				o.proposal_id = -#added
+				o.proposal_id = build.OBJECT_ID_BASE - (#added - 1)
 			end
 		end
 	end

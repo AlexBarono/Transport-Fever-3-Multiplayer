@@ -13,7 +13,7 @@ local actions = require("/mp_probe/actions.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 15
+main.PROBE_VERSION = 16
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -254,6 +254,7 @@ function main.finder(env)
 		find_edge = function(a, b) return world.find_edge(env, a, b) end,
 		find_construction = function(file, position) return world.find_construction(env, file, position) end,
 		edge_objects_of = function(edge) return world.edge_objects_of(env, edge) end,
+		edge_construction = function(edge) return world.edge_construction(env, edge) end,
 	}
 end
 

@@ -351,3 +351,11 @@ Token `o;<segment>;<side>;<param>;x,y,z;<model>;<name>;<flags>` hinter dem Segme
 - Empfänger: Objekte auf seinen entfernten Kanten werden über die Position (3 m) zugeordnet und mit ihrer Id in `comp.objects` übernommen. Nicht zugeordnete eigene Objekte kommen in `edgeObjectsToRemove` (der andere Spieler hat sie entfernt), nicht gefundene gesendete kommen in `edgeObjectsToAdd`.
 - Nummerierung neuer Objekte in `comp.objects` ist nicht dokumentiert: `build.replay` versucht erst einen eigenen Zähler (-1, -2, …, wie die TF2-Mod), dann hinter Segmenten und Knoten.
 - Das erste Objekt pro Version wird vollständig geloggt (`stop/signal … read: …`).
+
+### Lauf 15 (v15) und Probe v16
+
+- Logs: `logs/run15-*`. Kopiert: Straße B, Gleis, Depots (`c;…`, Kosten ~91000), ein Abriss eines Straßenstücks.
+- Haltestellen und Signal abgelehnt: `street_util::EdgeObjectEntityToIndex: Assertion 'entity.GetId() <= -400000000 && entity.GetId() > -500000000'`. Neue Kantenobjekte haben einen eigenen Id-Bereich. v16 nummeriert ab -400000000 (sonst ab -400000001). Beim Signal kam `map_util.h:22: Get` (vermutlich dieselbe Ursache).
+- Gelesene Daten: `edgeObjectConstruction` ist eine `.con` (`::/stations/street/small_stops/small_old.con`, `::/infrastructure/signal/signal_path_a.con`), Seite 1 für Haltestellen, 2 für Signale.
+- Depot-Abriss: das Zufahrtsstück des Depots stand zusätzlich in `removedSegments` und wurde doppelt entfernt (`StreetProposal::RemoveSegment` Assertion), bzw. in der Kopie nicht gefunden. v16: Segmente, die zu einem abgerissenen Gebäude gehören (`streetConnectorSystem.getConstructionEntityForEdge`), oder die dabei nicht gefunden werden, überlässt der Mod dem Spiel; doppelte Segmente/Knoten werden nur einmal genannt.
+- `actions.lua`: `LoadConfig` hat kein `asTable`; v16 liest bekannte Felder.

@@ -729,15 +729,16 @@ local function mock_build_api(opts)
 				end
 				-- Like the game, the error points at the line in build.lua that made the call.
 				if opts.content_error then error("Unknown exception", 2) end
-				if opts.objects_need == "shared" then
-					local sp = proposal.streetProposal
-					local first_free = -(#sp.edgesToAdd + #sp.nodesToAdd)
-					local edges = sp.edgesToAdd
+				-- Run 15: new edge objects must lie in (-500000000, -400000000]; objects_need = "range1"
+				-- additionally refuses -400000000 itself, to test that the second numbering is tried.
+				do
+					local edges = proposal.streetProposal.edgesToAdd
 					for i = 1, #edges do
 						local objects = edges[i].comp.objects
 						for j = 1, #objects do
 							local id = objects[j][1]
-							if id < 0 and id >= first_free then error("Unknown exception", 2) end
+							if id < 0 and not (id <= -400000000 and id > -500000000) then error("Unknown exception", 2) end
+							if opts.objects_need == "range1" and id == -400000000 then error("Unknown exception", 2) end
 						end
 					end
 				end
@@ -1330,13 +1331,13 @@ test("a new stop on a street travels with position, model and side (v15)", funct
 	}
 	assert(build.resolve(data, finder))
 	assert(data.objects[1].entity == nil and data.objects_to_remove[1] == 7001)
-	local env, sent = mock_build_api({ objects_need = "shared" })
+	local env, sent = mock_build_api({ objects_need = "range1" })
 	local logs = {}
 	local ok, message = build.replay(env, data, { player = 29125, log = function(l) logs[#logs + 1] = l end })
 	assert(ok, message .. "\n" .. table.concat(logs, "\n"))
-	assert(message:find("numbered shared", 1, true), message)
+	assert(message:find("numbered range1", 1, true), message)
 	local sp = sent[#sent].proposal.streetProposal
-	assert(sp.edgesToAdd[1].comp.objects[1][1] == -2 and sp.edgesToAdd[1].comp.objects[1][2] == 1)
+	assert(sp.edgesToAdd[1].comp.objects[1][1] == -400000001 and sp.edgesToAdd[1].comp.objects[1][2] == 1)
 	assert(sp.edgeObjectsToAdd[1].edgeEntity == -1 and sp.edgeObjectsToAdd[1].param == 0.25)
 	assert(sp.edgeObjectsToAdd[1].model == "::/station/street/stop.mdl" and sp.edgeObjectsToAdd[1].left == true)
 	assert(sp.edgeObjectsToAdd[1].playerEntity == 29125 and sp.edgeObjectsToAdd[1].name == "Amselweg")
@@ -1361,13 +1362,36 @@ test("an existing stop on a rebuilt edge stays, a new one is added beside it (v1
 	assert(build.replay(env, data, { player = 29125 }))
 	local sp = sent[1].proposal.streetProposal
 	local objects = sp.edgesToAdd[1].comp.objects
-	assert(objects[1][1] == 7001 and objects[2][1] == -1, tostring(objects[2][1]))
+	assert(objects[1][1] == 7001 and objects[2][1] == -400000000, tostring(objects[2][1]))
 	assert(#sp.edgeObjectsToAdd == 1 and #sp.edgeObjectsToRemove == 0)
 	-- Without a readable position nothing is removed by guesswork.
 	data = assert(build.deserialize(line))
 	finder.edge_objects_of = function() return { { id = 7001, side = 1 } } end
 	local ok, missing = build.resolve(data, finder)
 	assert(not ok and missing:find("cannot read the position", 1, true))
+end)
+
+test("demolishing a depot leaves its own segment to the game (run 15)", function()
+	local data = assert(build.deserialize("B4 r;0,0,0;0,18,0;0 r;0,0,0;0,18,0;0 x;0,0,0 x;0,18,0 d;depot.con;5,5,0"))
+	local finder = {
+		find_node = function(pos) return pos.y == 0 and 11 or 12 end,
+		find_edge = function() return 600 end,
+		find_construction = function() return 700 end,
+		edge_construction = function(edge) return edge == 600 and 700 or nil end,
+	}
+	local ok, missing, notes = build.resolve(data, finder)
+	assert(ok, missing)
+	assert(#data.removed_segments == 0 and data.removed_nodes[1].entity == nil, "nothing named twice")
+	assert(data.demolished[1].entity == 700 and #notes >= 1)
+	-- Run 15: the copy's access segment lies elsewhere; the demolition still goes ahead.
+	data = assert(build.deserialize("B4 r;0,0,0;0,18,0;0 d;depot.con;5,5,0"))
+	finder.find_edge = function() return nil end
+	assert(build.resolve(data, finder))
+	-- The same segment twice without a demolition is removed once.
+	data = assert(build.deserialize("B4 r;0,0,0;0,18,0;0 r;0,18,0;0,0,0;0"))
+	finder.find_edge = function() return 601 end
+	assert(build.resolve(data, finder))
+	assert(#data.removed_segments == 1)
 end)
 
 test("params literals survive a round trip and reject broken text", function()

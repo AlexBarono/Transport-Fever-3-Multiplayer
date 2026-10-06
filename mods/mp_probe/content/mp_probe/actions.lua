@@ -26,6 +26,9 @@ end
 
 --- Turns engine values into plain Lua data. Run 14: not every TF3 userdata has asTable
 -- ("unsupported wire value: userdata" for vehicles), so lists and vector structs are read by hand.
+actions.STRUCT_FIELDS = { "x", "y", "z", "w", "loadConfigIndex", "cargoTypeId", "cargoEntry", "toHide",
+	"cargoType", "amount", "loadConfigs", "loadConfig" }
+
 local function to_plain(value, depth)
 	depth = depth or 0
 	if depth > 12 then error("value nested too deep", 0) end
@@ -41,9 +44,10 @@ local function to_plain(value, depth)
 			return out
 		end
 		local out, any = {}, false
-		for _, key in ipairs({ "x", "y", "z", "w" }) do
+		-- Vectors and the structs vehicles carry (run 15: LoadConfig).
+		for _, key in ipairs(actions.STRUCT_FIELDS) do
 			local ok_k, v = pcall(function() return value[key] end)
-			if ok_k and type(v) == "number" then out[key], any = v, true end
+			if ok_k and v ~= nil and type(v) ~= "function" then out[key], any = to_plain(v, depth + 1), true end
 		end
 		if any then return out end
 		error("unreadable engine value " .. tostring(value):gsub("0x%x+", ""), 0)
