@@ -160,3 +160,19 @@ Straßen und Gleise sind in TF3 also derselbe Segmenttyp; nur das Template unter
 - `sendCommand` bekommt einen Rückruf. `replay result (...): success=...` und die Felder des Ergebnisses (`resultProposalData`, `errorState`, `costs`, `resultEntities`) stehen danach im Log, so dass ein still verworfener Befehl jetzt einen Grund hat.
 - **Lua-Zustände:** Der Nachbau läuft jetzt in `handleEvent` (Simulation Thread), wo auch die Aufzeichnung liegt. `update` leitet die Anforderung der DLL nur als Skript-Event `mp_probe_replay` weiter (`makeScriptingSendEventCmd`, drei Signaturen). Klappt kein Event, baut `update` die Zeile aus dem Spielstand-Zustand nach (`last_build`). Welche Anforderung schon erledigt ist, steht im Spielstand-Zustand (`last_replay_request`), damit der nächste Sim-Pool-Zustand sie nicht noch einmal ausführt.
 - Die Ruhezeit nach einem Nachbau läuft über die Spielzeit (10 s), nicht mehr über einen Update-Zähler.
+
+## Ergebnis Lauf 8 (06.10.2026, Probe v8 + DLL v6)
+
+Logs: [logs/probe-log-8-mp_probe.txt](../logs/probe-log-8-mp_probe.txt), [logs/probe-log-8-context.txt](../logs/probe-log-8-context.txt), [logs/proxy-log-8.txt](../logs/proxy-log-8.txt)
+
+Der Nutzer hat eine Straße und ein Gleis gebaut. Keine Kopie, kein Hängen. **Der Nachbau wurde diesmal gar nicht versucht.**
+
+- Aufzeichnung im Format B2 klappt, mit Vorlage:
+  - Straße: `t1;::/infrastructure/street/town/town_old_small.street_template;::/infrastructure/street/town/town_old.street`, Segmente `…;-1;1;0;1`
+  - Gleis: `t1;::/infrastructure/track/simple/simple.street_template;::/infrastructure/track/simple/simple.street`, Segmente `…;-1;0;5;1`
+- Skript-Event funktioniert: Der Bridge-Tick (Sim Pool 2 bzw. 10) meldet `replay requested as script event (signature 1)`, und in derselben Sekunde kommt im Simulation Thread `replay event received (src=mp_probe id=mp_probe_replay)` an.
+- Dort aber jedes Mal: `replay: nothing captured yet`. `main.pending_replay`, gesetzt in `capture_build` im Simulation Thread, ist beim Replay-Event (ebenfalls Simulation Thread, 3–4 s später) wieder `nil`. Auch der Zustand des Event-Handlers hält also keine Modul-Variablen zwischen zwei Events, oder das Replay-Event läuft in einem anderen Lua-Zustand als das Bau-Event, obwohl der Thread-Name gleich ist.
+- Damit gab es keinen `replay #`-, `replay attempt`- oder `replay result`-Eintrag. Die Frage, ob die Vorlage das stille Verwerfen behebt, ist noch offen.
+- Spiel-Warnungen rund um den Nachbau: keine.
+
+Folgerung für Probe v9: Modul-Variablen gar nicht mehr für Daten zwischen Aufrufen verwenden. Der Replay-Zweig in `handleEvent` soll die Zeile aus `state:get().last_build` lesen und einen Marker wie `s.replayed_line` bzw. einen Zähler in `state` setzen, damit dieselbe Zeile nicht doppelt gebaut wird. Dasselbe gilt für `replays_done` und `quiet_until`. Achtung: `update` ruft bei jedem Update `state:set(s)` mit seiner eigenen Kopie auf. Kennt diese Kopie `last_build` noch nicht, könnte sie den Wert aus dem Event-Zustand wieder überschreiben. Daher in `update` nur die eigenen Felder ändern, oder die Replay-Daten in einem eigenen Feld führen, das nur der Event-Zustand schreibt.
