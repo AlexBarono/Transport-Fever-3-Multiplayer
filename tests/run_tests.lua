@@ -43,6 +43,33 @@ local function contains(lines, needle)
 	return false
 end
 
+-- Street build of run 5 (logs/probe-log-5-mp_probe.txt, "player #1"): 3 new nodes, 2 new segments.
+local function run5_street()
+	local function node(entity, x, y, z)
+		return { entity = entity, comp = { position = { x = x, y = y, z = z } } }
+	end
+	local function segment(entity, node0, node1, t0, t1)
+		return { entity = entity, type = 0, comp = {
+			type = 0, node0 = node0, node1 = node1, typeIndex = -1,
+			tangent0 = { x = t0[1], y = t0[2], z = t0[3] },
+			tangent1 = { x = t1[1], y = t1[2], z = t1[3] },
+		} }
+	end
+	return {
+		addedNodes = {
+			node(51389, -2888.0170898438, -3941.5083007812, 1.6745910644531),
+			node(51498, -2818.5432128906, -3887.2819824219, 1.4728393554688),
+			node(51458, -2749.0693359375, -3833.0556640625, 1.0032730102539),
+		},
+		addedSegments = {
+			segment(51563, 51389, 51498, { 69.473876953125, 54.226318359375, -0.20175172388554 },
+				{ 69.473876953125, 54.226318359375, -0.33565902709961 }),
+			segment(51564, 51498, 51458, { 69.473876953125, 54.226318359375, -0.33565902709961 },
+				{ 69.47386932373, 54.226329803467, -0.46956634521484 }),
+		},
+	}
+end
+
 local function mock_state()
 	local value = nil
 	local st = { subscribed = {} }
@@ -53,6 +80,7 @@ local function mock_state()
 end
 
 local probe = require("/mp_probe/probe.lua")
+local build = require("/mp_probe/build.lua")
 
 test("capabilities reports present and missing globals", function()
 	local env = { _VERSION = "Lua 5.x", io = { open = function() end }, api = { cmd = {} } }
@@ -240,17 +268,17 @@ test("update runs the probe once and snapshots periodically", function()
 end)
 
 local function player_build_param()
-	return { { proposal = { addedSegments = { 1 } }, toAdd = {} }, {}, { 501 }, false }
+	return { { proposal = run5_street(), toAdd = {} }, {}, { 501 }, false }
 end
 
 local function town_build_param()
-	return { { proposal = { addedSegments = {} }, toAdd = { { playerEntity = -1 } } }, {}, { 777 }, false }
+	return { { proposal = { addedSegments = {}, addedNodes = {} }, toAdd = { { playerEntity = -1 } } }, {}, { 777 }, false }
 end
 
 test("is_player_build tells player builds from town builds", function()
 	local main = load_resource("/mp_probe/main.script.lua")
 	assert(main.is_player_build(player_build_param()))
-	assert(main.is_player_build({ { proposal = { addedSegments = {} }, toAdd = { { playerEntity = 3 } } } }))
+	assert(main.is_player_build({ { proposal = { addedSegments = {}, addedNodes = {} }, toAdd = { { playerEntity = 3 } } } }))
 	assert(not main.is_player_build(town_build_param()))
 	assert(not main.is_player_build({ {} }), "malformed param counts as no player build")
 end)
@@ -269,7 +297,13 @@ test("handleEvent dumps up to BUILD_DUMPS player builds and one town build", fun
 	end
 	assert(player_dumps == 2, "player dumps " .. player_dumps)
 	assert(town_dumps == 1, "town dumps " .. town_dumps)
-	assert(contains(logged, "---- raw debugPrint of onPostBuildProposal player #1"))
+	assert(contains(logged, "capture onPostBuildProposal player #1 nodes=3 segments=2 foreign_nodes=0"))
+	local stored = 0
+	for _, l in ipairs(logged) do if l:find("capture stored for replay", 1, true) then stored = stored + 1 end end
+	assert(stored == 2, "stored " .. stored)
+	local capped = 0
+	for _, l in ipairs(logged) do if l:find("dump of onPostBuildProposal", 1, true) then capped = capped + 1 end end
+	assert(capped == 3, "timing lines " .. capped)
 end)
 
 test("player builds dump the components of the new entities", function()
@@ -334,6 +368,123 @@ end)
 test("capabilities reports whether os.getenv sees the environment", function()
 	local lines = probe.capabilities({ os = { getenv = function() return "C:\\x" end } })
 	assert(contains(lines, "os.getenv('PATH'): length 4"))
+end)
+
+
+test("serialize turns a captured street into one line with placeholder ids", function()
+	local line, info = build.serialize(run5_street())
+	assert(info.nodes == 3 and info.segments == 2, info.nodes .. "/" .. info.segments)
+	assert(info.foreign_nodes == 0, "all three nodes are new")
+	assert(line:sub(1, 2) == "B1", line)
+	assert(line:find("n-1;-2888.017,-3941.508,1.675", 1, true), line)
+	assert(line:find("s-1;0;-1;-2;", 1, true), line)
+	assert(line:find("s-2;0;-2;-3;", 1, true), line)
+	assert(not line:find("51389", 1, true), "engine ids must not travel")
+	assert(#line < 400, "a street build fits in a short line: " .. #line)
+end)
+
+test("serialize counts nodes the player connected to", function()
+	local proposal = run5_street()
+	proposal.addedNodes = { proposal.addedNodes[1] }
+	local _, info = build.serialize(proposal)
+	assert(info.foreign_nodes == 3, info.foreign_nodes)
+end)
+
+test("deserialize restores positions, tangents and node links", function()
+	local line = build.serialize(run5_street())
+	local data = assert(build.deserialize(line))
+	assert(data.version == build.VERSION)
+	assert(#data.nodes == 3 and #data.segments == 2)
+	assert(data.nodes[1].id == -1)
+	assert(math.abs(data.nodes[1].position.x + 2888.017) < 0.001, data.nodes[1].position.x)
+	assert(data.segments[2].node0 == -2 and data.segments[2].node1 == -3)
+	assert(data.segments[1].type == 0 and data.segments[1].typeIndex == -1)
+	assert(math.abs(data.segments[1].tangent0.y - 54.226) < 0.001, data.segments[1].tangent0.y)
+end)
+
+test("deserialize rejects broken lines", function()
+	assert(build.deserialize("n-1;1,2,3") == nil, "a line without a version is rejected")
+	assert(build.deserialize("B99 n-1;1,2,3") == nil, "a newer format is rejected")
+	assert(build.deserialize("B1 n-1;1,2") == nil, "a short position is rejected")
+	assert(build.deserialize("B1 s-1;0;-1") == nil, "a short segment is rejected")
+	assert(build.deserialize(42) == nil)
+	local data = assert(build.deserialize("B1"), "an empty proposal parses")
+	assert(#data.nodes == 0 and #data.segments == 0)
+end)
+
+--- Mock of the TF3 types used when rebuilding, with the given proposal layout.
+local function mock_build_api(opts)
+	opts = opts or {}
+	local sent = {}
+	local function vec() return { x = 0, y = 0, z = 0 } end
+	local function new_proposal()
+		local p = {}
+		if opts.layout == "added" then
+			p.addedNodes, p.addedSegments = {}, {}
+		else
+			p.streetProposal = { nodesToAdd = {}, edgesToAdd = {} }
+		end
+		return p
+	end
+	local api = {
+		type = {
+			Proposal = { new = new_proposal },
+			Context = { new = function() return { context = true } end },
+			NodeAndEntity = { new = function() return { comp = { position = vec() } } end },
+			SegmentAndEntity = { new = function() return { comp = { tangent0 = vec(), tangent1 = vec() } } end },
+		},
+		cmd = {
+			makeWorldBuildProposalCmd = function(proposal, context, flag)
+				if opts.required_args and select("#", proposal, context, flag) ~= opts.required_args then
+					error("wrong number of arguments")
+				end
+				if opts.needs_context and context == nil then error("Error decoding argument #2") end
+				return { proposal = proposal, context = context, flag = flag }
+			end,
+			sendCommand = function(cmd) sent[#sent + 1] = cmd end,
+		},
+	}
+	return { api = api }, sent
+end
+
+test("replay fills the streetProposal layout and sends one command", function()
+	local env, sent = mock_build_api({ needs_context = true })
+	local data = assert(build.deserialize(build.serialize(run5_street())))
+	local ok, message = build.replay(env, data)
+	assert(ok, message)
+	assert(message:find("streetProposal", 1, true), message)
+	assert(#sent == 1, "commands sent: " .. #sent)
+	local proposal = sent[1].proposal
+	assert(#proposal.streetProposal.nodesToAdd == 3)
+	assert(#proposal.streetProposal.edgesToAdd == 2)
+	assert(proposal.streetProposal.edgesToAdd[1].entity == -1)
+	assert(proposal.streetProposal.edgesToAdd[2].comp.node0 == -2)
+	assert(math.abs(proposal.streetProposal.nodesToAdd[1].comp.position.z - 1.675) < 0.001)
+	assert(sent[1].context ~= nil, "the command gets a context")
+end)
+
+test("replay falls back to the addedSegments layout", function()
+	local env, sent = mock_build_api({ layout = "added" })
+	local data = assert(build.deserialize(build.serialize(run5_street())))
+	local ok, message = build.replay(env, data)
+	assert(ok, message)
+	assert(message:find("added", 1, true), message)
+	assert(#sent[1].proposal.addedSegments == 2)
+end)
+
+test("replay reports when no command signature is accepted", function()
+	local env, sent = mock_build_api({ required_args = 99 })
+	local data = assert(build.deserialize(build.serialize(run5_street())))
+	local ok, message = build.replay(env, data)
+	assert(not ok)
+	assert(#sent == 0)
+	assert(message:find("no signature worked", 1, true), message)
+	assert(message:find("streetProposal", 1, true) and message:find("added", 1, true), message)
+end)
+
+test("replay without the engine api says so", function()
+	local ok, message = build.replay({}, { nodes = {}, segments = {} })
+	assert(not ok and message == "api missing", message)
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

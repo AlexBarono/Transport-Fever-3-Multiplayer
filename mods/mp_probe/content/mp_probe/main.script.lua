@@ -6,23 +6,28 @@
 -- @module mp_probe.main
 local logger = require("/mp_probe/logger.lua")
 local probe = require("/mp_probe/probe.lua")
+local build = require("/mp_probe/build.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 5
+main.PROBE_VERSION = 6
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
 main.EVENT_PARAM_LINES = 800
 --- Number of player build proposals whose structure is dumped (each build looks different).
 -- Town builds (playerEntity -1, nothing new for the player) are dumped once at most.
-main.BUILD_DUMPS = 8
+main.BUILD_DUMPS = 3
+
+--- Line budget per build dump. Run 5 showed that an unlimited dump of a station proposal writes
+-- about 85000 lines and freezes the simulation for a minute, so every dump is capped.
+main.BUILD_DUMP_LINES = 400
 
 --- Components read for every entity a player build creates. Built edges and nodes are what a
 -- second client has to recreate, so their full data is dumped (TF2 names, guarded).
 main.ENTITY_COMPONENTS = {
-	"BASE_EDGE", "BASE_EDGE_STREET", "BASE_EDGE_TRACK", "BASE_NODE", "CONSTRUCTION", "PLAYER_OWNED", "NAME",
+	"BASE_EDGE", "BASE_EDGE_STREET", "BASE_EDGE_TRACK", "BASE_NODE", "PLAYER_OWNED",
 }
 
 --- Events the engine only delivers on subscription. Build proposals are what a multiplayer
@@ -76,7 +81,28 @@ function main.bridge_tick(env, seq)
 	if value ~= last_bridge_in then
 		logger.info("bridge in " .. main.BRIDGE_ENV .. "=" .. tostring(value))
 		last_bridge_in = value
+		if type(value) == "string" and string.find(value, "replay", 1, true) then
+			main.replay_last(env)
+		end
 	end
+end
+
+--- Rebuilds the last captured build. The DLL asks for this by setting TF3MP_IN=replay, which is
+-- the end-to-end test of phase 1 on a single PC: capture a road, rebuild it from the text line.
+function main.replay_last(env)
+	local line = main.pending_replay
+	if not line then
+		logger.info("replay: nothing captured yet")
+		return
+	end
+	main.pending_replay = nil
+	local data, err = build.deserialize(line)
+	if not data then
+		logger.info("replay: bad line (" .. tostring(err) .. ")")
+		return
+	end
+	local ok, message = build.replay(env, data)
+	logger.info("replay: " .. (ok and "ok, " or "failed, ") .. message)
 end
 
 function main.update(_user_params, state, _dt)
@@ -94,6 +120,8 @@ function main.update(_user_params, state, _dt)
 		end
 		s.subscribed = main.PROBE_VERSION
 	end
+
+	if main.pending_replay == nil and s.last_build then main.pending_replay = s.last_build end
 
 	s.updates = (s.updates or 0) + 1
 	if s.updates % main.BRIDGE_EVERY == 0 then
@@ -124,23 +152,40 @@ function main.is_player_build(param)
 	return ok and result
 end
 
---- Dumps the components of every entity a build created, through debugPrint (which may print the
--- engine's own description of userdata) and through probe.fields.
+--- Dumps the components of the entities a build created. CONSTRUCTION is left out on purpose:
+-- in run 5 a single station construction produced about 9000 lines.
 function main.dump_new_entities(env, new_ids, label)
 	local engine = env.api and env.api.engine
 	local ct = env.api and env.api.type and env.api.type.ComponentType
 	if not engine or not ct or type(new_ids) ~= "table" then return end
-	for i = 1, math.min(#new_ids, 6) do
+	for i = 1, math.min(#new_ids, 2) do
 		local id = new_ids[i]
 		for _, comp in ipairs(main.ENTITY_COMPONENTS) do
 			local ok, value = pcall(function() return engine.getComponent(id, ct[comp]) end)
 			if ok and value ~= nil then
-				logger.info("---- entity " .. tostring(id) .. " " .. comp .. " (" .. label .. ") raw:")
-				pcall(debugPrint, value)
-				local ok_f, lines = pcall(probe.fields, value, "e" .. tostring(id) .. "." .. comp, 5, 150)
-				if ok_f then for _, line in ipairs(lines) do logger.info(line) end end
+				local ok_f, lines = pcall(probe.fields, value, "e" .. tostring(id) .. "." .. comp, 4, 60)
+				if ok_f and #lines > 0 then log_lines("entity " .. tostring(id) .. " " .. comp .. " (" .. label .. ")", lines) end
 			end
 		end
+	end
+end
+
+--- Serialises a player build and logs the line. The line is what a second game would receive;
+-- it is kept in the savegame state so a replay test can rebuild it later.
+function main.capture_build(state, s, param, label)
+	local ok, line, info = pcall(build.serialize, param[1].proposal)
+	if not ok then
+		logger.info("capture failed (" .. label .. "): " .. tostring(line))
+		return
+	end
+	logger.info("capture " .. label .. " nodes=" .. info.nodes .. " segments=" .. info.segments ..
+		" foreign_nodes=" .. info.foreign_nodes)
+	logger.info("capture line " .. line)
+	if info.segments > 0 and info.foreign_nodes == 0 then
+		s.last_build = line
+		main.pending_replay = line
+		state:set(s)
+		logger.info("capture stored for replay (" .. #line .. " characters)")
 	end
 end
 
@@ -162,16 +207,19 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	state:set(s)
 	local label = tostring(name) .. (player_build and " player" or "") .. " #" .. count
 	logger.info("event src=" .. tostring(src) .. " id=" .. tostring(id) .. " name=" .. label)
-	local ok, lines = pcall(probe.list, param, "param", main.EVENT_PARAM_DEPTH, nil, main.EVENT_PARAM_LINES)
+	local budget = player_build and main.BUILD_DUMP_LINES or main.EVENT_PARAM_LINES
+	local started = os.clock and os.clock() or 0
+	local ok, lines = pcall(probe.list, param, "param", main.EVENT_PARAM_DEPTH, nil, budget)
 	if ok then log_lines("param of " .. label, lines) end
 	-- Build proposals arrive as C++ userdata that pairs() cannot enumerate; probe known field names.
-	local ok_f, field_lines = pcall(probe.fields, param, "param", 7, main.EVENT_PARAM_LINES)
+	local ok_f, field_lines = pcall(probe.fields, param, "param", 7, budget)
 	if ok_f and #field_lines > 0 then log_lines("fields of " .. label, field_lines) end
 	if player_build then
-		logger.info("---- raw debugPrint of " .. label .. " proposal and result:")
-		pcall(debugPrint, param[1])
-		pcall(debugPrint, param[2])
+		main.capture_build(state, s, param, label)
 		main.dump_new_entities(_G, param[3], label)
+	end
+	if os.clock then
+		logger.info("dump of " .. label .. " took " .. string.format("%.2f", os.clock() - started) .. " s")
 	end
 end
 

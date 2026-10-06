@@ -1,6 +1,7 @@
 {
     "archives": null,
     "files": [
+        "mp_probe/build.lua",
         "mp_probe/logger.lua",
         "mp_probe/main.gs.lua",
         "mp_probe/main.script.lua",

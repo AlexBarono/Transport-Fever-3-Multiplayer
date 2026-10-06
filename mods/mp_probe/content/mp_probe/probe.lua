@@ -182,7 +182,9 @@ function probe.snapshot(env)
 	try("vehicle_pos_sum", function()
 		local sum = 0
 		for _, v in ipairs(vehicles()) do
+			-- Runs 3-5: getPosition returns nil in TF3, so this checksum stays unavailable.
 			local p = engine.util.vehicle.getPosition(v)
+			if p == nil then error("getPosition returned nil", 0) end
 			sum = sum + round(p.x) + round(p.y) + round(p.z)
 		end
 		return sum
