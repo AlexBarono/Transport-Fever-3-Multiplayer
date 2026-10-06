@@ -45,10 +45,11 @@ end
 
 local function mock_state()
 	local value = nil
-	return {
-		get = function(_) return value end,
-		set = function(_, v) value = v end,
-	}
+	local st = { subscribed = {} }
+	st.get = function(_) return value end
+	st.set = function(_, v) value = v end
+	st.subscribeToEvent = function(self, event) self.subscribed[#self.subscribed + 1] = event end
+	return st
 end
 
 local probe = require("/mp_probe/probe.lua")
@@ -90,6 +91,24 @@ test("list walks nested tables, userdata __index and stops at max depth", functi
 	assert(not contains(shallow, "sendCommand"))
 end)
 
+test("list skips metatable fields and non-string keys", function()
+	local proxy = { makeLineCreateCmd = {}, __index = function() end, __metatable = false }
+	proxy[{}] = {}
+	local lines = probe.list({ cmd = proxy }, "api", 3)
+	assert(contains(lines, "api.cmd.makeLineCreateCmd = table"))
+	assert(not contains(lines, "__index"))
+	assert(not contains(lines, "__metatable"))
+	assert(#lines == 3, "got " .. #lines)
+end)
+
+test("list honours an explicit line budget", function()
+	local big = {}
+	for i = 1, 50 do big["k" .. i] = i end
+	local lines = probe.list(big, "p", 1, nil, 5)
+	assert(#lines == 6, "got " .. #lines)
+	assert(contains(lines, "truncated at 5 lines"))
+end)
+
 test("list survives cycles and truncates long output", function()
 	local t = {}
 	t.self = t
@@ -104,29 +123,62 @@ test("list survives cycles and truncates long output", function()
 	assert(contains(lines, "truncated"))
 end)
 
-test("snapshot collects fields and isolates errors", function()
-	local env = { game = { interface = {
-		getGameTime = function() return { time = 42 } end,
-		getEntities = function() return { 1, 2, 3 } end,
-		getPlayer = function() error("no player") end,
-		getEntity = function() return {} end,
-	} } }
-	local snap = probe.snapshot(env)
-	assert(snap.fields.game_time == 42)
-	assert(snap.fields.vehicle_count == 3)
-	assert(snap.errors.money ~= nil)
-	assert(probe.format_snapshot(snap) == "game_time=42 vehicle_count=3 money=ERR")
+local function mock_engine_env(opts)
+	opts = opts or {}
+	local components = {
+		[10] = { gameTime = 42000 },
+		[20] = { balance = 5000000 },
+	}
+	local counts = { [1] = 3, [2] = 2 }
+	return { api = {
+		type = { ComponentType = { GAME_TIME = 100, PLAYER = 200, TRANSPORT_VEHICLE = 1, LINE = 2 } },
+		engine = {
+			util = { getWorld = function() return 10 end, getPlayer = function() return 20 end },
+			getComponent = function(entity, comp)
+				if comp == nil then error("bad component type") end
+				return components[entity]
+			end,
+			forEachEntityWithComponent = function(fn, comp)
+				if comp == nil then error("bad component type") end
+				for i = 1, counts[comp] do fn(i) end
+			end,
+		},
+	} }
+end
+
+test("snapshot reads time, money and counts through api.engine and isolates errors", function()
+	local snap = probe.snapshot(mock_engine_env())
+	assert(snap.fields.game_time == 42000)
+	assert(snap.fields.money == 5000000)
+	assert(snap.fields.n_transport_vehicle == 3)
+	assert(snap.fields.n_line == 2)
+	assert(snap.errors.money_account ~= nil, "ACCOUNT is not in the mock ComponentType")
+	assert(snap.errors.n_town ~= nil)
+	local line = probe.format_snapshot(snap)
+	assert(line:find("game_time=42000 money=5000000 n_line=2 n_transport_vehicle=3", 1, true), line)
+	assert(line:find("n_town=ERR", 1, true), line)
+	assert(contains(probe.format_errors(snap), "n_town: "))
 end)
 
-test("snapshot without game.interface reports an error", function()
-	local snap = probe.snapshot({})
-	assert(snap.errors.game_interface ~= nil)
+test("snapshot without api.engine reports an error", function()
+	local snap = probe.snapshot({ game = {} })
+	assert(snap.errors.api_engine ~= nil)
 end)
 
 test("game script registration points at main.script", function()
 	local reg = load_resource("/mp_probe/main.gs.lua")
 	assert(reg.updateScript.fileName == "main.script@update")
 	assert(reg.handleEventScript.fileName == "main.script@handleEvent")
+end)
+
+test("run_probe lists every configured root that exists", function()
+	local main = load_resource("/mp_probe/main.script.lua")
+	logged = {}
+	main.run_probe({ api = { engine = { getComponent = function() end }, cmd = { sendCommand = function() end } } })
+	assert(contains(logged, "---- listing api.engine"))
+	assert(contains(logged, "api.engine.getComponent = function"))
+	assert(contains(logged, "---- listing api.cmd"))
+	assert(not contains(logged, "---- listing game.config"))
 end)
 
 test("update runs the probe once and snapshots periodically", function()
@@ -141,8 +193,16 @@ test("update runs the probe once and snapshots periodically", function()
 		if l:find("snapshot update=", 1, true) then snapshots = snapshots + 1 end
 	end
 	assert(probe_headers == 1, "probe ran " .. probe_headers .. " times")
+	assert(contains(logged, "---- snapshot errors"), "first snapshot logs its errors")
+	local error_headers = 0
+	for _, l in ipairs(logged) do
+		if l:find("---- snapshot errors", 1, true) then error_headers = error_headers + 1 end
+	end
+	assert(error_headers == 1, "snapshot errors logged " .. error_headers .. " times")
 	assert(snapshots == 2, "snapshots " .. snapshots)
 	assert(state:get().probe_version == main.PROBE_VERSION)
+	assert(#state.subscribed == 1 and state.subscribed[1] == "onPostBuildProposal", "subscribed once")
+	assert(contains(logged, "subscribe onPostBuildProposal: ok"))
 end)
 
 test("handleEvent logs each event type once", function()
@@ -152,7 +212,12 @@ test("handleEvent logs each event type once", function()
 	main.handleEvent(nil, state, "a.lua", "id1", "onX", {})
 	main.handleEvent(nil, state, "a.lua", "id1", "onX", {})
 	main.handleEvent(nil, state, "a.lua", "id1", "onY", {})
-	assert(#logged == 2, "logged " .. #logged)
+	local events = 0
+	for _, l in ipairs(logged) do
+		if l:find("event src=", 1, true) then events = events + 1 end
+	end
+	assert(events == 2, "logged " .. events .. " events")
+	assert(contains(logged, "---- param of onX"))
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

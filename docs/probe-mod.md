@@ -6,8 +6,8 @@ Was er protokolliert:
 
 1. **Sandbox:** Lua-Version und ob `io`, `os`, `package.loadlib`, `require('socket')`, `debug` usw. verfügbar sind, plus ein Test, ob eine Datei geschrieben werden kann.
 2. **Engine-API:** alle sichtbaren Einträge unter `api` und `game` (3 Ebenen tief).
-3. **Events:** jeden Event-Typ, der beim Game Script ankommt, einmal.
-4. **Snapshots:** alle 300 Updates Spielzeit, Fahrzeuganzahl und Geld. Das ist die Grundlage für den Determinismus-Test.
+3. **Events:** jeden Event-Typ, der beim Game Script ankommt, einmal, mit dem Aufbau seiner Parameter. Bauvorschläge (`onPostBuildProposal`) werden dafür abonniert.
+4. **Snapshots:** alle 300 Updates Spielzeit, Geld und die Anzahl von Fahrzeugen, Linien, Bahnhöfen, Bauwerken, Straßen-/Gleisstücken, Städten und Einwohnern, gelesen über `api.engine`. Das ist die Grundlage für den Determinismus-Test. Beim ersten Snapshot steht für jeden Wert, der nicht gelesen werden konnte, die Fehlermeldung im Log.
 
 Schritte 1 und 2 laufen einmal pro Spielstand.
 

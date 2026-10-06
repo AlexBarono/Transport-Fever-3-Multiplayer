@@ -4,7 +4,7 @@
 local probe = {}
 
 --- Maximum number of lines a single table listing may produce.
-probe.MAX_LINES = 400
+probe.MAX_LINES = 1500
 
 local function sorted_keys(t)
 	local keys = {}
@@ -14,6 +14,12 @@ local function sorted_keys(t)
 	if not ok then return {} end
 	table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
 	return keys
+end
+
+--- Engine proxy tables expose their metatable fields (__index, ...) and internal userdata keys.
+-- They repeat under every entry and say nothing about the API, so listings skip them.
+local function is_noise_key(k)
+	return type(k) ~= "string" or k:sub(1, 2) == "__"
 end
 
 local function has(env, path)
@@ -71,13 +77,20 @@ function probe.capabilities(env, opts)
 	return lines
 end
 
---- Lists the keys of a table (and of its __index table) recursively.
+--- Lists the keys of a table (and of a userdata's __index table) recursively.
+-- @param max_lines number|nil line budget, defaults to probe.MAX_LINES
 -- @return table lines like "api.cmd.sendCommand = function"
-function probe.list(value, name, max_depth, lines)
+function probe.list(value, name, max_depth, lines, max_lines)
 	lines = lines or {}
 	max_depth = max_depth or 2
+	max_lines = max_lines or probe.MAX_LINES
+	local limit = #lines + max_lines
+	local truncated = false
 	local function walk(v, path, depth, seen)
-		if #lines >= probe.MAX_LINES then return end
+		if #lines >= limit then
+			truncated = true
+			return
+		end
 		local t = type(v)
 		lines[#lines + 1] = path .. " = " .. t
 		if depth >= max_depth or seen[v] then return end
@@ -91,37 +104,60 @@ function probe.list(value, name, max_depth, lines)
 		if not container then return end
 		seen[v] = true
 		for _, k in ipairs(sorted_keys(container)) do
-			local ok, child = pcall(function() return container[k] end)
-			if ok then walk(child, path .. "." .. tostring(k), depth + 1, seen) end
-			if #lines >= probe.MAX_LINES then
-				lines[#lines + 1] = "... (truncated at " .. probe.MAX_LINES .. " lines)"
-				return
+			if not is_noise_key(k) then
+				local ok, child = pcall(function() return container[k] end)
+				if ok then walk(child, path .. "." .. k, depth + 1, seen) end
 			end
+			if truncated then return end
 		end
 	end
 	walk(value, name, 0, {})
+	if truncated then lines[#lines + 1] = "... (" .. name .. " truncated at " .. max_lines .. " lines)" end
 	return lines
 end
 
+--- Component types whose entity counts go into every snapshot (names as in TF2's api.type.ComponentType).
+probe.COUNTED_COMPONENTS = {
+	"TRANSPORT_VEHICLE", "LINE", "STATION", "CONSTRUCTION", "BASE_EDGE", "TOWN", "SIM_PERSON",
+}
+
 --- Collects a small, comparable snapshot of the simulation for the determinism test.
--- Every engine call is guarded: TF3 may name things differently than TF2.
+-- TF3 has no game.interface, so everything goes through api.engine. Every call is guarded because
+-- the TF2 names used here may not exist in TF3; failures land in `errors` with their message.
 -- @return table { fields = {name = value}, errors = {name = message} }
 function probe.snapshot(env)
 	local result = { fields = {}, errors = {} }
-	local gi = has(env, "game.interface") and env.game.interface or nil
 	local function try(name, fn)
 		local ok, v = pcall(fn)
-		if ok then result.fields[name] = v else result.errors[name] = tostring(v) end
+		if ok and v ~= nil then
+			result.fields[name] = v
+		else
+			result.errors[name] = ok and "nil" or tostring(v)
+		end
 	end
-	if not gi then
-		result.errors.game_interface = "game.interface missing"
+	if not has(env, "api.engine") then
+		result.errors.api_engine = "api.engine missing"
 		return result
 	end
-	try("game_time", function() return gi.getGameTime().time end)
-	try("vehicle_count", function()
-		return #gi.getEntities({ radius = 1e9 }, { type = "VEHICLE" })
+	local engine = env.api.engine
+	local ct = has(env, "api.type.ComponentType") and env.api.type.ComponentType or nil
+
+	try("game_time", function()
+		return engine.getComponent(engine.util.getWorld(), ct.GAME_TIME).gameTime
 	end)
-	try("money", function() return gi.getEntity(gi.getPlayer()).balance end)
+	try("money", function()
+		return engine.getComponent(engine.util.getPlayer(), ct.PLAYER).balance
+	end)
+	try("money_account", function()
+		return engine.getComponent(engine.util.getPlayer(), ct.ACCOUNT).balance
+	end)
+	for _, comp in ipairs(probe.COUNTED_COMPONENTS) do
+		try("n_" .. comp:lower(), function()
+			local n = 0
+			engine.forEachEntityWithComponent(function() n = n + 1 end, ct[comp])
+			return n
+		end)
+	end
 	return result
 end
 
@@ -135,6 +171,15 @@ function probe.format_snapshot(snap)
 		parts[#parts + 1] = k .. "=ERR"
 	end
 	return table.concat(parts, " ")
+end
+
+--- One line per failed snapshot field with its error message, for diagnosis.
+function probe.format_errors(snap)
+	local lines = {}
+	for _, k in ipairs(sorted_keys(snap.errors)) do
+		lines[#lines + 1] = k .. ": " .. tostring(snap.errors[k]):sub(1, 200)
+	end
+	return lines
 end
 
 return probe
