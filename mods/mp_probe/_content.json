@@ -7,6 +7,7 @@
         "mp_probe/main.gs.lua",
         "mp_probe/main.script.lua",
         "mp_probe/probe.lua",
+        "mp_probe/weld.lua",
         "mp_probe/wire.lua",
         "mp_probe/world.lua"
     ]

@@ -21,7 +21,7 @@ end
 local function mock()
 	local m = { entities = {}, sent = {}, next_id = 1000, logs = {} }
 	local ct = {}; for _, k in ipairs({ "NAME", "COLOR", "PLAYER_OWNED", "CONSTRUCTION", "LINE",
-		"TRANSPORT_VEHICLE", "STATION_GROUP", "BASE_EDGE" }) do ct[k] = k end
+		"TRANSPORT_VEHICLE", "STATION_GROUP", "BASE_EDGE", "EDGE_OBJECT", "STATION" }) do ct[k] = k end
 	local function new() return {} end
 	local function proposal() return { streetProposal = {} } end
 	local t = { ComponentType = ct, Context = { new = new },
@@ -78,6 +78,15 @@ local function mock()
 			transf = transform(x, y), depots = { id + 10000 }, stations = { id + 20000 } }
 		m.parents[id + 10000], m.parents[id + 20000], m.groups[id + 20000] = id, id, id + 30000
 		m.entities[id + 30000] = { STATION_GROUP = { stations = { id + 20000 } } }
+		return e
+	end
+	-- A street stop: a station without construction that is an edge object (run 19).
+	function m.street_stop(id, x, y)
+		local e = base(id, "Stop " .. id)
+		e.EDGE_OBJECT = { param = 0.5, transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, 2, 1 } }
+		e.STATION = { catchmentAreas = { { position = xyz(x, y, 2), radius = 100 } } }
+		m.parents[id], m.groups[id] = -1, id + 30000
+		m.entities[id + 30000] = { STATION_GROUP = { stations = { id } } }
 		return e
 	end
 	function m.line(id, name, station)
@@ -258,6 +267,39 @@ test("vehicle buy resolves local depot and model IDs, then applies line and user
 	assert(v.line == 92 and v.userStopped and not v.autoDeparture)
 	dest.poll(); assert(#dest.drain() == 0)
 end)
+test("street stops travel by position and resolve to the local stop (run 19)", function()
+	local source, dest = mock(), mock(); source.street_stop(40, 100, 200); dest.street_stop(77, 100, 300)
+	source.poll(); dest.poll(); source.line(20, "Bus", 40); source.poll()
+	local out = source.drain(); assert(#out == 1 and out[1].op == "line_create", "line not captured")
+	local ref = out[1].value.data.stops[1].target.stations[1]
+	assert(ref.kind == "street_station" and ref.position.y == 200 and ref.how == "edge_object")
+	dest.replay(out[1], 100)
+	assert(dest.entities[1001].LINE.stops[1].stationGroup == 30077, "line not on the local stop")
+end)
+test("a street stop that is too far away is not taken", function()
+	local source, dest = mock(), mock(); source.street_stop(40, 100, 200); dest.street_stop(77, 110, 200)
+	source.poll(); dest.poll(); source.line(20, "Bus", 40); source.poll()
+	local ok, err = pcall(dest.replay, source.drain()[1], 0)
+	assert(not ok and tostring(err):find("street stop near", 1, true), tostring(err))
+	assert(#dest.sent == 0)
+end)
+test("an unreadable line is reported once with its error, not every poll", function()
+	local source = mock(); source.poll(); source.line(20, "Broken", 999); source.poll(); source.poll()
+	local n = 0
+	for _, msg in ipairs(source.logs) do
+		if msg:find("unreadable", 1, true) then
+			n = n + 1
+			assert(msg:find("first: 20:", 1, true), msg)
+		end
+	end
+	assert(n == 1, "logged " .. n .. " times")
+end)
+test("a bus bought without a line gets no SetLine with -1 (run 19)", function()
+	local source, dest = mock(), mock(); source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.poll(); dest.poll(); source.vehicle(30, 10010); source.poll(); dest.replay(source.drain()[1])
+	for _, c in ipairs(dest.sent) do assert(c.name ~= "makeVehicleSetLineCmd", "SetLine sent") end
+	assert(dest.entities[1001].TRANSPORT_VEHICLE.line == -1)
+end)
 test("vehicle sales use semantic local ID rather than sender ID", function()
 	local source, dest = mock(), mock(); source.vehicle(30); dest.vehicle(90); dest.entities[90].NAME.name = "Bus 30"
 	source.poll(); dest.poll(); source.entities[30] = nil; source.poll(); dest.replay(source.drain()[1])
@@ -419,7 +461,7 @@ test("main dispatch does not overwrite mappings or busy flags from an immediate 
 end)
 test("the installed mod manifest includes every required action module", function()
 	local f = assert(io.open("mods/mp_probe/_content.json", "r")); local manifest = f:read("*a"); f:close()
-	for _, name in ipairs({ "actions.lua", "wire.lua", "build.lua" }) do
+	for _, name in ipairs({ "actions.lua", "wire.lua", "build.lua", "world.lua", "weld.lua" }) do
 		assert(manifest:find('"mp_probe/' .. name .. '"', 1, true), name .. " missing from manifest")
 		local file = assert(io.open("mods/mp_probe/content/mp_probe/" .. name, "r")); file:close()
 	end

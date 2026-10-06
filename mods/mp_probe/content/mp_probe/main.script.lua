@@ -9,11 +9,12 @@ local probe = require("/mp_probe/probe.lua")
 local build = require("/mp_probe/build.lua")
 local world = require("/mp_probe/world.lua")
 local actions = require("/mp_probe/actions.lua")
+local weld = require("/mp_probe/weld.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 19
+main.PROBE_VERSION = 20
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -66,6 +67,14 @@ main.ACTION_EVERY = 10
 main.DUMP_REPLAY_RESULTS = false
 --- Action kinds polled by actions.lua (the rest comes from build events, format B4).
 main.ACTION_KINDS = { "line", "vehicle" }
+--- v20: a copied construction's entrance is checked again this much game time after the copy,
+-- in case the world was not up to date right after the command.
+main.WELD_RECHECK_MS = 4000
+--- Line budget for the dump of a refresh proposal (weld.lua).
+main.WELD_DUMP_LINES = 150
+--- Depot builds of the player whose refresh proposal is dumped (the engine's own picture of a
+-- welded entrance).
+main.WELD_ORIGINAL_DUMPS = 2
 
 --- Network transfer (phase 1, step 4). A build that can be rebuilt elsewhere is logged once more
 -- behind SEND_MARKER; the DLL picks the line out of stdout.txt and sends it to the other game (or,
@@ -311,6 +320,8 @@ function main.replay_line(env, line, number, state, distance)
 		"%d constructions, %d demolished, moved by %.1f,%.1f, player %s", tostring(number), #data.nodes,
 		#data.segments, main.count_keys(data.foreign), #data.removed_segments, #data.constructions,
 		#data.demolished, dx, dy, tostring(player)))
+	local has_gates = next(data.gates or {}) ~= nil and #data.constructions > 0
+	local described = false
 	local ok_r, found, missing, notes = pcall(build.resolve, data, main.finder(env))
 	if not ok_r then
 		logger.info("replay: lookup failed (" .. tostring(found):sub(1, 200) .. ")")
@@ -335,9 +346,61 @@ function main.replay_line(env, line, number, state, distance)
 			local ok_f, lines = pcall(probe.fields, edge_list[1], "edge[1]", 4, main.RESULT_DUMP_LINES)
 			if ok_f and #lines > 0 then log_lines("replay proposal " .. label .. " edge[1]", lines) end
 		end,
+		-- v20: what the game made of a copy with an entrance, before it is sent.
+		prepare = has_gates and function(cmd)
+			if described then return end
+			described = true
+			logger.info("weld command before sending: " .. weld.describe_command(cmd))
+		end or nil,
 		player = player,
 	})
 	logger.info("replay: " .. (ok and "sent, " or "failed, ") .. message)
+	if ok and has_gates then main.weld_copy(env, data, state, player) end
+end
+
+--- v20: checks the entrance of a copied construction and tries to weld it (weld.lua); remembers
+-- it for one more check a little later.
+function main.weld_copy(env, data, state, player)
+	local ok, checked = pcall(weld.repair, env, data, {
+		log = function(text) logger.info(text) end,
+		player = player,
+		on_result = main.log_replay_result,
+		dump = main.dump_value,
+	})
+	if not ok then
+		logger.info("weld failed: " .. tostring(checked):sub(1, 200))
+		return
+	end
+	local now = main.game_time(env)
+	if state and now and #checked > 0 then
+		local s = state:get() or {}
+		s.weld_checks = s.weld_checks or {}
+		for _, c in ipairs(checked) do
+			c.due = now + main.WELD_RECHECK_MS
+			s.weld_checks[#s.weld_checks + 1] = c
+		end
+		state:set(s)
+	end
+end
+
+--- The later check of main.weld_copy, from update().
+function main.recheck_welds(env, s)
+	local now = main.game_time(env)
+	if not now or not s.weld_checks or #s.weld_checks == 0 then return end
+	local waiting = {}
+	for _, c in ipairs(s.weld_checks) do
+		if now >= (c.due or 0) then
+			local id = world.find_construction(env, c.file, c.position)
+			if id then
+				logger.info("weld check later: " .. weld.status(env, id, c.gates or {}).text)
+			else
+				logger.info("weld check later: the copied construction is gone")
+			end
+		else
+			waiting[#waiting + 1] = c
+		end
+	end
+	s.weld_checks = waiting
 end
 
 function main.update(_user_params, state, _dt)
@@ -384,6 +447,13 @@ function main.update(_user_params, state, _dt)
 	end
 
 	s.updates = (s.updates or 0) + 1
+	if s.weld_checks and #s.weld_checks > 0 then
+		local ok, err = pcall(main.recheck_welds, _G, s)
+		if not ok then
+			s.weld_checks = nil
+			logger.info("weld check later failed: " .. tostring(err):sub(1, 200))
+		end
+	end
 	if (not s.actions or s.updates % main.ACTION_EVERY == 0) and not s.action_busy
 		and not (s.action_work and #s.action_work > 0) then
 		-- Roads, buildings and demolition travel as B4 lines from the build events; the polled
@@ -402,6 +472,8 @@ function main.update(_user_params, state, _dt)
 		s.actions, s.action_entities = live.actions, live.action_entities
 		s.action_inbox, s.action_work, s.action_busy = live.action_inbox, live.action_work, live.action_busy
 		s.action_work_requested = live.action_work_requested
+		-- A replay handled right away also leaves its quiet time and weld checks there (v20).
+		s.quiet_until, s.quiet_segments, s.weld_checks = live.quiet_until, live.quiet_segments, live.weld_checks
 	end
 	if s.updates % main.SNAPSHOT_EVERY == 0 then
 		local snap = probe.snapshot(_G)
@@ -525,36 +597,42 @@ function main.capture_build(state, s, param, label)
 	for _, what in ipairs(info.dropped) do logger.info("capture leaves out " .. what) end
 	logger.info("capture line " .. line)
 	if info.segments + info.removed_segments + info.constructions + info.demolished > 0 then
-		local lines = { line }
-		if info.access > 0 and info.constructions > 0 then
-			-- Run 18: the construction first, then the streets that weld its entrance to the road.
-			local ok_c, con_line = pcall(build.serialize, param[1].proposal, main.with_part(opts, "constructions"))
-			local ok_s, street_line, street_info = pcall(build.serialize, param[1].proposal, main.with_part(opts, "streets"))
-			if ok_c and ok_s then
-				lines = { con_line }
-				if street_info.segments + street_info.removed_segments + street_info.removed_nodes > 0 then
-					lines[2] = street_line
-				end
-				logger.info("capture split: construction line " .. con_line)
-				logger.info("capture split: street line " .. street_line)
-			else
-				logger.info("capture split failed (" .. tostring(ok_c and street_line or con_line) .. "), sending one line")
-			end
-		end
-		s.last_build = lines[1]
+		s.last_build = line
 		state:set(s)
-		for _, l in ipairs(lines) do
-			logger.info("capture stored for replay (" .. #l .. " characters)")
-			logger.info(main.SEND_MARKER .. l)
-		end
+		logger.info("capture stored for replay (" .. #line .. " characters)")
+		logger.info(main.SEND_MARKER .. line)
+	end
+	if info.access > 0 and info.constructions > 0 then
+		local ok_w, err = pcall(main.describe_original_entrance, env, s, param)
+		if not ok_w then logger.info("weld check of the original failed: " .. tostring(err):sub(1, 200)) end
 	end
 end
 
-function main.with_part(opts, part)
-	local copy = {}
-	for k, v in pairs(opts) do copy[k] = v end
-	copy.part = part
-	return copy
+--- v20 diagnosis on the building side: is the player's own construction welded (it should be,
+-- which tests weld.status), and how does the engine's refresh proposal describe its gate.
+function main.describe_original_entrance(env, s, param)
+	local id = weld.construction_in(env, param[3])
+	if not id then
+		logger.info("weld check (original): construction not among the new entities")
+		return
+	end
+	logger.info("weld check (original): " .. weld.status(env, id, {}).text)
+	s.weld_original_dumps = s.weld_original_dumps or 0
+	if s.weld_original_dumps >= main.WELD_ORIGINAL_DUMPS then return end
+	s.weld_original_dumps = s.weld_original_dumps + 1
+	local ok, p = pcall(function() return env.api.engine.util.proposal.refreshConstruction(id) end)
+	if not ok or p == nil then
+		logger.info("weld refresh proposal (original): none (" .. tostring(p):sub(1, 160) .. ")")
+		return
+	end
+	logger.info("weld refresh proposal (original, not sent): " .. weld.describe_proposal(p))
+	main.dump_value("weld refresh proposal (original)", p)
+end
+
+--- Field dump of an engine value with the weld line budget.
+function main.dump_value(label, value)
+	local ok, lines = pcall(probe.fields, value, "p", 6, main.WELD_DUMP_LINES)
+	if ok and #lines > 0 then log_lines(label, lines) end
 end
 
 --- Keeps file and position of every construction in the script state, because a demolish event

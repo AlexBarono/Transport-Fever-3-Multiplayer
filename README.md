@@ -31,12 +31,12 @@ Dieses Projekt ist nicht mit Urban Games oder Paradox Interactive verbunden. Tra
 
 1. Den Ordner herunterladen (auf GitHub: Branch `probe-v2` wählen, dann „Code“ → „Download ZIP“) und entpacken.
 2. TF3 beenden, dann **`Start.bat`** doppelklicken.
-3. Im Fenster „Gastgeber“ oder „Mitspieler“ wählen (oder „Allein testen“ für einen Test auf einem PC). Als Mitspieler die IP-Adresse des Gastgebers eintragen, dann „Installieren / Speichern“.
+3. Im Fenster „Gastgeber“ oder „Mitspieler“ wählen (oder „Allein testen“ bzw. „Gleiche Stelle testen“ für einen Test auf einem PC). Als Mitspieler die IP-Adresse des Gastgebers eintragen, dann „Installieren / Speichern“.
 4. „Spiel starten“, einen Spielstand laden und danach „Verbindung prüfen“. Steht dort „VERBUNDEN“, haben sich die beiden Spiele gefunden.
 5. „Entfernen“ stellt das Original wieder her (oder Steam → „Dateien auf Fehler überprüfen“).
 
 Das Fenster installiert die fertige DLL aus `launcher/bin/alut.dll` (kein Visual Studio nötig), schreibt `alut_proxy.ini` und kopiert den Mod `mods/mp_probe` in den lokalen Mod-Ordner von TF3. Übers Internet braucht der Gastgeber eine UDP-Portfreigabe (Standard 47800) oder beide ein gemeinsames VPN wie Tailscale oder ZeroTier.
 
-Letzter Spielnachweis (v12): Straßen und Gleise wurden im Loopback erfolgreich kopiert. Die Übertragung zum Partner ist implementiert; beide müssen denselben Spielstand laden. Mit „Allein testen“ kommt jede eigene Straße bzw. jedes Gleis 40 m daneben zurück. Straßenanschlüsse bleiben offen.
+Letzter Spielnachweis (v12): Straßen und Gleise wurden im Loopback erfolgreich kopiert. Die Übertragung zum Partner ist implementiert; beide müssen denselben Spielstand laden. Mit „Allein testen“ kommt jede eigene Straße bzw. jedes Gleis 100 m daneben zurück (ab v19). Mit „Gleiche Stelle testen“ (ab v20) baut man etwas, lädt denselben Spielstand ohne Speichern neu und lässt es mit „Am selben Ort nachbauen“ genau an derselben Stelle wieder entstehen, so wie es der Mitspieler bekäme.
 
 **Aktualisierung Probe v13 (06.10.2026):** Der letzte tatsächliche Spieltest mit v12 hat auch Gleise im Loopback bestätigt. V13 ergänzt Code für Bahnhöfe/Depots samt modularen Parametern, Konstruktionserweiterungen, reinen Abriss, Linien (Anlegen, Änderungen, Löschen) und Fahrzeuge (Kauf, Konfiguration ersetzen, Verkauf, Linienzuordnung, Name, Start/Stopp und manuelle Abfahrt). Die neuen Aktionen sind bisher **offline getestet, noch nicht im Spiel bestätigt**. Straßenanschlüsse und gemischte Straßenumbauten bleiben offen. Anleitung, Grenzen und Übergabe für Claude: [docs/phase2-actions.md](docs/phase2-actions.md).

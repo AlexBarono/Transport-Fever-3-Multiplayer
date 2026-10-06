@@ -1202,19 +1202,21 @@ local function depot_param()
 	}
 end
 
-test("a construction travels with file, name, transf, params and its access segment", function()
+test("a construction travels with file, name, transf, params and its entrance (v20)", function()
 	with_engine_api({}, function(t)
 		local main = fresh_main()
 		logged = {}
 		local state = mock_state()
 		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", depot_param())
-		-- Run 18: the construction's entrance street (one frozen end) is the construction's own.
-		assert(contains(logged, "capture player build nodes=0 segments=0 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
+		-- v20: the entrance street travels along, its gate node (frozen) marked "g".
+		assert(contains(logged, "capture player build nodes=2 segments=1 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
 			table.concat(logged, "\n"))
 		assert(contains(logged, "access_segments=1"), table.concat(logged, "\n"))
 		local line = state:get().last_build
 		assert(line and line:find(" c;%3A%3A%2Fdepots%2Froad%2Froad_depot%2Froad_depot.con;Rehna%20Strassendepot%20S%C3%BCd;1,0,0,0,0,1,0,0,0,0,1,0,-2970.633,-3889.26,3.18,1;{", 1, true), line)
+		assert(line:find(" g;-2 ", 1, true) and line:find(" a;1 ", 1, true), line)
 		local data = assert(build.deserialize(line))
+		assert(data.gates[-2] and data.access[-1], "gate and entrance parsed")
 		local c = data.constructions[1]
 		assert(c.name == "Rehna Strassendepot Süd" and c.file == "::/depots/road/road_depot/road_depot.con")
 		assert(c.params.seed == 12 and c.params.paramX == 0.5 and c.params.flag == true and c.params.modules[3] == "a b;c")
@@ -1226,11 +1228,14 @@ test("a construction travels with file, name, transf, params and its access segm
 		assert(sent.fileName == c.file and sent.name == c.name and sent.playerEntity == 29125)
 		assert(sent.transf[13] == -2970.633 and sent.params.modules[3] == "a b;c")
 		local _, edges = sent_lists(t.sent[1].proposal)
-		assert(#edges == 0, "the construction builds its entrance itself")
+		assert(#edges == 1, "the entrance is built together with the construction")
+		-- The command was described before sending, and the weld was checked afterwards.
+		assert(contains(logged, "weld command before sending: command fields {"), table.concat(logged, "\n"))
+		assert(contains(logged, "weld: the copied road_depot.con near -2970.6,-3889.3 is not here"), table.concat(logged, "\n"))
 	end)
 end)
 
-test("a depot joined to a road travels as construction line, then street line (run 18)", function()
+test("a depot joined to a road travels as one line with entrance and gate (v20)", function()
 	-- Run 18 capture: road split at n1, entrance n1 -> n2 (n2 frozen), removed road segment.
 	local road = run5_street().addedSegments[1]
 	local function seg(entity, a, b, template)
@@ -1254,23 +1259,140 @@ test("a depot joined to a road travels as construction line, then street line (r
 		removedSegments = { { entity = 300, type = 0, comp = { node0 = 11, node1 = 12,
 			position0 = { x = -2903.335, y = -3949.088, z = 2.071 }, position1 = { x = -2821.038, y = -3974.736, z = 2.964 } } } },
 	}
-	local positions = { [11] = { x = -2903.335, y = -3949.088, z = 2.071 }, [12] = { x = -2821.038, y = -3974.736, z = 2.964 },
-		[101] = { x = -2861.231, y = -3962.21, z = 2.673 } }
+	local positions = { [11] = { x = -2903.335, y = -3949.088, z = 2.071 }, [12] = { x = -2821.038, y = -3974.736, z = 2.964 } }
 	local opts = {
 		node_position = function(id) return positions[id] end,
 		to_add = { { fileName = "::/depots/road/road_depot/road_depot.con", name = "Depot", params = { seed = 0 },
 			transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -2872.5, -3998.5, 2.67, 1 } } },
 	}
 	local line, info = build.serialize(proposal, opts)
-	assert(info.access == 1 and info.segments == 2 and info.constructions == 1, line)
-	opts.part = "constructions"
-	local con_line, con_info = build.serialize(proposal, opts)
-	assert(con_info.segments == 0 and con_info.removed_segments == 0 and con_info.constructions == 1, con_line)
-	opts.part = "streets"
-	local street_line, street_info = build.serialize(proposal, opts)
-	assert(street_info.constructions == 0 and street_info.segments == 2 and street_info.removed_segments == 1, street_line)
-	assert(street_info.nodes == 0 and street_info.foreign_nodes == 3, "the split node is the entrance's free end: " .. street_line)
-	assert(street_line:find("f2;-2861.231,-3962.21,2.673", 1, true), street_line)
+	assert(info.access == 1 and info.gates == 1 and info.segments == 3 and info.constructions == 1, line)
+	assert(info.nodes == 2 and info.foreign_nodes == 2 and info.removed_segments == 1, line)
+	assert(line:find(" n-2;-2866.509,-3979.147,2.673 g;-2 ", 1, true), line)
+	local data = assert(build.deserialize(line))
+	assert(data.gates[-2] and data.access[-1] and not data.access[-2], "only the entrance is an access segment")
+	-- The fallback without entrance forgets the gate (its node is gone).
+	build.drop_access(data)
+	assert(next(data.gates) == nil and #data.segments == 2 and #data.nodes == 1)
+	assert(not build.deserialize("B4 n-1;0,0,0 g;-3"), "a gate on an unknown node is refused")
+end)
+
+--- A small world for weld.lua: depot 500 whose gate node 601 lies where the copied entrance
+-- ends in its own node 602 (run 18).
+local function weld_world()
+	local w = { comps = {}, segments = {}, sent = {} }
+	local gate = { x = 10, y = 20, z = 2 }
+	w.gate = gate
+	w.comps[500] = { CONSTRUCTION = { fileName = "::/depots/road/road_depot/road_depot.con",
+		transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 0, 2, 1 }, frozenNodes = { 601 }, frozenEdges = {} } }
+	w.comps[601] = { BASE_NODE = { position = { x = 10, y = 20, z = 2 } } }
+	w.comps[602] = { BASE_NODE = { position = { x = 10.0004, y = 20.0003, z = 2 } } }
+	w.comps[603] = { BASE_NODE = { position = { x = 10, y = 38, z = 2 } } }
+	w.segments = { [601] = {}, [602] = { 701 }, [603] = { 701 } }
+	w.env = { api = {
+		type = { ComponentType = { CONSTRUCTION = "CONSTRUCTION", BASE_NODE = "BASE_NODE" },
+			Context = { new = function() return {} end },
+			SimpleProposal = { new = function() return {} end, ConstructionEntity = { new = function() return {} end } },
+			Vec4f = { new = function(x, y, z, ww) return { x, y, z, ww } end },
+			Mat4f = { new = function(a, b, c, d) return { a[1], a[2], a[3], a[4], b[1], b[2], b[3], b[4],
+				c[1], c[2], c[3], c[4], d[1], d[2], d[3], d[4] } end } },
+		engine = {
+			getComponent = function(id, ct) return w.comps[id] and w.comps[id][ct] end,
+			forEachEntityWithComponent = function(fn, ct)
+				local ids = {}
+				for id, c in pairs(w.comps) do if c[ct] then ids[#ids + 1] = id end end
+				table.sort(ids)
+				for _, id in ipairs(ids) do fn(id) end
+			end,
+			system = {
+				streetSystem = {
+					getNodeSegments = function(node) return w.segments[node] or {} end,
+					getNode2SegmentMap = function() return w.segments end,
+				},
+				streetConnectorSystem = { getNode2StreetConnectorMap = function() return { [601] = 500 } end },
+			},
+			util = { proposal = { refreshConstruction = function(id)
+				return { toAdd = { { fileName = "::/depots/road/road_depot/road_depot.con", frozenNodes = { 0 } } },
+					toRemove = { id }, proposal = { addedNodes = { { entity = 601, comp = { position = gate } } },
+					addedSegments = {}, removedSegments = {}, removedNodes = {}, frozenNodes = { 0 } } }
+			end } },
+		},
+		cmd = {
+			makeWorldBuildProposalCmd = function(p, context, ignore) return { proposal = p, context = context } end,
+			sendCommand = function(cmd, callback)
+				w.sent[#w.sent + 1] = cmd
+				if w.on_send then w.on_send(cmd) end
+				callback({ resultEntities = { 1 }, resultProposalData = { costs = 10,
+					errorState = { critical = false, messages = {}, warnings = {} } } }, true)
+			end,
+		},
+	} }
+	w.data = { nodes = { { id = -2, position = gate } }, gates = { [-2] = true },
+		constructions = { { file = "::/depots/road/road_depot/road_depot.con", name = "Depot", params = {},
+			transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 0, 2, 1 } } } }
+	return w
+end
+
+test("a copied entrance is checked once more a little later", function()
+	with_engine_api({}, function(t)
+		local main = fresh_main()
+		logged = {}
+		local state = mock_state()
+		state:set({ probe_version = main.PROBE_VERSION, subscribed = main.PROBE_VERSION,
+			replay_version = main.PROBE_VERSION, constructions_scanned = main.PROBE_VERSION,
+			weld_checks = { { file = "d.con", position = { x = 1, y = 2, z = 3 }, gates = {}, due = 3000 } } })
+		main.update(nil, state, 0)
+		assert(#state:get().weld_checks == 1, "not due yet")
+		t.advance(5000)
+		fresh_main().update(nil, state, 0)
+		assert(contains(logged, "weld check later: the copied construction is gone"), table.concat(logged, "\n"))
+		assert(#state:get().weld_checks == 0)
+	end)
+end)
+
+test("weld status tells a welded gate from a copied entrance ending beside it (run 18)", function()
+	local weld = require("/mp_probe/weld.lua")
+	local w = weld_world()
+	local st = weld.status(w.env, 500, { w.gate })
+	assert(st.welded == false and #st.gates == 1 and st.gates[1].outside == 0, st.text)
+	assert(#st.loose == 1 and st.loose[1].id == 602 and st.loose[1].segments == 1, st.text)
+	assert(st.text:find("gate 601 at 10.0,20.0 (0 outside, 0 inner); other node 602 at 10.0,20.0 (1 segments) -> NOT WELDED", 1, true), st.text)
+	w.segments[601], w.segments[602] = { 701 }, nil
+	st = weld.status(w.env, 500, { w.gate })
+	assert(st.welded == true and #st.loose == 0, st.text)
+	-- A construction without gate nodes is not touched.
+	w.comps[500].CONSTRUCTION.frozenNodes = {}
+	w.env.api.engine.system.streetConnectorSystem.getNode2StreetConnectorMap = function() return {} end
+	assert(weld.status(w.env, 500, {}).welded == nil)
+end)
+
+test("weld repair stops at the first step that welds the gate", function()
+	local weld = require("/mp_probe/weld.lua")
+	local w = weld_world()
+	local logs = {}
+	-- The engine's refresh adopts the waiting entrance end.
+	w.on_send = function() w.segments[601], w.segments[602] = { 701 }, nil end
+	local checked = weld.repair(w.env, w.data, { log = function(text) logs[#logs + 1] = text end, player = 29125 })
+	local all = table.concat(logs, "\n")
+	assert(#w.sent == 1 and w.sent[1].proposal.toRemove[1] == 500, all)
+	assert(all:find("weld refresh proposal: toAdd #1 {road_depot.con frozen{0}} | toRemove #1 {500} | old2new none | addedNodes", 1, true), all)
+	assert(all:find("addedNodes #1 {601@10.0,20.0} | addedSegments #0 {} | removedSegments #0 {} | removedNodes #0 {} | frozenNodes #1 {0}", 1, true), all)
+	assert(all:find("weld result road_depot.con: WELDED (after refresh)", 1, true), all)
+	assert(checked[1].verdict == "WELDED")
+end)
+
+test("weld repair tries the rebuild with old2new when the refresh does not weld", function()
+	local weld = require("/mp_probe/weld.lua")
+	local w = weld_world()
+	local logs = {}
+	weld.repair(w.env, w.data, { log = function(text) logs[#logs + 1] = text end, player = 29125 })
+	local all = table.concat(logs, "\n")
+	assert(#w.sent == 2, all)
+	local p = w.sent[2].proposal
+	assert(p.constructionsToRemove[1] == 500 and p.old2new[500] == 0, all)
+	assert(p.constructionsToAdd[1].fileName == "::/depots/road/road_depot/road_depot.con" and p.constructionsToAdd[1].playerEntity == 29125)
+	assert(all:find("weld check after rebuild: construction 500", 1, true), all)
+	assert(all:find("weld result road_depot.con: NOT WELDED (after rebuild)", 1, true), all)
 end)
 
 test("world finds nodes, edges and constructions of the running game by position", function()

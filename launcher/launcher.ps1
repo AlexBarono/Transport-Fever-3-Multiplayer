@@ -12,6 +12,8 @@ $Root = Split-Path -Parent $PSScriptRoot
 $ProxyDll = Join-Path $PSScriptRoot 'bin\alut.dll'
 $ModSource = Join-Path $Root 'mods\mp_probe'
 $ModName = 'mp_probe'
+# Gleiche-Stelle-Test: Aufnahme aus stdout.txt lesen und an die DLL schicken.
+. (Join-Path $Root 'tools\same-spot.ps1')
 
 function Get-SteamRoot {
 	foreach ($key in 'HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam') {
@@ -63,16 +65,16 @@ function Get-LocalIPs {
 function Test-GameRunning { return [bool](Get-Process -Name 'TransportFever3' -ErrorAction SilentlyContinue) }
 
 function Read-Ini($path) {
-	$cfg = @{ mode = 'host'; port = '47800'; host = '' }
+	$cfg = @{ mode = 'host'; port = '47800'; host = ''; test = '' }
 	if (Test-Path $path) {
 		foreach ($line in Get-Content $path) {
-			if ($line -match '^\s*(mode|port|host)\s*=\s*(.*?)\s*$') { $cfg[$matches[1]] = $matches[2] }
+			if ($line -match '^\s*(mode|port|host|test)\s*=\s*(.*?)\s*$') { $cfg[$matches[1]] = $matches[2] }
 		}
 	}
 	return $cfg
 }
 
-function Install-All($gameDir, $mode, $port, $partner, $steam) {
+function Install-All($gameDir, $mode, $port, $partner, $steam, $test = '') {
 	if (Test-GameRunning) { throw 'Transport Fever 3 läuft noch. Bitte zuerst das Spiel beenden.' }
 	if (-not (Test-Path (Join-Path $gameDir 'alut.dll'))) { throw "Im Spielordner fehlt alut.dll:`n$gameDir" }
 	if (-not (Test-Path $ProxyDll)) { throw "Die mitgelieferte DLL fehlt:`n$ProxyDll" }
@@ -92,6 +94,8 @@ function Install-All($gameDir, $mode, $port, $partner, $steam) {
 
 	$ini = @('[net]', "mode=$mode", "port=$port")
 	if ($mode -eq 'client') { $ini += "host=$partner" }
+	# Nur für den Launcher; die DLL liest den Schlüssel nicht.
+	if ($test) { $ini += "test=$test" }
 	Set-Content -Path (Join-Path $gameDir 'alut_proxy.ini') -Value $ini -Encoding ASCII
 
 	$targets = Get-ModTargets $steam
@@ -145,7 +149,7 @@ function Get-ConnectionStatus($gameDir) {
 $steam = Get-SteamRoot
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Transport Fever 3 Multiplayer (Test)'
-$form.Size = New-Object System.Drawing.Size(560, 583)
+$form.Size = New-Object System.Drawing.Size(560, 650)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -172,58 +176,68 @@ $browse.Add_Click({
 $form.Controls.Add($browse)
 
 $roleBox = New-Object System.Windows.Forms.GroupBox
-$roleBox.Text = 'Wer bist du?'; $roleBox.Location = New-Object System.Drawing.Point(15, 70); $roleBox.Size = New-Object System.Drawing.Size(515, 98)
+$roleBox.Text = 'Wer bist du?'; $roleBox.Location = New-Object System.Drawing.Point(15, 70); $roleBox.Size = New-Object System.Drawing.Size(515, 123)
 $hostRadio = New-Object System.Windows.Forms.RadioButton
 $hostRadio.Text = 'Gastgeber (der andere verbindet sich mit mir)'; $hostRadio.Location = New-Object System.Drawing.Point(12, 20); $hostRadio.Size = New-Object System.Drawing.Size(490, 22)
 $clientRadio = New-Object System.Windows.Forms.RadioButton
 $clientRadio.Text = 'Mitspieler (ich verbinde mich mit dem Gastgeber)'; $clientRadio.Location = New-Object System.Drawing.Point(12, 45); $clientRadio.Size = New-Object System.Drawing.Size(490, 22)
 $loopRadio = New-Object System.Windows.Forms.RadioButton
 $loopRadio.Text = 'Allein testen (eigene Bauten werden 100 m daneben nachgebaut)'; $loopRadio.Location = New-Object System.Drawing.Point(12, 70); $loopRadio.Size = New-Object System.Drawing.Size(490, 22)
-$roleBox.Controls.AddRange(@($hostRadio, $clientRadio, $loopRadio))
+$spotRadio = New-Object System.Windows.Forms.RadioButton
+$spotRadio.Text = 'Gleiche Stelle testen (bauen, Spielstand neu laden, am selben Ort nachbauen)'; $spotRadio.Location = New-Object System.Drawing.Point(12, 95); $spotRadio.Size = New-Object System.Drawing.Size(490, 22)
+$roleBox.Controls.AddRange(@($hostRadio, $clientRadio, $loopRadio, $spotRadio))
 $form.Controls.Add($roleBox)
 
-Add-Label 'IP-Adresse des Gastgebers:' 15 181 200 | Out-Null
+Add-Label 'IP-Adresse des Gastgebers:' 15 206 200 | Out-Null
 $ipBox = New-Object System.Windows.Forms.TextBox
-$ipBox.Location = New-Object System.Drawing.Point(215, 178); $ipBox.Size = New-Object System.Drawing.Size(150, 23)
+$ipBox.Location = New-Object System.Drawing.Point(215, 203); $ipBox.Size = New-Object System.Drawing.Size(150, 23)
 $form.Controls.Add($ipBox)
-Add-Label 'Port:' 380 181 40 | Out-Null
+Add-Label 'Port:' 380 206 40 | Out-Null
 $portBox = New-Object System.Windows.Forms.TextBox
-$portBox.Location = New-Object System.Drawing.Point(420, 178); $portBox.Size = New-Object System.Drawing.Size(110, 23)
+$portBox.Location = New-Object System.Drawing.Point(420, 203); $portBox.Size = New-Object System.Drawing.Size(110, 23)
 $form.Controls.Add($portBox)
 
-$myIp = Add-Label ("Deine IP-Adresse(n) im Heimnetz: " + (Get-LocalIPs)) 15 211 515 20
+$myIp = Add-Label ("Deine IP-Adresse(n) im Heimnetz: " + (Get-LocalIPs)) 15 236 515 20
 $hint = Add-Label ("Gastgeber: diese IP dem Mitspieler schicken. Windows fragt beim ersten Spielstart evtl. nach einer Firewall-Freigabe - erlauben.`r`n" +
-	"Übers Internet geht das nur mit Portfreigabe (UDP) am Router oder einem gemeinsamen VPN wie Tailscale oder ZeroTier.") 15 231 515 64
+	"Übers Internet geht das nur mit Portfreigabe (UDP) am Router oder einem gemeinsamen VPN wie Tailscale oder ZeroTier.") 15 256 515 64
 $hint.ForeColor = [System.Drawing.Color]::DimGray
 
 $install = New-Object System.Windows.Forms.Button
-$install.Text = 'Installieren / Speichern'; $install.Location = New-Object System.Drawing.Point(15, 301); $install.Size = New-Object System.Drawing.Size(165, 32)
+$install.Text = 'Installieren / Speichern'; $install.Location = New-Object System.Drawing.Point(15, 326); $install.Size = New-Object System.Drawing.Size(165, 32)
 $startGame = New-Object System.Windows.Forms.Button
-$startGame.Text = 'Spiel starten'; $startGame.Location = New-Object System.Drawing.Point(190, 301); $startGame.Size = New-Object System.Drawing.Size(110, 32)
+$startGame.Text = 'Spiel starten'; $startGame.Location = New-Object System.Drawing.Point(190, 326); $startGame.Size = New-Object System.Drawing.Size(110, 32)
 $check = New-Object System.Windows.Forms.Button
-$check.Text = 'Verbindung prüfen'; $check.Location = New-Object System.Drawing.Point(310, 301); $check.Size = New-Object System.Drawing.Size(125, 32)
+$check.Text = 'Verbindung prüfen'; $check.Location = New-Object System.Drawing.Point(310, 326); $check.Size = New-Object System.Drawing.Size(125, 32)
 $remove = New-Object System.Windows.Forms.Button
-$remove.Text = 'Entfernen'; $remove.Location = New-Object System.Drawing.Point(445, 301); $remove.Size = New-Object System.Drawing.Size(85, 32)
+$remove.Text = 'Entfernen'; $remove.Location = New-Object System.Drawing.Point(445, 326); $remove.Size = New-Object System.Drawing.Size(85, 32)
 $form.Controls.AddRange(@($install, $startGame, $check, $remove))
+$replay = New-Object System.Windows.Forms.Button
+$replay.Text = 'Am selben Ort nachbauen'; $replay.Location = New-Object System.Drawing.Point(15, 368); $replay.Size = New-Object System.Drawing.Size(185, 32)
+$form.Controls.Add($replay)
+$replayHint = Add-Label 'Nur für "Gleiche Stelle testen": nach dem Neuladen des Spielstands klicken.' 210 368 320 34
+$replayHint.ForeColor = [System.Drawing.Color]::DimGray
 
 $out = New-Object System.Windows.Forms.TextBox
 $out.Multiline = $true; $out.ReadOnly = $true; $out.ScrollBars = 'Vertical'
-$out.Location = New-Object System.Drawing.Point(15, 345); $out.Size = New-Object System.Drawing.Size(515, 185)
+$out.Location = New-Object System.Drawing.Point(15, 412); $out.Size = New-Object System.Drawing.Size(515, 185)
 $out.Font = New-Object System.Drawing.Font('Consolas', 8.5)
 $form.Controls.Add($out)
 
 function Update-Fields {
 	$ipBox.Enabled = $clientRadio.Checked
 	$portBox.Enabled = -not $loopRadio.Checked
+	$replay.Enabled = $spotRadio.Checked
 }
 $hostRadio.Add_CheckedChanged({ Update-Fields })
 $clientRadio.Add_CheckedChanged({ Update-Fields })
 $loopRadio.Add_CheckedChanged({ Update-Fields })
+$spotRadio.Add_CheckedChanged({ Update-Fields })
 
 # Vorhandene Einstellungen übernehmen
 $cfg = Read-Ini (Join-Path $gameBox.Text 'alut_proxy.ini')
 if ($cfg.mode -eq 'client') { $clientRadio.Checked = $true }
 elseif ($cfg.mode -eq 'loopback') { $loopRadio.Checked = $true }
+elseif ($cfg.test -eq 'samespot') { $spotRadio.Checked = $true }
 else { $hostRadio.Checked = $true }
 $ipBox.Text = $cfg.host
 $portBox.Text = $cfg.port
@@ -235,16 +249,24 @@ function Show-Error($msg) { [System.Windows.Forms.MessageBox]::Show($msg, 'Fehle
 $install.Add_Click({
 	try {
 		$mode = if ($clientRadio.Checked) { 'client' } elseif ($loopRadio.Checked) { 'loopback' } else { 'host' }
+		# Gleiche Stelle: die DLL hört als Gastgeber ohne Partner, das Nachbau-Skript spielt den Partner.
+		$test = if ($spotRadio.Checked) { 'samespot' } else { '' }
 		$port = $portBox.Text.Trim()
 		if ($port -notmatch '^\d+$' -or [int]$port -lt 1024 -or [int]$port -gt 65535) { throw 'Der Port muss eine Zahl zwischen 1024 und 65535 sein (Standard 47800).' }
 		$ip = $ipBox.Text.Trim()
 		$parsed = $null
 		if ($mode -eq 'client' -and -not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) { throw 'Bitte die IP-Adresse des Gastgebers eingeben, z. B. 192.168.1.10.' }
-		$n = Install-All $gameBox.Text.Trim() $mode $port $ip $steam
-		$role = if ($mode -eq 'client') { "Mitspieler, verbindet sich mit $($ip):$port" }
+		$n = Install-All $gameBox.Text.Trim() $mode $port $ip $steam $test
+		$role = if ($test) { "Gleiche Stelle testen (Port $port)" }
+			elseif ($mode -eq 'client') { "Mitspieler, verbindet sich mit $($ip):$port" }
 			elseif ($mode -eq 'loopback') { 'Allein testen, eigene Bauten kommen 100 m daneben zurück' }
 			else { "Gastgeber, wartet auf Port $port" }
-		$out.Text = "Installiert.`r`nRolle: $role`r`nMod kopiert in $n Steam-Konto/Konten.`r`n`r`nJetzt 'Spiel starten', einen Spielstand laden und danach 'Verbindung prüfen'."
+		$next = if ($test) {
+			"1. 'Spiel starten' und einen Spielstand laden.`r`n2. Bauen (z. B. Straße und Depot).`r`n" +
+			"3. OHNE Speichern ins Hauptmenü und denselben Spielstand neu laden (Spiel nicht beenden).`r`n" +
+			"4. Hier 'Am selben Ort nachbauen' klicken."
+		} else { "Jetzt 'Spiel starten', einen Spielstand laden und danach 'Verbindung prüfen'." }
+		$out.Text = "Installiert.`r`nRolle: $role`r`nMod kopiert in $n Steam-Konto/Konten.`r`n`r`n$next"
 	} catch { Show-Error $_.Exception.Message }
 })
 
@@ -254,6 +276,31 @@ $startGame.Add_Click({
 
 $check.Add_Click({
 	try { $out.Text = Get-ConnectionStatus $gameBox.Text.Trim() } catch { Show-Error $_.Exception.Message }
+})
+
+$replay.Add_Click({
+	try {
+		$cfg = Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
+		if ($cfg.test -ne 'samespot' -or $cfg.mode -ne 'host') {
+			throw "Bitte zuerst 'Gleiche Stelle testen' wählen, 'Installieren / Speichern' klicken und das Spiel neu starten."
+		}
+		Assert-SameSpotGameRunning
+		$log = Find-SameSpotLog $steam
+		$rec = Get-SameSpotRecording (Read-SameSpotLines $log)
+		$question = "Aufgenommen im Spielstand '$($rec.Save)': $($rec.Lines.Count) Bau-Zeile(n).`r`nJetzt geladen: '$($rec.Current)'."
+		if ($rec.Save -ne $rec.Current) { $question += "`r`n`r`nAchtung: das ist ein anderer Spielstand als bei der Aufnahme." }
+		$question += "`r`n`r`nAn derselben Stelle nachbauen?"
+		if ([System.Windows.Forms.MessageBox]::Show($question, 'Am selben Ort nachbauen', 'YesNo', 'Question') -ne 'Yes') { return }
+		$out.Text = "Schicke $($rec.Lines.Count) Zeile(n) an das Spiel ..."
+		$form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+		$sent = Send-SameSpotRecording $rec ([int]$cfg.port) 2 {
+			param($text)
+			$out.AppendText("`r`n$text")
+			[System.Windows.Forms.Application]::DoEvents()
+		}
+		$out.AppendText("`r`n`r`nFertig: $sent Zeile(n) übergeben. Im Spiel nachsehen, ob alles an derselben Stelle steht und das Depot angeschlossen ist.")
+	} catch { Show-Error $_.Exception.Message }
+	finally { $form.Cursor = [System.Windows.Forms.Cursors]::Default }
 })
 
 $remove.Add_Click({

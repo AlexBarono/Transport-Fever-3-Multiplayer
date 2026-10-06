@@ -3,6 +3,7 @@
 -- All persistent values live in script state (TF3 reloads modules between calls).
 local wire = require("/mp_probe/wire.lua")
 local build = require("/mp_probe/build.lua")
+local world = require("/mp_probe/world.lua")
 local actions = { VERSION = 1, KINDS = { "construction", "line", "vehicle", "edge" } }
 
 local function field(obj, key)
@@ -130,10 +131,42 @@ local function construction_ref(env, id)
 		transf = matrix(env, c.transf) }
 end
 
+--- Where a station without a construction is: a street stop is an edge object with its own
+-- transformation; otherwise the centre of its first catchment area.
+-- @return table position, string how it was read
+local function station_position(env, id)
+	local ok, p = pcall(function()
+		local eo = component(env, id, "EDGE_OBJECT")
+		local m = assert(build.read_transf(eo.transf), "transf unreadable")
+		return { x = m[13], y = m[14], z = m[15] }
+	end)
+	if ok and p then return p, "edge_object" end
+	local ok_c, c = pcall(function()
+		local st = component(env, id, "STATION")
+		return vec(st.catchmentAreas[1].position)
+	end)
+	if ok_c and c then return c, "catchment" end
+	error("station " .. tostring(id) .. " has no construction and no readable position (" ..
+		tostring(p):sub(1, 60) .. " / " .. tostring(c):sub(1, 60) .. ")", 0)
+end
+
+actions.station_position = station_position
+--- Horizontal distance within which a street stop of the other game counts as the same.
+actions.STREET_STATION_RADIUS = 3
+
 local function child_ref(env, id, kind)
 	local connector = env.api.engine.system.streetConnectorSystem
-	local parent = kind == "depot" and connector.getConstructionEntityForDepot(id)
-		or connector.getConstructionEntityForStation(id)
+	local ok_parent, parent = pcall(function()
+		if kind == "depot" then return connector.getConstructionEntityForDepot(id) end
+		return connector.getConstructionEntityForStation(id)
+	end)
+	-- Run 19: a street stop has no construction (the line with two street stops was unreadable),
+	-- so it travels by position.
+	if kind == "station" and (not ok_parent or type(parent) ~= "number" or parent < 0) then
+		local position, how = station_position(env, id)
+		return { kind = "street_station", position = position, how = how, name = name_of(env, id) }
+	end
+	if not ok_parent then error(parent, 0) end
 	local c = component(env, parent, "CONSTRUCTION")
 	local list = kind == "depot" and c.depots or c.stations
 	for i = 1, #list do
@@ -236,17 +269,19 @@ end
 
 --- Run 16: one unreadable entity ("Invalid entity") made the whole snapshot fail. Such entities
 -- keep their previous record, so a read error never looks like a deletion.
+-- @return table records by id, number of unreadable entities, text of the first error
 function actions.snapshot(env, kind, previous)
-	local out, failed = {}, 0
+	local out, failed, first = {}, 0, nil
 	for _, id in ipairs(ids(env, kind)) do
 		local ok, r = pcall(record, env, id, kind)
 		if not ok then
 			failed = failed + 1
+			first = first or (tostring(id) .. ": " .. tostring(r):sub(1, 200))
 			r = previous and previous[tostring(id)]
 		end
 		if r then out[tostring(id)] = r end
 	end
-	return out, failed
+	return out, failed, first
 end
 
 function actions.encode(action)
@@ -279,8 +314,16 @@ function actions.poll(env, s, log, kinds)
 	local a = s.actions
 	local pending = {}
 	for _, kind in ipairs(kinds or actions.KINDS) do
-		local ok, current, failed = pcall(actions.snapshot, env, kind, a.snapshots[kind])
-		if ok and failed > 0 and log then log("action snapshot " .. kind .. ": " .. failed .. " unreadable, kept as before") end
+		local ok, current, failed, first = pcall(actions.snapshot, env, kind, a.snapshots[kind])
+		-- Run 19: this line came every poll; now only when the count or the error changes.
+		a.unreadable = a.unreadable or {}
+		if ok then
+			local note = failed > 0 and (failed .. " unreadable, kept as before (first: " .. tostring(first) .. ")") or nil
+			if note ~= a.unreadable[kind] then
+				a.unreadable[kind] = note
+				if note and log then log("action snapshot " .. kind .. ": " .. note) end
+			end
+		end
 		if ok then
 			local previous = a.snapshots[kind]
 			if previous then
@@ -381,6 +424,20 @@ local function resolve(env, ref, s, peer, offset)
 			assert(owned(env, mapped), "mapped target no longer owned by local player")
 			return mapped
 		end
+	end
+	if ref.kind == "street_station" then
+		-- The stop of this game closest to where the other game has it.
+		local best, best_d = nil, nil
+		local r = actions.STREET_STATION_RADIUS
+		world.each_with(env, "STATION", function(id)
+			local ok, p = pcall(station_position, env, id)
+			if ok and p then
+				local dx, dy = p.x - ref.position.x, p.y - ref.position.y - offset
+				local d = dx * dx + dy * dy
+				if d <= r * r and (not best_d or d < best_d) then best, best_d = id, d end
+			end
+		end)
+		return assert(best, string.format("street stop near %.1f,%.1f not found", ref.position.x, ref.position.y + offset))
 	end
 	if ref.kind == "depot" or ref.kind == "station" then
 		local parent = resolve(env, ref.parent, s, peer, offset)
@@ -636,7 +693,12 @@ function actions.replay(env, action, state, peer, offset, log)
 		if not old or r.name ~= old.name then add("name", r.name) end
 		if not old or not same(r.line or {}, old.line or {}) then
 			local line = r.line and resolve(env, r.line, state:get() or {}, peer, offset) or -1
-			add("line", line)
+			-- Run 19: SetLine with -1 raised "Unknown exception" for a bus bought without a line.
+			if line >= 0 then
+				add("line", line)
+			elseif old and old.line then
+				log("action vehicle: taking a vehicle off its line is not copied yet")
+			end
 		end
 		if not old or r.userStopped ~= old.userStopped then
 			add("stopped", r.userStopped)

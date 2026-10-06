@@ -382,3 +382,24 @@ Token `o;<segment>;<side>;<param>;x,y,z;<model>;<name>;<flags>` hinter dem Segme
 - Deutung: Das Segment mit einem eingefrorenen Ende (Vorlage `entrance_new.street_template`) ist die eigene Zufahrt des Gebäudes. Das Bauwerkzeug schweißt ihr freies Ende an die Straße. Ein Skript-Vorschlag schweißt nicht (wie in TF2, siehe `docs/tf2mp-reference.md`, `MergeTemplateStreet`), und unsere zweite Zufahrt lag doppelt daneben.
 - v19: Zuerst eine Zeile nur mit dem Gebäude (`opts.part = "constructions"`), dann eine Zeile mit den Straßen (`"streets"`), in der der Teilungsknoten der Straße das freie Ende der Gebäudezufahrt ist (`f`-Knoten über die Position). So wird die Straße am Knoten des Gebäudes geteilt.
 - Bus im neuen Depot: `{1={cargoTypeId=-1, loadConfigIndex=0}}` abgelehnt. v19 baut `api.type.LoadConfig`-Einträge.
+
+### Lauf 19 (v19) und Probe v20
+
+- Logs: `logs/run19-*`. Das Depot allein wurde gebaut, die Straßenzeile übersprungen (`joins a road or track that does not exist here (node near -2848.9,-3885.8)`). Das Gebäude legt also keinen Knoten an der Straße an; der Bus erschien im kopierten Depot (`vehicle_create` mit `LoadConfig` geht).
+- Vorschlag des Bauwerkzeugs für das Depot (Dump im Log): `addedNodes = {49777 Teilungsknoten, 39539 Tor}`, `proposal.frozenNodes = {1}` und `toAdd[1].frozenNodes = {1}` (0-basiert, also das Tor), Zufahrt 49944 von 49777 zum Tor mit Vorlage `entrance_new.street_template`, dazu die zwei Straßenhälften. Die Zufahrt baut das Werkzeug, nicht das Gebäude; das Gebäude übernimmt nur den Torknoten. Ein `SimpleProposal` hat dafür kein Feld.
+- Linien: eine Linie über Straßenhaltestellen war unlesbar (`1 unreadable` bei jeder Abfrage), weil eine Straßenhaltestelle kein Gebäude hat. `SetLine` mit -1 für einen Bus ohne Linie gab `Unknown exception`.
+
+Probe v20:
+- Depot wieder in einer Zeile wie v18, die Zufahrt mit `a;<segment>` und ihr Torknoten mit `g;<knoten>`. Nach dem Bau prüft `weld.lua`, ob am Torknoten des Gebäudes (`CONSTRUCTION.frozenNodes`, sonst `streetConnectorSystem.getNode2StreetConnectorMap`) eine Straße von außen hängt, und loggt die Knoten an derselben Stelle (`weld check after build: …`).
+- Ist das Tor nicht angeschweißt, versucht der Mod nacheinander: `api.engine.util.proposal.refreshConstruction(gebäude)` senden (der eigene Vorschlag der Engine), dann das Gebäude per `SimpleProposal` mit `old2new` durch sich selbst ersetzen. Nach jedem Schritt wird geprüft; am Ende steht `weld result …: WELDED/NOT WELDED (after …)`, einige Sekunden später noch einmal `weld check later: …`.
+- Zur Diagnose: Beim Bauen des Originals wird geprüft, ob es angeschweißt ist (muss `WELDED` sein), und der Refresh-Vorschlag der Engine für das Original beschrieben und gedumpt, ohne ihn zu senden. Vor dem Senden der Kopie wird beschrieben, was das Spiel aus dem `SimpleProposal` gemacht hat (`weld command before sending: …`).
+- Linien: Straßenhaltestellen reisen über ihre Position (`street_station`, aus `EDGE_OBJECT.transf`, sonst dem Einzugsgebiet) und werden beim Empfänger der nächsten Haltestelle innerhalb 3 m zugeordnet. Unlesbare Einträge werden nur noch gemeldet, wenn sich Anzahl oder Fehler ändern, mit dem ersten Fehlertext. Kein `SetLine(-1)` mehr nach einem Kauf ohne Linie.
+
+### Gleiche-Stelle-Test (Launcher, ab v20)
+
+Im Allein-Test steht die Kopie 100 m daneben, auf anderem Gelände. Der Gleiche-Stelle-Test baut an genau derselben Stelle nach, wie es der Mitspieler mit demselben Spielstand bekommt:
+1. Im Launcher „Gleiche Stelle testen“ wählen und installieren. Die DLL läuft als Gastgeber ohne Partner (`mode=host`, dazu `test=samespot` nur für den Launcher).
+2. Spielstand laden und bauen. Die Zeilen stehen als `[mp_probe]net send …` in `stdout.txt`.
+3. Ohne Speichern ins Hauptmenü und denselben Spielstand neu laden (Spiel nicht beenden).
+4. „Am selben Ort nachbauen“: `tools/same-spot.ps1` teilt `stdout.txt` an `Loading game from file …` in Sitzungen, nimmt die Zeilen der letzten früheren Sitzung mit Bauten und schickt sie als `TF3MP/1 LINE <token> <zeile>` an 127.0.0.1 (Port aus `alut_proxy.ini`), jeweils bis zur Antwort `GOT`. Die DLL reicht sie wie Zeilen vom Partner (`kind=net`) an den Mod, der sie ohne Versatz baut.
+Ohne Launcher: `powershell -ExecutionPolicy Bypass -File tools\same-spot.ps1` (mit `-List` nur anzeigen).

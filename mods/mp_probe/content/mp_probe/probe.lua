@@ -233,6 +233,9 @@ probe.KNOWN_FIELDS = {
 	"precedenceNode1", "roadDevelopmentLocked", "edgeDecorations", "emissionEmitter",
 	-- Edge objects (stops, signals) as the TF2 multiplayer mod built them (docs/tf2mp-reference.md).
 	"edgeEntity", "param", "left", "oneWay", "model", "first", "second",
+	-- Full proposals (v20, weld.lua): refreshConstruction and the command a SimpleProposal becomes.
+	"old2new", "nodeConfigsToAdd", "nodeConfigsToRemove", "new2oldEdgeObjects", "old2newEdgeObjects",
+	"construction", "autoFillSlots", "terrain",
 }
 
 --- Probes probe.KNOWN_FIELDS on a value (recursing into whatever is found) and on array entries.

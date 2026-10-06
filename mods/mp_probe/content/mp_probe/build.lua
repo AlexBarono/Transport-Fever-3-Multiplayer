@@ -245,6 +245,7 @@ local function list_items(list)
 	for i = 1, (ok and n or 0) do items[i] = list[i] end
 	return items
 end
+build.list_items = list_items
 
 --- The {entity, side} entries of comp.objects of a segment (empty if unreadable).
 local function edge_objects_of(comp)
@@ -276,7 +277,8 @@ build.edge_objects_of = edge_objects_of
 --     of a stop/signal on an added segment, or { problem = text },
 --   }
 -- @return string line, table info { nodes, segments, foreign_nodes, removed_segments,
---   removed_nodes, constructions, demolished, edge_objects, dropped = list of what was left out }
+--   removed_nodes, constructions, demolished, edge_objects, access (entrance segments), gates
+--   (their gate nodes), dropped = list of what was left out }
 function build.serialize(proposal, opts)
 	opts = opts or {}
 	local parts = { "B" .. build.VERSION }
@@ -295,32 +297,29 @@ function build.serialize(proposal, opts)
 		if frozen[i] then frozen_ids[node.entity] = true end
 	end
 
-	-- A segment with both ends frozen belongs to the construction. So does one with a single frozen
-	-- end: it is the construction's own entrance street, whose free end the build tool welded onto
-	-- the road (run 18: built again by us, it lay twice beside the construction's own one). The
-	-- receiver gets the construction first (opts.part = "constructions") and then the streets
-	-- (opts.part = "streets"), in which the entrance's free end is an existing node: the road is
-	-- then split at the construction's own node, which welds it.
-	local part = opts.part
-	local segments, used, access_ends = {}, {}, {}
-	info.access = 0
+	-- A segment with both ends frozen belongs to the construction. One with a single frozen end is
+	-- the entrance street the build tool laid from the road to the construction's gate (run 19:
+	-- template entrance_new.street_template, the gate node frozen in toAdd[i].frozenNodes). Run 17
+	-- and 19: built after the construction the game refuses it or finds no node to weld to, so it
+	-- travels in the same line, marked "a", with its gate node marked "g". The receiver builds it
+	-- together with the construction and then checks and repairs the weld (weld.lua).
+	local segments, used, access, gates = {}, {}, {}, {}
 	for _, seg in ipairs(list_items(proposal.addedSegments)) do
 		local comp = seg.comp
 		local f0, f1 = frozen_ids[comp.node0] == true, frozen_ids[comp.node1] == true
-		if f0 or f1 then
+		if f0 and f1 then
 			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (part of a construction)"
-			if not (f0 and f1) then
-				info.access = info.access + 1
-				access_ends[f0 and comp.node1 or comp.node0] = true
-			end
-		elseif part ~= "constructions" then
+		else
 			segments[#segments + 1] = seg
 			used[comp.node0], used[comp.node1] = true, true
+			if f0 or f1 then
+				access[#segments] = true
+				gates[f0 and comp.node0 or comp.node1] = true
+			end
 		end
 	end
-	if part == "streets" then
-		for id in pairs(access_ends) do used[id] = nil end
-	end
+	info.access = 0
+	for _ in pairs(access) do info.access = info.access + 1 end
 	local added_position = {}
 	for _, node in ipairs(nodes) do
 		pcall(function()
@@ -338,6 +337,13 @@ function build.serialize(proposal, opts)
 		end
 	end
 	info.nodes = count
+	info.gates = 0
+	for _, node in ipairs(nodes) do
+		if gates[node.entity] and placeholder[node.entity] then
+			info.gates = info.gates + 1
+			parts[#parts + 1] = "g;" .. placeholder[node.entity]
+		end
+	end
 
 	local foreign, foreign_count = {}, 0
 	local function node_ref(id)
@@ -421,9 +427,11 @@ function build.serialize(proposal, opts)
 		end
 	end
 	info.foreign_nodes = foreign_count
+	local access_list = {}
+	for i in pairs(access) do access_list[#access_list + 1] = i end
+	table.sort(access_list)
+	for _, i in ipairs(access_list) do parts[#parts + 1] = "a;" .. i end
 
-	if part == "constructions" then goto constructions end
-	do
 	-- Removed nodes: their positions are only in the proposal, the entities are gone.
 	local removed_position = {}
 	for _, node in ipairs(list_items(proposal.removedNodes)) do
@@ -457,9 +465,6 @@ function build.serialize(proposal, opts)
 		info.removed_segments = info.removed_segments + 1
 		parts[#parts + 1] = "r;" .. vec_to_string(p0) .. ";" .. vec_to_string(p1) .. ";" .. tostring(seg.type)
 	end
-	end
-	::constructions::
-	if part == "streets" then return table.concat(parts, " "), info end
 
 	for _, con in ipairs(list_items(opts.to_add)) do
 		local m, how = (opts.read_transf or build.read_transf)(con.transf)
@@ -500,7 +505,7 @@ end
 function build.deserialize(line)
 	if type(line) ~= "string" then return nil, "not a string" end
 	local data = { nodes = {}, foreign = {}, segments = {}, removed_segments = {}, removed_nodes = {},
-		constructions = {}, demolished = {}, objects = {}, access = {} }
+		constructions = {}, demolished = {}, objects = {}, access = {}, gates = {} }
 	local roads = {}
 	for token in string.gmatch(line, "%S+") do
 		local kind = token:sub(1, 1)
@@ -554,6 +559,10 @@ function build.deserialize(line)
 			local i = string.match(token, "^a;(%d+)$")
 			if not i then return nil, "bad access token " .. token end
 			data.access[-tonumber(i)] = true
+		elseif kind == "g" then
+			local id = string.match(token, "^g;(%-%d+)$")
+			if not id then return nil, "bad gate token " .. token end
+			data.gates[tonumber(id)] = true
 		elseif kind == "o" then
 			local seg, side, param, pos, model, name, flags =
 				string.match(token, "^o;(%d+);(%-?%d+);([^;]+);([^;]+);([^;]+);([^;]*);([^;]+)$")
@@ -593,6 +602,13 @@ function build.deserialize(line)
 		end
 	end
 	if not data.version then return nil, "no version token" end
+	for id in pairs(data.gates) do
+		local found = false
+		for _, node in ipairs(data.nodes) do
+			if node.id == id then found = true end
+		end
+		if not found then return nil, "gate on unknown node " .. id end
+	end
 	for _, o in ipairs(data.objects) do
 		local found = false
 		for _, seg in ipairs(data.segments) do
@@ -1258,8 +1274,10 @@ end
 -- @param log function|nil receives one line per failed attempt
 -- @param on_result function|nil callback(result, success) the game calls once it has executed the
 --   command; this is the only place that says whether the build really happened
+-- @param prepare function|nil called with the command before it is sent (v20: to read the full
+--   Proposal the game made of a SimpleProposal); its errors are logged, never raised
 -- @return boolean ok, string message
-function build.send(env, proposal, log, on_result, player)
+function build.send(env, proposal, log, on_result, player, prepare)
 	local api = env.api
 	local context = nil
 	pcall(function() context = build.make_context(env, player) end)
@@ -1267,6 +1285,10 @@ function build.send(env, proposal, log, on_result, player)
 		local ok, err = pcall(function()
 			local args = make_args(proposal, context)
 			local cmd = api.cmd.makeWorldBuildProposalCmd(args[1], args[2], args[3])
+			if prepare then
+				local ok_p, err_p = pcall(prepare, cmd)
+				if not ok_p and log then log("prepare: " .. tostring(err_p):sub(1, 200)) end
+			end
 			if on_result then
 				api.cmd.sendCommand(cmd, on_result)
 			else
@@ -1357,7 +1379,7 @@ end
 -- the next layout is tried right here, without a command inside the callback.
 -- @param opts table|nil { log = function(line), on_result = function(result, success, label,
 --   outcome), inspect = function(label, node_list, edge_list) called with a complete proposal
---   before it is sent, player = entity }
+--   before it is sent, prepare = function(cmd) (see build.send), player = entity }
 -- @return boolean ok, string message
 local function replay_once(env, data, opts)
 	opts = opts or {}
@@ -1395,7 +1417,7 @@ local function replay_once(env, data, opts)
 				nothing = outcome.built == false or (outcome.built == nil and success == false)
 			end
 			local sent, message = build.send(env, proposal, function(line) log(label .. " " .. line) end,
-				on_result, opts.player)
+				on_result, opts.player, opts.prepare)
 			if sent and not nothing then return true, label .. ": " .. message end
 			if sent then
 				nothing_built = nothing_built + 1
@@ -1424,7 +1446,7 @@ function build.drop_access(data)
 	for _, node in ipairs(data.nodes) do
 		if used[node.id] then nodes[#nodes + 1] = node end
 	end
-	data.segments, data.nodes, data.access = segments, nodes, {}
+	data.segments, data.nodes, data.access, data.gates = segments, nodes, {}, {}
 	-- Placeholders stay dense: -1, -2, ... for segments and for nodes (node_entity moves the nodes
 	-- behind the segments).
 	local renumber, node_ids = {}, {}
