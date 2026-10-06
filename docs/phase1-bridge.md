@@ -225,3 +225,20 @@ Nebenbefund: Kurz nach dem Gleis kamen drei Aufzeichnungen mit je 25 Knoten und 
 - **Nur Straßen und Gleise.** Bauten mit Konstruktionen (`toAdd`, z. B. Bahnhöfe) werden nicht aufgezeichnet (`capture skipped: the build contains N construction(s) …`). `param[4]` (vom Spiel gesetzt, in Lauf 5–9 immer `true` bei Spielerbauten und `false` bei Stadtbauten) entscheidet, ob ein Bau vom Spieler ist. Straßen, die eine Stadt baut, werden also nicht mehr kopiert.
 - Mit einer neuen Probe-Version stehen einem Spielstand wieder 3 Nachbauten zu (`replays_requested` wird einmal zurückgesetzt).
 - Die Offline-Tests bilden jetzt das Kopierverhalten nach: Gelesene Strukturen und Listen sind Kopien, und unbekannte Felder werfen einen Fehler. Der Fehler aus Lauf 9 wäre damit offline aufgefallen.
+
+## Ergebnis Lauf 10 (06.10.2026, Probe v10 + DLL v6)
+
+Logs: [logs/probe-log-10-mp_probe.txt](../logs/probe-log-10-mp_probe.txt), [logs/probe-log-10-context.txt](../logs/probe-log-10-context.txt), [logs/proxy-log-10.txt](../logs/proxy-log-10.txt)
+
+Keine Kopie (vom Nutzer bestätigt), kein Hängen. Erstmals verarbeitet das Spiel den Vorschlag wirklich, bricht aber in der Straßengeometrie ab.
+
+- `replay proposal check …: complete` für alle drei Layouts, z. B. `SimpleProposal/table: complete, nodes 3/3, edges 2/2, … template town_old_small.street_template owner 29125`. Die Listen sind jetzt gefüllt.
+- `SimpleProposal`, Signaturen 1, 2, 3 und 5: `makeWorldBuildProposalCmd` wirft `Unknown exception`. Direkt davor meldet das Spiel:
+  - Straße: `lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0: Assertion '!laneConfigs.empty()' failed`
+  - Gleis: `construction_util_graph.cpp:1215: street_util::AreSegmentsOfSameType: Assertion 'be.laneConfigs.size() == 1' failed`
+- Signatur 4 bei allen Layouts: `bad argument #3 to 'makeWorldBuildProposalCmd' (Context expected, got boolean)`.
+- `WorldBuildProposal` und `StreetProposal`, alle anderen Signaturen: `Error decoding argument #2: The lua object can't be cast to desired type`. Der Befehl nimmt also nur `SimpleProposal` als erstes Argument; mit einem Kontext an Position 2 bleibt `(SimpleProposal, Context, bool)` als Signatur.
+- Ergebnis: `replay: failed, no layout could be filled and sent` (3×), danach `replay: limit of 3 reached`. Es gibt keine `refused fields`- und keine `replay result`-Zeilen.
+- Die Zeilen `build right after a replay (… constructions=1–3 … player build=false)` sind Stadtgebäude aus der Ruhezeit nach dem Nachbau, nicht die Kopie. Eine davon war ein echter Spielerbau (`segments=3 nodes=4 … player build=true`, 17:02:48), der deshalb nicht aufgezeichnet wurde.
+
+**Ursache:** Die Segmente haben keine Fahrspur-Konfiguration (`laneConfigs` leer). Die Vorlage `roadTemplate`/`roadStyle` als Pfad reicht offenbar nicht. Das Spiel braucht den Straßen- bzw. Gleistyp so, wie TF2 ihn im Kanten-Teil setzte (`entity.streetEdge.streetType = api.res.streetTypeRep.find(...)`, bei Gleisen `trackEdge.trackType = api.res.trackTypeRep.find(...)`). Für v11 also prüfen, ob `streetEdge`/`trackEdge` und die passenden `api.res.*Rep`-Einträge vorhanden sind (siehe Liste `api.res` in Lauf 5), und sie setzen. Den `streetEdge` eines echten Spielerbaus mit `probe.fields` ausgeben, um die Feldnamen zu erfahren.

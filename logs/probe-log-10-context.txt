@@ -1,0 +1,237 @@
+﻿----
+19: [2026-10-06 17:00:52Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_SKIP_VOICEOVER_AND_CUTSCENE (rightshoulder): collides with IA_NOTIFICATIONS_OPEN (rightshoulder)
+20: [2026-10-06 17:00:52Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_UNDERGOUND_MODE_TOGGLE (leftshoulder + dpdown): collides with constructOpt5 (O or leftshoulder + dpdown)
+21: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_CONSTRUCTION_ACTION_CANCEL and IA_CLOSE_ALL_LONGPRESS both use b)
+22: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_CLOSE_ALL_LONGPRESS and IA_CONSTRUCTION_ACTION_CANCEL both use b)
+23: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_DEBUG_RELOAD_SHADERS and IA_GAME_SCREENSHOT both use touchpad + rightshoulder)
+24: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_INSPECTOR and selectModuleBulldozer both use x)
+25: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_GAME_SCREENSHOT and IA_DEBUG_RELOAD_SHADERS both use touchpad + rightshoulder)
+26: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_NOTIFICATIONS_OPEN and IA_SKIP_VOICEOVER_AND_CUTSCENE both use rightshoulder)
+27: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_SKIP_VOICEOVER_AND_CUTSCENE and IA_NOTIFICATIONS_OPEN both use rightshoulder)
+28: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_UNDERGOUND_MODE_TOGGLE and constructOpt5 both use leftshoulder + dpdown)
+29: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructAlignToTerrain and constructOpt6 both use leftshoulder + dpup)
+30: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructOpt5 and IA_UNDERGOUND_MODE_TOGGLE both use leftshoulder + dpdown)
+31: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructOpt6 and constructAlignToTerrain both use leftshoulder + dpup)
+32: [2026-10-06 17:00:52Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (selectModuleBulldozer and IA_INSPECTOR both use x)
+33: [2026-10-06 17:00:52Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_CLOSE_ALL_LONGPRESS (b): collides with IA_CONSTRUCTION_ACTION_CANCEL (Esc or b or 3)
+34: [2026-10-06 17:00:52Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for constructOpt6 (leftshoulder + dpup): collides with constructAlignToTerrain (T or leftshoulder + dpup)
+35: [2026-10-06 17:00:52Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for selectModuleBulldozer (x): collides with IA_INSPECTOR (x)
+----
+176: [2026-10-06 17:00:55Z - VERBOSE  - Main Thread      - Main           ]  All pools full, allocating new one (n = 0)
+177: [2026-10-06 17:00:55Z - VERBOSE  - Main Thread      - Main           ]  All pools full, allocating new one (n = 0)
+178: [2026-10-06 17:00:56Z - WARNING  - Main Thread      - Main           ]  Error while initializing PDX SDK: No session tokens were found.
+179: [2026-10-06 17:00:56Z - MESSAGE  - Main Thread      - Main           ]  Paradox User is not logged in
+180: [2026-10-06 17:00:56Z - MESSAGE  - Main Thread      - Main           ]  Hardware Info: osVersion=Windows 11 Pro 26H2 (Build 26300), ramMB=62884, cpuModel=AMD Ryzen 9 9900X3D 12-Core Processor, cpuCount=24, gpu=NVIDIA GeForce RTX 5080
+181: [2026-10-06 17:00:57Z - WARNING  - ModioAsyncThread - Main           ]  Could not verify user authentication: Invalid user
+182: [2026-10-06 17:01:02Z - MESSAGE  - Main Thread      - Main           ]  ModioModHubBackend: Setting mod management mode from Disabled to Full
+183: [2026-10-06 17:01:01Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(214, MissionPageContent)
+184: [2026-10-06 17:01:01Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(215, CampaignPage)
+----
+201: [2026-10-06 17:01:02Z - VERBOSE  - Main Thread      - ModRep         ]  Looking for workshop mods
+202: [2026-10-06 17:01:02Z - VERBOSE  - Main Thread      - ModRep         ]  Found 15 mods, mod count did not change (took 1 ms)
+203: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 18 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+204: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+205: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 19 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+206: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+207: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 20 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+208: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+209: [2026-10-06 17:01:02Z - WARNING  - LoadPool 4       - Main           ]  Texture error: Could not find texture '::/placeholders/mat/tex/unkown_texture.dds'
+210: [2026-10-06 17:01:02Z - MESSAGE  - Main Thread      - Main           ]  Main menu is ready
+211: [2026-10-06 17:01:02Z - VERBOSE  - Main Thread      - Main           ]  Settings: numMSAASamples = 4, textureQuality = 2, terrainTextureQuality = 2
+212: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 468 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+213: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+214: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 469 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+215: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+216: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 470 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+217: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+218: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 32 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+219: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+220: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 33 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+221: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+222: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 34 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+223: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+224: [2026-10-06 17:01:02Z - WARNING  - LoadPool 2       - Main           ]  Texture error: Could not find texture ''
+225: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 32 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+226: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+227: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 33 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+228: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+229: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]  Preserved props id 34 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+230: [2026-10-06 17:01:02Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+231: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]  Preserved props id 486 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+232: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+233: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]  Preserved props id 487 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+234: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+235: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]  Preserved props id 488 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+236: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+237: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]  Preserved props id 486 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+238: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+239: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]  Preserved props id 487 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+240: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+241: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]  Preserved props id 488 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+242: [2026-10-06 17:01:03Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+243: [2026-10-06 17:01:04Z - WARNING  - Main Thread      - Main           ]  Preserved props id 486 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+244: [2026-10-06 17:01:04Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+245: [2026-10-06 17:01:04Z - WARNING  - Main Thread      - Main           ]  Preserved props id 487 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+246: [2026-10-06 17:01:04Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+247: [2026-10-06 17:01:04Z - WARNING  - Main Thread      - Main           ]  Preserved props id 488 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+248: [2026-10-06 17:01:04Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+249: [2026-10-06 17:01:05Z - MESSAGE  - Main Thread      - Main           ]  ModioModHubBackend: Setting mod management mode from Full to Disabled
+250: [2026-10-06 17:01:05Z - MESSAGE  - Main Thread      - Main           ]  Savegame info: version = 604, size = 33100804, time = Tue Oct  6 13:50:32 2026
+251: [2026-10-06 17:01:05Z - MESSAGE  - Main Thread      - Main           ]  Loading config from file Det
+----
+341: [2026-10-06 17:01:06Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/books/books.cargo.lua
+342: [2026-10-06 17:01:06Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/tires/tires.cargo.lua
+343: [2026-10-06 17:01:07Z - WARNING  - Load Game Pool 2 - Main           ]  Can't replace ::/tree/lombardy_poplar_boost.mdl with ::/assets/vegetation/trees/lmbrd_ppl_01/lmbrd_ppl_01_boost.mdl: replacement model not found
+344: [2026-10-06 17:01:07Z - MESSAGE  - Load Game Pool 2 - Main           ]  Replacing ::/tree/lombardy_poplar_prod_high.mdl with ::/assets/vegetation/trees/lmbrd_ppl_01/lmbrd_ppl_01_prod_high.mdl
+345: [2026-10-06 17:01:07Z - MESSAGE  - Load Game Pool 2 - Main           ]  Replacing ::/tree/lombardy_poplar_prod_low.mdl with ::/assets/vegetation/trees/lmbrd_ppl_01/lmbrd_ppl_01_prod_low.mdl
+346: [2026-10-06 17:01:07Z - MESSAGE  - Load Game Pool 2 - Main           ]  Replacing ::/tree/red_delicious_apple.mdl with ::/assets/vegetation/trees/apple_01/apple_01.mdl
+----
+2627: [2026-10-06 17:01:10Z - MESSAGE  - Main Thread      - ModelData Verif]  ModelData verify complete, took 34 ms
+2628: [2026-10-06 17:01:10Z - MESSAGE  - Main Thread      - Main           ]  Initial material index generation: 0.011 ms
+2629: [2026-10-06 17:01:10Z - WARNING  - LoadPool 2       - Main           ]  Texture error: Could not find texture ''
+2630: [2026-10-06 17:01:10Z - VERBOSE  - Main Thread      - Material UBO   ]  All pools full, allocating new one (n = 25)
+2631: [2026-10-06 17:01:10Z - VERBOSE  - Main Thread      - Material UBO   ]  All pools full, allocating new one (n = 26)
+2632: [2026-10-06 17:01:10Z - VERBOSE  - Main Thread      - Material UBO   ]  All pools full, allocating new one (n = 27)
+----
+2648: [2026-10-06 17:01:15Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(886, GameBarEarningsPlugin)
+2649: [2026-10-06 17:01:15Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(887, GameBarTransportedPlugin)
+2650: [2026-10-06 17:01:15Z - WARNING  - Main Thread      - Main           ]  inspectorSelector NOT setActionFn
+2651: [2026-10-06 17:01:15Z - WARNING  - Main Thread      - Main           ]  push() default tool
+2652: [2026-10-06 17:01:19Z - MESSAGE  - Main Thread      - Main           ]  ScriptComponentRoot: Collect Lua Garbage: 17725 KB -> 8405 KB
+2653: [2026-10-06 17:01:19Z - MESSAGE  - Main Thread      - Main           ]  Game is ready
+2654: [2026-10-06 17:01:19Z - MESSAGE  - Main Thread      - Main           ]  Init game took: 14.371255 s
+----
+2925: [2026-10-06 17:02:29Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+2926: [2026-10-06 17:02:29Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+2927:     | Details:
+2928:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+2929:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+2930:     + In function: StreetGeometry::SidewalkIdx0
+2931: [2026-10-06 17:02:29Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+2932:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+2934:     | stack traceback:
+----
+2937:     |     =[C](-1): pcall
+2938:     +     mp_probe_
+2939: [2026-10-06 17:02:30Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+2940: [2026-10-06 17:02:30Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+2941:     | Details:
+2942:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+2943:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+2944:     + In function: StreetGeometry::SidewalkIdx0
+2945: [2026-10-06 17:02:30Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+2946:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+2948:     | stack traceback:
+----
+2951:     |     =[C](-1): pcall
+2952:     +     mp_probe_
+2953: [2026-10-06 17:02:30Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+2954: [2026-10-06 17:02:30Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+2955:     | Details:
+2956:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+2957:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+2958:     + In function: StreetGeometry::SidewalkIdx0
+2959: [2026-10-06 17:02:30Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+2960:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+2962:     | stack traceback:
+----
+2966:     +     mp_probe_
+2968: [2026-10-06 17:02:30Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+2969: [2026-10-06 17:02:30Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+2970:     | Details:
+2971:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+2972:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+2973:     + In function: StreetGeometry::SidewalkIdx0
+2974: [2026-10-06 17:02:30Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+2975:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+2977:     | stack traceback:
+----
+3138: [2026-10-06 17:02:45Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+3139: [2026-10-06 17:02:45Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+3140:     | Details:
+3141:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+3142:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+3143:     + In function: StreetGeometry::SidewalkIdx0
+3144: [2026-10-06 17:02:45Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+3145:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+3147:     | stack traceback:
+----
+3150:     |     =[C](-1): pcall
+3151:     +     mp_probe_
+3152: [2026-10-06 17:02:45Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+3153: [2026-10-06 17:02:45Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+3154:     | Details:
+3155:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+3156:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+3157:     + In function: StreetGeometry::SidewalkIdx0
+3158: [2026-10-06 17:02:45Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+3159:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+3161:     | stack traceback:
+----
+3164:     |     =[C](-1): pcall
+3165:     +     mp_probe_
+3166: [2026-10-06 17:02:45Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+3167: [2026-10-06 17:02:45Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+3168:     | Details:
+3169:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+3170:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+3171:     + In function: StreetGeometry::SidewalkIdx0
+3172: [2026-10-06 17:02:45Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+3173:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+3175:     | stack traceback:
+----
+3179:     +     mp_probe_
+3181: [2026-10-06 17:02:46Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+3182: [2026-10-06 17:02:46Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+3183:     | Details:
+3184:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+3185:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+3186:     + In function: StreetGeometry::SidewalkIdx0
+3187: [2026-10-06 17:02:46Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+3188:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+3190:     | stack traceback:
+----
+3492: [2026-10-06 17:03:08Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Game\transport\street\construction_util_graph.cpp:1215: street_util::AreSegmentsOfSameType::<lambda_1>::operator ():  Assertion 'be.laneConfigs.size() == 1' failed
+3493: [2026-10-06 17:03:08Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+3494:     | Details:
+3495:     | Assertion Failure: Assertion `be.laneConfigs.size() == 1' failed.
+3496:     | In file: train_fever/src/Game/transport/street/construction_util_graph.cpp:1215
+3497:     + In function: street_util::AreSegmentsOfSameType::<lambda_1>::operator ()
+3498: [2026-10-06 17:03:08Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+3499:     + Location: train_fever/src/Game/transport/street/construction_util_graph.cpp(1215): street_util::AreSegmentsOfSameType::<lambda_1>::operator ()
+3501:     | stack traceback:
+----
+3504:     |     =[C](-1): pcall
+3505:     +     mp_probe_
+3506: [2026-10-06 17:03:08Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Game\transport\street\construction_util_graph.cpp:1215: street_util::AreSegmentsOfSameType::<lambda_1>::operator ():  Assertion 'be.laneConfigs.size() == 1' failed
+3507: [2026-10-06 17:03:08Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+3508:     | Details:
+3509:     | Assertion Failure: Assertion `be.laneConfigs.size() == 1' failed.
+3510:     | In file: train_fever/src/Game/transport/street/construction_util_graph.cpp:1215
+3511:     + In function: street_util::AreSegmentsOfSameType::<lambda_1>::operator ()
+3512: [2026-10-06 17:03:08Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+3513:     + Location: train_fever/src/Game/transport/street/construction_util_graph.cpp(1215): street_util::AreSegmentsOfSameType::<lambda_1>::operator ()
+3515:     | stack traceback:
+----
+3518:     |     =[C](-1): pcall
+3519:     +     mp_probe_
+3520: [2026-10-06 17:03:08Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Game\transport\street\construction_util_graph.cpp:1215: street_util::AreSegmentsOfSameType::<lambda_1>::operator ():  Assertion 'be.laneConfigs.size() == 1' failed
+3521: [2026-10-06 17:03:08Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+3522:     | Details:
+3523:     | Assertion Failure: Assertion `be.laneConfigs.size() == 1' failed.
+3524:     | In file: train_fever/src/Game/transport/street/construction_util_graph.cpp:1215
+3525:     + In function: street_util::AreSegmentsOfSameType::<lambda_1>::operator ()
+3526: [2026-10-06 17:03:08Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+3527:     + Location: train_fever/src/Game/transport/street/construction_util_graph.cpp(1215): street_util::AreSegmentsOfSameType::<lambda_1>::operator ()
+3529:     | stack traceback:
+----
+3533:     +     mp_probe_
+3535: [2026-10-06 17:03:09Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib\Geometry\Streets\lane_config_util.cpp:157: StreetGeometry::SidewalkIdx0:  Assertion '!laneConfigs.empty()' failed
+3536: [2026-10-06 17:03:09Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+3537:     | Details:
+3538:     | Assertion Failure: Assertion `!laneConfigs.empty()' failed.
+3539:     | In file: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp:157
+3540:     + In function: StreetGeometry::SidewalkIdx0
+3541: [2026-10-06 17:03:09Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+3542:     + Location: train_fever/src/Lib/Geometry/Streets/lane_config_util.cpp(157): StreetGeometry::SidewalkIdx0
+3544:     | stack traceback:
