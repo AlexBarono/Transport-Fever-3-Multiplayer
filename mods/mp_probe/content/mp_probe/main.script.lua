@@ -7,11 +7,12 @@
 local logger = require("/mp_probe/logger.lua")
 local probe = require("/mp_probe/probe.lua")
 local build = require("/mp_probe/build.lua")
+local actions = require("/mp_probe/actions.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 12
+main.PROBE_VERSION = 13
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -58,6 +59,8 @@ main.REPLAY_EVENT = "mp_probe_replay"
 -- the process environment (the DLL calls _putenv_s on the shared CRT, Lua reads os.getenv).
 main.BRIDGE_EVERY = 50
 main.BRIDGE_ENV = "TF3MP_IN"
+--- Poll purchases/line edits more frequently than the full street graph.
+main.ACTION_EVERY = 10
 
 --- Network transfer (phase 1, step 4). A build that can be rebuilt elsewhere is logged once more
 -- behind SEND_MARKER; the DLL picks the line out of stdout.txt and sends it to the other game (or,
@@ -102,8 +105,11 @@ local last_bridge_in = false
 --- Sends one numbered line towards the DLL and logs whatever the DLL put into the environment.
 -- A value "replay N" asks for a replay; N is remembered in the savegame state so that the next Sim
 -- Pool state, which has its own last_bridge_in, does not act on the same request again.
-function main.bridge_tick(env, seq, s)
+function main.bridge_tick(env, seq, s, state)
 	logger.info("bridge out seq=" .. seq)
+	local outgoing = s and actions.next_line(s)
+	if outgoing then logger.info(main.SEND_MARKER .. outgoing) end
+	if state then state:set(s) end
 	local getenv = env.os and env.os.getenv
 	if not getenv then return end
 	local ok, value = pcall(getenv, main.BRIDGE_ENV)
@@ -120,18 +126,19 @@ function main.bridge_tick(env, seq, s)
 		s.last_replay_request = request
 		main.request_replay(env, s, request)
 	end
-	if type(value) == "string" and s then main.receive_line(env, s, value) end
+	if type(value) == "string" and s then main.receive_line(env, s, value, state) end
 end
 
 --- Handles a "line <token> <kind> <text>" value from the DLL. The DLL keeps the value until it sees
 -- the acknowledgement in stdout.txt, so the same token can be read again by the next tick; it is
 -- built only once (the token is kept in the savegame state) but acknowledged every time.
-function main.receive_line(env, s, value)
+function main.receive_line(env, s, value, state)
 	local token, kind, line = string.match(value, "^line (%S+) (%a+) (.+)$")
 	if not token then return end
 	logger.info(main.RECEIVED_MARKER .. token .. " kind=" .. kind .. " (" .. #line .. " characters)")
 	if token == s.last_line_token then return end
 	s.last_line_token = token
+	if state then state:set(s) end
 	local offset = kind == "loop" and main.REPLAY_SIDE_OFFSET or 0
 	local param = { line = line, number = token, offset = offset, source = kind }
 	if main.send_replay_event(env, param) then
@@ -139,7 +146,7 @@ function main.receive_line(env, s, value)
 		return
 	end
 	logger.info("line " .. token .. ": no script event possible, building in the update state")
-	main.replay_line(env, line, token, nil, offset)
+	main.replay_line(env, line, token, state, offset)
 end
 
 --- Argument lists tried for api.cmd.makeScriptingSendEventCmd; TF2's equivalent took
@@ -231,6 +238,14 @@ function main.replay_line(env, line, number, state, distance)
 		logger.info("replay: no line in the request")
 		return
 	end
+	if line:sub(1, 1) == "A" then
+		local action, err = actions.decode(line)
+		if not action then logger.info("action replay: bad line (" .. tostring(err) .. ")"); return end
+		local peer = tostring(number):match("^([^.]+)")
+		local ok, result = pcall(actions.receive, state, action, peer, distance or main.REPLAY_SIDE_OFFSET)
+		if not ok then logger.info("action replay failed: " .. tostring(result):sub(1, 240)) end
+		return
+	end
 	local data, err = build.deserialize(line)
 	if not data then
 		logger.info("replay: bad line (" .. tostring(err) .. ")")
@@ -267,6 +282,11 @@ end
 
 function main.update(_user_params, state, _dt)
 	local s = state:get() or {}
+	-- Reset observation baseline on upgrade; never send an existing save as new actions.
+	if s.actions_version ~= main.PROBE_VERSION then
+		s.actions = nil
+		s.actions_version = main.PROBE_VERSION
+	end
 	if s.probe_version ~= main.PROBE_VERSION then
 		local ok, err = pcall(main.run_probe, _G)
 		if not ok then logger.info("probe failed: " .. tostring(err)) end
@@ -288,9 +308,23 @@ function main.update(_user_params, state, _dt)
 	end
 
 	s.updates = (s.updates or 0) + 1
+	if (not s.actions or s.updates % main.ACTION_EVERY == 0) and not s.action_busy
+		and not (s.action_work and #s.action_work > 0) then
+		local kinds = s.actions and s.updates % main.BRIDGE_EVERY ~= 0
+			and { "construction", "line", "vehicle" } or nil
+		local ok, err = pcall(actions.poll, _G, s, function(text) logger.info(text) end, kinds)
+		if not ok then logger.info("action poll failed: " .. tostring(err):sub(1, 220)) end
+	end
 	if s.updates % main.BRIDGE_EVERY == 0 then
-		local ok, err = pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY, s)
+		-- Store the baseline before dispatching an event that can update replay mappings.
+		state:set(s)
+		local ok, err = pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY, s, state)
 		if not ok then logger.info("bridge tick failed: " .. tostring(err):sub(1, 200)) end
+		-- An immediate event/callback may already have refreshed parts of the baseline.
+		local live = state:get() or s
+		s.actions, s.action_entities = live.actions, live.action_entities
+		s.action_inbox, s.action_work, s.action_busy = live.action_inbox, live.action_work, live.action_busy
+		s.action_work_requested = live.action_work_requested
 	end
 	if s.updates % main.SNAPSHOT_EVERY == 0 then
 		local snap = probe.snapshot(_G)
@@ -301,6 +335,16 @@ function main.update(_user_params, state, _dt)
 		logger.info("snapshot update=" .. s.updates .. " " .. probe.format_snapshot(snap))
 	end
 	state:set(s)
+	if actions.has_work(s) and not s.action_work_requested then
+		s.action_work_requested = true
+		state:set(s)
+		if not main.send_replay_event(_G, { action_work = true }) then
+			local live = state:get() or s
+			live.action_work_requested = false
+			state:set(live)
+			logger.info("action continuation: simulation event unavailable; work remains queued")
+		end
+	end
 end
 
 --- True for a build proposal the player made (new road or track segments, or a construction owned
@@ -376,6 +420,12 @@ function main.capture_build(state, s, param, label)
 	logger.info("capture line " .. line)
 	if info.segments > 0 and info.foreign_nodes == 0 then
 		s.last_build = line
+		local data = build.deserialize(line)
+		local dx, dy = build.side_offset(data, main.REPLAY_SIDE_OFFSET)
+		s.edge_loop_offsets = s.edge_loop_offsets or {}
+		for _, segment in ipairs(param[1].proposal.addedSegments) do
+			s.edge_loop_offsets[tostring(segment.entity)] = { x = dx, y = dy }
+		end
 		state:set(s)
 		logger.info("capture stored for replay (" .. #line .. " characters)")
 		logger.info(main.SEND_MARKER .. line)
@@ -384,6 +434,14 @@ end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
 	if main.is_replay_event(src, id, name) then
+		if type(param) == "table" and param.action_work then
+			local s = state:get() or {}
+			s.action_work_requested = false
+			state:set(s)
+			local ok, err = pcall(actions.tick, _G, state, function(text) logger.info(text) end)
+			if not ok then logger.info("action continuation failed: " .. tostring(err):sub(1, 240)) end
+			return
+		end
 		local line = type(param) == "table" and param.line or nil
 		local number = type(param) == "table" and param.number or nil
 		local distance = type(param) == "table" and tonumber(param.offset) or nil
@@ -398,6 +456,12 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 		return
 	end
 	local s = state:get() or {}
+	if name == "handleLegacy" then
+		-- A native callback or an event in flight cannot survive a game reload.
+		-- Observe the loaded save anew; don't execute persisted, stale UI operations.
+		s.actions, s.action_inbox, s.action_work = nil, nil, nil
+		s.action_busy, s.action_work_requested = false, false
+	end
 	-- Event counts live in the savegame; start over for each probe version so a new version dumps again.
 	if s.seen_events_version ~= main.PROBE_VERSION then
 		s.seen_events = {}
@@ -418,7 +482,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			local constructions = main.construction_count(param)
 			if constructions > 0 then
 				logger.info("capture skipped: the build contains " .. constructions ..
-					" construction(s) such as a station; only roads and tracks are copied so far")
+					" construction(s) such as a station; full constructions are captured by action snapshots")
 			else
 				main.capture_build(state, s, param, "player build")
 			end

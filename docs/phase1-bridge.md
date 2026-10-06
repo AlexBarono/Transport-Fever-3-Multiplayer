@@ -293,3 +293,7 @@ Der Nutzer hat mit `Start.bat` → „Allein testen“ installiert (`alut_proxy.
 - Gleis (erstmals): Spur-Teil `27.777,4,0.53,1,16512,0`, `replay #40024.2: 2 nodes, 1 segments` → `BUILT, costs 1983`.
 - Vom Bau bis zur Kopie vergehen etwa 3–4 s, also ein bis zwei Bridge-Ticks.
 - Auffällig: Die DLL setzt `TF3MP_IN=line …` zweimal, bevor sie `the mod has line …` sieht. Gebaut wurde aber nur einmal, die Erkennung doppelter Zeilen über das Token wirkt.
+
+## Probe v13: zusätzliche Aktionen (06.10.2026)
+
+Aufbauend auf v12 wurde Code für vollständige Konstruktionen (Bahnhöfe/Depots und Änderungen), reinen Abriss, Linien und Fahrzeuge ergänzt. Neue A1-Daten nutzen die vorhandene DLL v7. 53 bestehende und 35 neue Offline-Tests sind erfolgreich; die neuen Aktionen sind noch nicht im echten Spiel bestätigt. Details, Grenzen und Übergabe an Claude: [phase2-actions.md](phase2-actions.md). Der Benutzer hat den Zwei-PC-Test ausdrücklich nach diese Erweiterungen eingeordnet.
