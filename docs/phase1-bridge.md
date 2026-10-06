@@ -183,3 +183,33 @@ Folgerung für Probe v9: Modul-Variablen gar nicht mehr für Daten zwischen Aufr
 - Die Aufzeichnung steht nur im Skript-Zustand (`s.last_build`). `update` liest sie beim Replay-Wunsch der DLL von dort und schickt sie **im Parameter des Skript-Events** mit (`{line, request, number}`). `handleEvent` baut direkt aus `param.line` nach. Kommt der Parameter nicht an, nimmt es `last_build` aus dem Skript-Zustand.
 - Zähler (`replays_requested`, höchstens 3) und erledigte Anforderung (`last_replay_request`) führt `update` im Skript-Zustand. Die Ruhezeit für das Bau-Event der Kopie (`quiet_until`) schreibt der Nachbau in den Skript-Zustand.
 - Die Offline-Tests laden das Skript jetzt für jeden Aufruf neu, wie es das Spiel offenbar tut. Damit wäre der Fehler aus Lauf 8 schon offline aufgefallen.
+
+## Ergebnis Lauf 9 (06.10.2026, Probe v9 + DLL v6)
+
+Logs: [logs/probe-log-9-mp_probe.txt](../logs/probe-log-9-mp_probe.txt), [logs/probe-log-9-context.txt](../logs/probe-log-9-context.txt), [logs/proxy-log-9.txt](../logs/proxy-log-9.txt)
+
+Keine Kopie im Spiel (vom Nutzer bestätigt), kein Hängen, keine Warnungen des Spiels nach Ladeende. **Aber das Spiel führt den Nachbau jetzt aus und meldet Erfolg, mit einem leeren Vorschlag.**
+
+- Die Zeile kommt im Event-Parameter an: `replay #1 requested as script event (signature 1, 321 characters)` (Sim Pool 8), danach im Simulation Thread `replay event received (… line 321 characters)` und `replay #1: 3 nodes, 2 segments, moved by -0.5,40.0, player 31578`.
+- Der Rückruf meldet `replay result (SimpleProposal): success=true`. Angenommen wurde gleich die erste Variante, `makeWorldBuildProposalCmd(SimpleProposal, Context, true)`.
+- Die vollständigen Felder des Ergebnisses (bei allen drei Nachbauten gleich):
+
+```
+res.proposal.proposal.{edgeObjectsToAdd, edgeObjectsToRemove, addedSegments, removedSegments,
+                       addedNodes, removedNodes, new2oldSegments, old2newSegments, frozenNodes} = table (#0)
+res.proposal.{toAdd, toRemove} = table (#0)
+res.context = { player = 31578, cleanupStreetGraph = true, gatherBuildings = true,
+                gatherFields = true, checkTerrainAlignment = true }
+res.resultProposalData.costs = 0
+res.resultProposalData.errorState = { critical = false, messages = #0, warnings = #0 }
+res.resultEntities = table (#0)
+```
+
+**Ursache:** Der Vorschlag kam beim Spiel leer an (`addedNodes`/`addedSegments` #0, Kosten 0, keine neuen Entities). `build.make_proposal` holt sich `p.streetProposal.nodesToAdd` bzw. `edgesToAdd` und hängt dort an (`build.append`, Variante `list[#list + 1] = item`, die keinen Fehler wirft). Diese Listen sind beim Lesen aber Lua-Kopien des C++-Vektors (`table (#0)` in der Typbeschreibung). Das Anhängen ändert nur die Kopie, und der Vorschlag selbst bleibt leer.
+
+Folgerung für Probe v10:
+1. Knoten und Segmente in normalen Lua-Tabellen sammeln und als Ganzes zuweisen: `local sp = p.streetProposal; sp.nodesToAdd = nodes; sp.edgesToAdd = edges; p.streetProposal = sp`. Das Zurückschreiben von `sp` ist nötig, falls auch `streetProposal` eine Kopie ist.
+2. Vor dem Senden zurücklesen und loggen: `#p.streetProposal.nodesToAdd` / `#p.streetProposal.edgesToAdd` müssen 3/2 sein. Sonst die nächste Zuweisungsart probieren (WorldBuildProposal: `w.proposal.proposal.addedNodes = …`, danach `w.proposal.proposal = pp`, `w.proposal = wp`).
+3. Erfolg erkennt man an `costs > 0` und nicht leeren `resultEntities` im Ergebnis, nicht an `success`.
+
+Nebenbefund: Kurz nach dem Gleis kamen drei Aufzeichnungen mit je 25 Knoten und 24 Segmenten, Abstände 2 m/16 m, mit `simple.street`. Das sind vermutlich Bahnsteig-Gleise eines Bahnhofs, den der Nutzer gebaut hat (`foreign_nodes = 0`). Bahnhöfe sollten als Konstruktion übertragen werden, nicht als lose Gleise. `is_player_build` bzw. `capture` sollten Bauten mit `toAdd` deshalb ausschließen.

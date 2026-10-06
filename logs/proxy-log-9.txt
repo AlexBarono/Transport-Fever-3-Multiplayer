@@ -1,0 +1,428 @@
+﻿2026-10-06 13:51:41 alut proxy v2 loaded pid=29388
+2026-10-06 13:51:59 alut proxy v2 unloaded pid=29388
+2026-10-06 14:08:01 [23052] alut proxy v4 loaded
+2026-10-06 14:08:01 [23052] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 14:08:01 [23052] bridge: ucrtbase _putenv_s found
+2026-10-06 14:08:01 [23052] bridge: TF3MP_IN=hello (ok)
+2026-10-06 14:08:01 [23052] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 14:08:19 [23052] bridge: got from Lua: bridge out seq=311
+2026-10-06 14:08:19 [23052] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 14:08:42 [23052] bridge: got from Lua: bridge out seq=312
+2026-10-06 14:08:42 [23052] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 14:08:45 [23052] bridge: got from Lua: bridge out seq=313
+2026-10-06 14:08:45 [23052] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 14:08:47 [23052] bridge: got from Lua: bridge out seq=314
+2026-10-06 14:08:47 [23052] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 14:08:50 [23052] bridge: got from Lua: bridge out seq=315
+2026-10-06 14:08:50 [23052] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 14:08:52 [23052] bridge: got from Lua: bridge out seq=316
+2026-10-06 14:08:52 [23052] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 14:08:55 [23052] bridge: got from Lua: bridge out seq=317
+2026-10-06 14:08:55 [23052] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 14:08:57 [23052] bridge: got from Lua: bridge out seq=318
+2026-10-06 14:08:57 [23052] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 14:09:00 [23052] bridge: got from Lua: bridge out seq=319
+2026-10-06 14:09:00 [23052] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 14:09:02 [23052] bridge: got from Lua: bridge out seq=320
+2026-10-06 14:09:02 [23052] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 14:09:05 [23052] bridge: got from Lua: bridge out seq=321
+2026-10-06 14:09:05 [23052] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 14:09:07 [23052] bridge: got from Lua: bridge out seq=322
+2026-10-06 14:09:07 [23052] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 14:09:10 [23052] bridge: got from Lua: bridge out seq=323
+2026-10-06 14:09:10 [23052] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 14:09:13 [23052] bridge: got from Lua: bridge out seq=324
+2026-10-06 14:09:13 [23052] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 14:09:15 [23052] bridge: got from Lua: bridge out seq=325
+2026-10-06 14:09:15 [23052] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 14:09:18 [23052] bridge: got from Lua: bridge out seq=326
+2026-10-06 14:09:18 [23052] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 14:09:20 [23052] bridge: got from Lua: bridge out seq=327
+2026-10-06 14:09:20 [23052] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 14:09:23 [23052] bridge: got from Lua: bridge out seq=328
+2026-10-06 14:09:23 [23052] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 14:09:25 [23052] bridge: got from Lua: bridge out seq=329
+2026-10-06 14:09:25 [23052] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 14:09:28 [23052] bridge: got from Lua: bridge out seq=330
+2026-10-06 14:09:28 [23052] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 14:09:30 [23052] bridge: got from Lua: bridge out seq=331
+2026-10-06 14:09:30 [23052] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 14:09:33 [23052] bridge: got from Lua: bridge out seq=332
+2026-10-06 14:09:33 [23052] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 14:09:35 [23052] bridge: got from Lua: bridge out seq=333
+2026-10-06 14:09:35 [23052] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 14:09:38 [23052] bridge: got from Lua: bridge out seq=334
+2026-10-06 14:09:38 [23052] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 14:09:40 [23052] bridge: got from Lua: bridge out seq=335
+2026-10-06 14:09:40 [23052] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 14:09:43 [23052] bridge: got from Lua: bridge out seq=336
+2026-10-06 14:09:43 [23052] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 14:09:45 [23052] bridge: got from Lua: bridge out seq=337
+2026-10-06 14:09:45 [23052] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 14:09:48 [23052] bridge: got from Lua: bridge out seq=338
+2026-10-06 14:09:48 [23052] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 14:09:50 [23052] bridge: got from Lua: bridge out seq=339
+2026-10-06 14:09:50 [23052] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 14:09:53 [23052] bridge: got from Lua: bridge out seq=340
+2026-10-06 14:09:53 [23052] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 14:09:55 [23052] bridge: got from Lua: bridge out seq=341
+2026-10-06 14:09:55 [23052] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 14:09:58 [23052] bridge: got from Lua: bridge out seq=342
+2026-10-06 14:09:58 [23052] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 14:10:00 [23052] bridge: got from Lua: bridge out seq=343
+2026-10-06 14:10:00 [23052] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 14:10:03 [23052] bridge: got from Lua: bridge out seq=344
+2026-10-06 14:10:03 [23052] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 14:10:05 [23052] bridge: got from Lua: bridge out seq=345
+2026-10-06 14:10:05 [23052] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 14:10:08 [23052] bridge: got from Lua: bridge out seq=346
+2026-10-06 14:10:08 [23052] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 14:10:10 [23052] bridge: got from Lua: bridge out seq=347
+2026-10-06 14:10:10 [23052] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-06 14:10:12 [23052] bridge: got from Lua: bridge out seq=348
+2026-10-06 14:10:12 [23052] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-06 14:10:15 [23052] bridge: got from Lua: bridge out seq=349
+2026-10-06 14:10:15 [23052] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 14:10:17 [23052] bridge: got from Lua: bridge out seq=350
+2026-10-06 14:10:17 [23052] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 14:10:20 [23052] bridge: got from Lua: bridge out seq=351
+2026-10-06 14:10:20 [23052] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 14:10:22 [23052] bridge: got from Lua: bridge out seq=352
+2026-10-06 14:10:22 [23052] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 14:10:25 [23052] bridge: got from Lua: bridge out seq=353
+2026-10-06 14:10:25 [23052] bridge: TF3MP_IN=ack 353 (ok)
+2026-10-06 14:10:27 [23052] bridge: got from Lua: bridge out seq=354
+2026-10-06 14:10:27 [23052] bridge: TF3MP_IN=ack 354 (ok)
+2026-10-06 14:10:30 [23052] bridge: got from Lua: bridge out seq=355
+2026-10-06 14:10:30 [23052] bridge: TF3MP_IN=ack 355 (ok)
+2026-10-06 14:10:32 [23052] bridge: got from Lua: bridge out seq=356
+2026-10-06 14:10:32 [23052] bridge: TF3MP_IN=ack 356 (ok)
+2026-10-06 14:10:35 [23052] bridge: got from Lua: bridge out seq=357
+2026-10-06 14:10:35 [23052] bridge: TF3MP_IN=ack 357 (ok)
+2026-10-06 14:10:37 [23052] bridge: got from Lua: bridge out seq=358
+2026-10-06 14:10:37 [23052] bridge: TF3MP_IN=ack 358 (ok)
+2026-10-06 14:10:40 [23052] bridge: got from Lua: bridge out seq=359
+2026-10-06 14:10:40 [23052] bridge: TF3MP_IN=ack 359 (ok)
+2026-10-06 14:10:42 [23052] bridge: got from Lua: bridge out seq=360
+2026-10-06 14:10:42 [23052] bridge: TF3MP_IN=ack 360 (ok)
+2026-10-06 14:10:45 [23052] bridge: got from Lua: bridge out seq=361
+2026-10-06 14:10:45 [23052] bridge: TF3MP_IN=ack 361 (ok)
+2026-10-06 14:10:47 [23052] bridge: got from Lua: bridge out seq=362
+2026-10-06 14:10:47 [23052] bridge: TF3MP_IN=ack 362 (ok)
+2026-10-06 14:10:50 [23052] bridge: got from Lua: bridge out seq=363
+2026-10-06 14:10:50 [23052] bridge: TF3MP_IN=ack 363 (ok)
+2026-10-06 14:10:52 [23052] bridge: got from Lua: bridge out seq=364
+2026-10-06 14:10:52 [23052] bridge: TF3MP_IN=ack 364 (ok)
+2026-10-06 14:10:55 [23052] bridge: got from Lua: bridge out seq=365
+2026-10-06 14:10:55 [23052] bridge: TF3MP_IN=ack 365 (ok)
+2026-10-06 14:10:57 [23052] bridge: got from Lua: bridge out seq=366
+2026-10-06 14:10:57 [23052] bridge: TF3MP_IN=ack 366 (ok)
+2026-10-06 14:11:00 [23052] bridge: got from Lua: bridge out seq=367
+2026-10-06 14:11:00 [23052] bridge: TF3MP_IN=ack 367 (ok)
+2026-10-06 14:11:02 [23052] bridge: got from Lua: bridge out seq=368
+2026-10-06 14:11:02 [23052] bridge: TF3MP_IN=ack 368 (ok)
+2026-10-06 14:11:05 [23052] bridge: got from Lua: bridge out seq=369
+2026-10-06 14:11:05 [23052] bridge: TF3MP_IN=ack 369 (ok)
+2026-10-06 14:11:07 [23052] bridge: got from Lua: bridge out seq=370
+2026-10-06 14:11:07 [23052] bridge: TF3MP_IN=ack 370 (ok)
+2026-10-06 14:11:10 [23052] bridge: got from Lua: bridge out seq=371
+2026-10-06 14:11:10 [23052] bridge: TF3MP_IN=ack 371 (ok)
+2026-10-06 14:11:12 [23052] bridge: got from Lua: bridge out seq=372
+2026-10-06 14:11:12 [23052] bridge: TF3MP_IN=ack 372 (ok)
+2026-10-06 14:11:15 [23052] bridge: got from Lua: bridge out seq=373
+2026-10-06 14:11:15 [23052] bridge: TF3MP_IN=ack 373 (ok)
+2026-10-06 14:11:18 [23052] bridge: got from Lua: bridge out seq=374
+2026-10-06 14:11:18 [23052] bridge: TF3MP_IN=ack 374 (ok)
+2026-10-06 14:11:20 [23052] bridge: got from Lua: bridge out seq=375
+2026-10-06 14:11:20 [23052] bridge: TF3MP_IN=ack 375 (ok)
+2026-10-06 14:11:23 [23052] bridge: got from Lua: bridge out seq=376
+2026-10-06 14:11:23 [23052] bridge: TF3MP_IN=ack 376 (ok)
+2026-10-06 14:11:25 [23052] bridge: got from Lua: bridge out seq=377
+2026-10-06 14:11:25 [23052] bridge: TF3MP_IN=ack 377 (ok)
+2026-10-06 14:11:28 [23052] bridge: got from Lua: bridge out seq=378
+2026-10-06 14:11:28 [23052] bridge: TF3MP_IN=ack 378 (ok)
+2026-10-06 14:11:30 [23052] bridge: got from Lua: bridge out seq=379
+2026-10-06 14:11:30 [23052] bridge: TF3MP_IN=ack 379 (ok)
+2026-10-06 14:11:33 [23052] bridge: got from Lua: bridge out seq=380
+2026-10-06 14:11:33 [23052] bridge: TF3MP_IN=ack 380 (ok)
+2026-10-06 14:11:35 [23052] bridge: got from Lua: bridge out seq=381
+2026-10-06 14:11:35 [23052] bridge: TF3MP_IN=ack 381 (ok)
+2026-10-06 14:11:38 [23052] bridge: got from Lua: bridge out seq=382
+2026-10-06 14:11:38 [23052] bridge: TF3MP_IN=ack 382 (ok)
+2026-10-06 14:11:42 [23052] bridge: got from Lua: bridge out seq=383
+2026-10-06 14:11:42 [23052] bridge: TF3MP_IN=ack 383 (ok)
+2026-10-06 14:11:45 [23052] bridge: got from Lua: bridge out seq=384
+2026-10-06 14:11:45 [23052] bridge: TF3MP_IN=ack 384 (ok)
+2026-10-06 14:11:47 [23052] bridge: got from Lua: bridge out seq=385
+2026-10-06 14:11:47 [23052] bridge: TF3MP_IN=ack 385 (ok)
+2026-10-06 14:11:49 [23052] bridge: got from Lua: bridge out seq=386
+2026-10-06 14:11:49 [23052] bridge: TF3MP_IN=ack 386 (ok)
+2026-10-06 14:11:52 [23052] bridge: got from Lua: bridge out seq=387
+2026-10-06 14:11:52 [23052] bridge: TF3MP_IN=ack 387 (ok)
+2026-10-06 14:12:53 [23052] bridge: got from Lua: bridge out seq=388
+2026-10-06 14:12:53 [23052] bridge: TF3MP_IN=ack 388 (ok)
+2026-10-06 14:12:56 [23052] bridge: got from Lua: bridge out seq=389
+2026-10-06 14:12:56 [23052] bridge: TF3MP_IN=ack 389 (ok)
+2026-10-06 14:12:58 [23052] bridge: got from Lua: bridge out seq=390
+2026-10-06 14:12:58 [23052] bridge: TF3MP_IN=ack 390 (ok)
+2026-10-06 14:13:01 [23052] bridge: got from Lua: bridge out seq=391
+2026-10-06 14:13:01 [23052] bridge: TF3MP_IN=ack 391 (ok)
+2026-10-06 14:13:03 [23052] bridge: got from Lua: bridge out seq=392
+2026-10-06 14:13:03 [23052] bridge: TF3MP_IN=ack 392 (ok)
+2026-10-06 14:13:08 [23052] alut proxy v4 unloaded
+2026-10-06 14:28:01 [8276] alut proxy v5 loaded
+2026-10-06 14:28:01 [8276] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 14:28:01 [8276] bridge: ucrtbase _putenv_s found
+2026-10-06 14:28:01 [8276] bridge: TF3MP_IN=hello (ok)
+2026-10-06 14:28:01 [8276] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 14:28:37 [8276] bridge: got from Lua: bridge out seq=311
+2026-10-06 14:28:37 [8276] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 14:28:48 [8276] bridge: got from Lua: bridge out seq=312
+2026-10-06 14:28:48 [8276] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 14:28:50 [8276] bridge: got from Lua: bridge out seq=313
+2026-10-06 14:28:50 [8276] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 14:28:53 [8276] bridge: got from Lua: bridge out seq=314
+2026-10-06 14:28:53 [8276] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 14:28:55 [8276] bridge: got from Lua: bridge out seq=315
+2026-10-06 14:28:55 [8276] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 14:28:58 [8276] bridge: got from Lua: bridge out seq=316
+2026-10-06 14:28:58 [8276] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 14:29:00 [8276] bridge: got from Lua: bridge out seq=317
+2026-10-06 14:29:00 [8276] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 14:29:03 [8276] bridge: got from Lua: bridge out seq=318
+2026-10-06 14:29:03 [8276] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 14:29:03 [8276] bridge: the mod stored a build for replay
+2026-10-06 14:29:05 [8276] bridge: got from Lua: bridge out seq=319
+2026-10-06 14:29:05 [8276] bridge: asking the mod to replay the stored build
+2026-10-06 14:29:05 [8276] bridge: TF3MP_IN=replay 319 (ok)
+2026-10-06 14:29:08 [8276] bridge: got from Lua: bridge out seq=320
+2026-10-06 14:29:08 [8276] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 14:29:10 [8276] bridge: got from Lua: bridge out seq=321
+2026-10-06 14:29:10 [8276] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 14:29:13 [8276] bridge: got from Lua: bridge out seq=322
+2026-10-06 14:29:13 [8276] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 14:29:15 [8276] bridge: got from Lua: bridge out seq=323
+2026-10-06 14:29:15 [8276] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 14:29:18 [8276] bridge: got from Lua: bridge out seq=324
+2026-10-06 14:29:18 [8276] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 14:29:20 [8276] bridge: got from Lua: bridge out seq=325
+2026-10-06 14:29:20 [8276] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 14:29:23 [8276] bridge: got from Lua: bridge out seq=326
+2026-10-06 14:29:23 [8276] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 14:29:25 [8276] bridge: got from Lua: bridge out seq=327
+2026-10-06 14:29:25 [8276] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 14:29:28 [8276] bridge: got from Lua: bridge out seq=328
+2026-10-06 14:29:28 [8276] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 14:29:30 [8276] bridge: got from Lua: bridge out seq=329
+2026-10-06 14:29:30 [8276] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 14:29:33 [8276] bridge: got from Lua: bridge out seq=330
+2026-10-06 14:29:33 [8276] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 14:29:35 [8276] bridge: got from Lua: bridge out seq=331
+2026-10-06 14:29:35 [8276] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 14:29:37 [8276] bridge: got from Lua: bridge out seq=332
+2026-10-06 14:29:37 [8276] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 14:29:40 [8276] bridge: got from Lua: bridge out seq=333
+2026-10-06 14:29:40 [8276] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 14:29:42 [8276] bridge: got from Lua: bridge out seq=334
+2026-10-06 14:29:42 [8276] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 14:29:45 [8276] bridge: got from Lua: bridge out seq=335
+2026-10-06 14:29:45 [8276] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-06 14:29:47 [8276] bridge: got from Lua: bridge out seq=336
+2026-10-06 14:29:47 [8276] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 14:29:53 [8276] alut proxy v5 unloaded
+2026-10-06 14:53:22 [14460] alut proxy v6 loaded
+2026-10-06 14:53:22 [14460] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 14:53:22 [14460] bridge: ucrtbase _putenv_s found
+2026-10-06 14:53:22 [14460] bridge: TF3MP_IN=hello (ok)
+2026-10-06 14:53:22 [14460] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 14:53:51 [14460] bridge: got from Lua: bridge out seq=311
+2026-10-06 14:53:51 [14460] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 14:54:02 [14460] bridge: got from Lua: bridge out seq=312
+2026-10-06 14:54:02 [14460] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 14:54:04 [14460] bridge: got from Lua: bridge out seq=313
+2026-10-06 14:54:04 [14460] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 14:54:07 [14460] bridge: got from Lua: bridge out seq=314
+2026-10-06 14:54:07 [14460] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-06 14:54:09 [14460] bridge: got from Lua: bridge out seq=315
+2026-10-06 14:54:09 [14460] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 14:54:11 [14460] bridge: the mod stored a build for replay
+2026-10-06 14:54:12 [14460] bridge: got from Lua: bridge out seq=316
+2026-10-06 14:54:12 [14460] bridge: asking the mod to replay the stored build
+2026-10-06 14:54:12 [14460] bridge: TF3MP_IN=replay 316 (ok)
+2026-10-06 14:54:14 [14460] bridge: got from Lua: bridge out seq=317
+2026-10-06 14:54:14 [14460] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 14:54:17 [14460] bridge: got from Lua: bridge out seq=318
+2026-10-06 14:54:17 [14460] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 14:54:19 [14460] bridge: got from Lua: bridge out seq=319
+2026-10-06 14:54:19 [14460] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 14:54:22 [14460] bridge: got from Lua: bridge out seq=320
+2026-10-06 14:54:22 [14460] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-06 14:54:24 [14460] bridge: got from Lua: bridge out seq=321
+2026-10-06 14:54:24 [14460] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 14:54:26 [14460] bridge: got from Lua: bridge out seq=322
+2026-10-06 14:54:26 [14460] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 14:54:29 [14460] bridge: got from Lua: bridge out seq=323
+2026-10-06 14:54:29 [14460] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 14:54:31 [14460] bridge: got from Lua: bridge out seq=324
+2026-10-06 14:54:31 [14460] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 14:54:34 [14460] bridge: got from Lua: bridge out seq=325
+2026-10-06 14:54:34 [14460] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 14:54:36 [14460] bridge: got from Lua: bridge out seq=326
+2026-10-06 14:54:36 [14460] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 14:54:39 [14460] bridge: got from Lua: bridge out seq=327
+2026-10-06 14:54:39 [14460] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 14:54:41 [14460] bridge: got from Lua: bridge out seq=328
+2026-10-06 14:54:41 [14460] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 14:54:44 [14460] bridge: the mod stored a build for replay
+2026-10-06 14:54:44 [14460] bridge: got from Lua: bridge out seq=329
+2026-10-06 14:54:44 [14460] bridge: asking the mod to replay the stored build
+2026-10-06 14:54:44 [14460] bridge: TF3MP_IN=replay 329 (ok)
+2026-10-06 14:54:46 [14460] bridge: got from Lua: bridge out seq=330
+2026-10-06 14:54:46 [14460] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 14:54:49 [14460] bridge: got from Lua: bridge out seq=331
+2026-10-06 14:54:49 [14460] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 14:54:51 [14460] bridge: got from Lua: bridge out seq=332
+2026-10-06 14:54:51 [14460] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-06 14:54:54 [14460] bridge: got from Lua: bridge out seq=333
+2026-10-06 14:54:54 [14460] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-06 14:54:56 [14460] bridge: got from Lua: bridge out seq=334
+2026-10-06 14:54:56 [14460] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-06 14:54:57 [14460] bridge: the mod stored a build for replay
+2026-10-06 14:54:59 [14460] bridge: got from Lua: bridge out seq=335
+2026-10-06 14:54:59 [14460] bridge: asking the mod to replay the stored build
+2026-10-06 14:54:59 [14460] bridge: TF3MP_IN=replay 335 (ok)
+2026-10-06 14:55:01 [14460] bridge: got from Lua: bridge out seq=336
+2026-10-06 14:55:01 [14460] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-06 14:55:04 [14460] bridge: got from Lua: bridge out seq=337
+2026-10-06 14:55:04 [14460] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-06 14:55:06 [14460] bridge: got from Lua: bridge out seq=338
+2026-10-06 14:55:06 [14460] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-06 14:55:09 [14460] bridge: got from Lua: bridge out seq=339
+2026-10-06 14:55:09 [14460] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-06 14:55:11 [14460] bridge: got from Lua: bridge out seq=340
+2026-10-06 14:55:11 [14460] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-06 14:55:14 [14460] bridge: got from Lua: bridge out seq=341
+2026-10-06 14:55:14 [14460] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-06 14:55:16 [14460] bridge: got from Lua: bridge out seq=342
+2026-10-06 14:55:16 [14460] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-06 14:55:19 [14460] bridge: got from Lua: bridge out seq=343
+2026-10-06 14:55:19 [14460] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-06 14:55:21 [14460] bridge: got from Lua: bridge out seq=344
+2026-10-06 14:55:21 [14460] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-06 14:55:24 [14460] bridge: got from Lua: bridge out seq=345
+2026-10-06 14:55:24 [14460] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-06 14:55:26 [14460] bridge: got from Lua: bridge out seq=346
+2026-10-06 14:55:26 [14460] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-06 14:55:29 [14460] bridge: got from Lua: bridge out seq=347
+2026-10-06 14:55:29 [14460] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-06 14:55:31 [14460] bridge: got from Lua: bridge out seq=348
+2026-10-06 14:55:31 [14460] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-06 14:55:34 [14460] bridge: got from Lua: bridge out seq=349
+2026-10-06 14:55:34 [14460] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-06 14:55:36 [14460] bridge: got from Lua: bridge out seq=350
+2026-10-06 14:55:36 [14460] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-06 14:55:39 [14460] bridge: got from Lua: bridge out seq=351
+2026-10-06 14:55:39 [14460] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-06 14:55:41 [14460] bridge: got from Lua: bridge out seq=352
+2026-10-06 14:55:41 [14460] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-06 14:55:44 [14460] bridge: got from Lua: bridge out seq=353
+2026-10-06 14:55:44 [14460] bridge: TF3MP_IN=ack 353 (ok)
+2026-10-06 14:55:44 [14460] bridge: the mod stored a build for replay
+2026-10-06 14:55:46 [14460] bridge: got from Lua: bridge out seq=354
+2026-10-06 14:55:46 [14460] bridge: asking the mod to replay the stored build
+2026-10-06 14:55:46 [14460] bridge: TF3MP_IN=replay 354 (ok)
+2026-10-06 14:55:49 [14460] bridge: got from Lua: bridge out seq=355
+2026-10-06 14:55:49 [14460] bridge: TF3MP_IN=ack 355 (ok)
+2026-10-06 14:55:51 [14460] bridge: got from Lua: bridge out seq=356
+2026-10-06 14:55:51 [14460] bridge: TF3MP_IN=ack 356 (ok)
+2026-10-06 14:55:57 [14460] alut proxy v6 unloaded
+2026-10-06 18:33:30 [43248] alut proxy v6 loaded
+2026-10-06 18:33:30 [43248] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 18:33:30 [43248] bridge: ucrtbase _putenv_s found
+2026-10-06 18:33:30 [43248] bridge: TF3MP_IN=hello (ok)
+2026-10-06 18:33:30 [43248] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 18:33:53 [43248] bridge: got from Lua: bridge out seq=311
+2026-10-06 18:33:53 [43248] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-06 18:34:05 [43248] bridge: got from Lua: bridge out seq=312
+2026-10-06 18:34:05 [43248] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-06 18:34:08 [43248] bridge: got from Lua: bridge out seq=313
+2026-10-06 18:34:08 [43248] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-06 18:34:10 [43248] bridge: the mod stored a build for replay
+2026-10-06 18:34:10 [43248] bridge: got from Lua: bridge out seq=314
+2026-10-06 18:34:10 [43248] bridge: asking the mod to replay the stored build
+2026-10-06 18:34:10 [43248] bridge: TF3MP_IN=replay 314 (ok)
+2026-10-06 18:34:13 [43248] bridge: got from Lua: bridge out seq=315
+2026-10-06 18:34:13 [43248] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-06 18:34:15 [43248] bridge: got from Lua: bridge out seq=316
+2026-10-06 18:34:15 [43248] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-06 18:34:18 [43248] bridge: got from Lua: bridge out seq=317
+2026-10-06 18:34:18 [43248] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-06 18:34:20 [43248] bridge: got from Lua: bridge out seq=318
+2026-10-06 18:34:20 [43248] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-06 18:34:23 [43248] bridge: got from Lua: bridge out seq=319
+2026-10-06 18:34:23 [43248] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-06 18:34:24 [43248] bridge: the mod stored a build for replay
+2026-10-06 18:34:25 [43248] bridge: got from Lua: bridge out seq=320
+2026-10-06 18:34:25 [43248] bridge: asking the mod to replay the stored build
+2026-10-06 18:34:25 [43248] bridge: TF3MP_IN=replay 320 (ok)
+2026-10-06 18:34:28 [43248] bridge: got from Lua: bridge out seq=321
+2026-10-06 18:34:28 [43248] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-06 18:34:30 [43248] bridge: got from Lua: bridge out seq=322
+2026-10-06 18:34:30 [43248] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-06 18:34:33 [43248] bridge: got from Lua: bridge out seq=323
+2026-10-06 18:34:33 [43248] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-06 18:34:35 [43248] bridge: got from Lua: bridge out seq=324
+2026-10-06 18:34:35 [43248] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-06 18:34:38 [43248] bridge: got from Lua: bridge out seq=325
+2026-10-06 18:34:38 [43248] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-06 18:34:40 [43248] bridge: got from Lua: bridge out seq=326
+2026-10-06 18:34:40 [43248] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-06 18:34:43 [43248] bridge: got from Lua: bridge out seq=327
+2026-10-06 18:34:43 [43248] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-06 18:34:45 [43248] bridge: got from Lua: bridge out seq=328
+2026-10-06 18:34:45 [43248] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-06 18:34:48 [43248] bridge: got from Lua: bridge out seq=329
+2026-10-06 18:34:48 [43248] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-06 18:34:50 [43248] bridge: got from Lua: bridge out seq=330
+2026-10-06 18:34:50 [43248] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-06 18:34:53 [43248] bridge: got from Lua: bridge out seq=331
+2026-10-06 18:34:53 [43248] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-06 18:34:58 [43248] alut proxy v6 unloaded
+2026-10-06 18:40:36 [43868] alut proxy v6 loaded
+2026-10-06 18:40:36 [43868] net: off (no alut_proxy.ini or mode=off)
+2026-10-06 18:40:36 [43868] bridge: ucrtbase _putenv_s found
+2026-10-06 18:40:36 [43868] bridge: TF3MP_IN=hello (ok)
+2026-10-06 18:40:36 [43868] bridge: tailing C:\Program Files (x86)\Steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-06 18:41:26 [43868] bridge: got from Lua: bridge out seq=1
+2026-10-06 18:41:26 [43868] bridge: TF3MP_IN=ack 1 (ok)
+2026-10-06 18:41:34 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:41:36 [43868] bridge: got from Lua: bridge out seq=2
+2026-10-06 18:41:36 [43868] bridge: asking the mod to replay the stored build
+2026-10-06 18:41:36 [43868] bridge: TF3MP_IN=replay 2 (ok)
+2026-10-06 18:41:46 [43868] bridge: got from Lua: bridge out seq=3
+2026-10-06 18:41:46 [43868] bridge: TF3MP_IN=ack 3 (ok)
+2026-10-06 18:41:56 [43868] bridge: got from Lua: bridge out seq=4
+2026-10-06 18:41:56 [43868] bridge: TF3MP_IN=ack 4 (ok)
+2026-10-06 18:42:06 [43868] bridge: got from Lua: bridge out seq=5
+2026-10-06 18:42:06 [43868] bridge: TF3MP_IN=ack 5 (ok)
+2026-10-06 18:42:16 [43868] bridge: got from Lua: bridge out seq=6
+2026-10-06 18:42:16 [43868] bridge: TF3MP_IN=ack 6 (ok)
+2026-10-06 18:42:26 [43868] bridge: got from Lua: bridge out seq=7
+2026-10-06 18:42:26 [43868] bridge: TF3MP_IN=ack 7 (ok)
+2026-10-06 18:42:36 [43868] bridge: got from Lua: bridge out seq=8
+2026-10-06 18:42:36 [43868] bridge: TF3MP_IN=ack 8 (ok)
+2026-10-06 18:42:40 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:44 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:46 [43868] bridge: got from Lua: bridge out seq=9
+2026-10-06 18:42:46 [43868] bridge: asking the mod to replay the stored build
+2026-10-06 18:42:46 [43868] bridge: TF3MP_IN=replay 9 (ok)
+2026-10-06 18:42:51 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:54 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:55 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:56 [43868] bridge: the mod stored a build for replay
+2026-10-06 18:42:56 [43868] bridge: got from Lua: bridge out seq=10
+2026-10-06 18:42:56 [43868] bridge: asking the mod to replay the stored build
+2026-10-06 18:42:56 [43868] bridge: TF3MP_IN=replay 10 (ok)
+2026-10-06 18:43:06 [43868] bridge: got from Lua: bridge out seq=11
+2026-10-06 18:43:06 [43868] bridge: TF3MP_IN=ack 11 (ok)
+2026-10-06 18:43:13 [43868] alut proxy v6 unloaded
