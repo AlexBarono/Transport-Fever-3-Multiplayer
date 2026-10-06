@@ -1,0 +1,15 @@
+require "api.type"
+require "api.type.mod"
+require "api.type.modhub"
+require "api.type.transformator"
+require "api.res"
+require "api.engine"
+require "api.engine.system"
+require "api.engine.util"
+require "api.cmd"
+
+require "app"
+require "api.gui"
+require "api"
+
+require "main"
