@@ -10,10 +10,13 @@ local probe = require("/mp_probe/probe.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 2
+main.PROBE_VERSION = 3
 main.SNAPSHOT_EVERY = 300
---- Line budget for the structure dump of the first event of each kind.
-main.EVENT_PARAM_LINES = 300
+--- Depth and line budget for the structure dump of the first event of each kind.
+main.EVENT_PARAM_DEPTH = 7
+main.EVENT_PARAM_LINES = 800
+--- Number of build proposals whose structure is dumped (each build looks different).
+main.BUILD_DUMPS = 5
 
 --- Events the engine only delivers on subscription. Build proposals are what a multiplayer
 -- bridge has to capture and replay, so their parameter structure is dumped once.
@@ -79,12 +82,15 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	local s = state:get() or {}
 	s.seen_events = s.seen_events or {}
 	local key = tostring(src) .. "|" .. tostring(id) .. "|" .. tostring(name)
-	if s.seen_events[key] then return end
-	s.seen_events[key] = true
+	local prev = s.seen_events[key]
+	local count = type(prev) == "number" and prev + 1 or 1
+	local limit = name == "onPostBuildProposal" and main.BUILD_DUMPS or 1
+	if count > limit then return end
+	s.seen_events[key] = count
 	state:set(s)
-	logger.info("event src=" .. tostring(src) .. " id=" .. tostring(id) .. " name=" .. tostring(name))
-	local ok, lines = pcall(probe.list, param, "param", 4, nil, main.EVENT_PARAM_LINES)
-	if ok then log_lines("param of " .. tostring(name), lines) end
+	logger.info("event src=" .. tostring(src) .. " id=" .. tostring(id) .. " name=" .. tostring(name) .. " #" .. count)
+	local ok, lines = pcall(probe.list, param, "param", main.EVENT_PARAM_DEPTH, nil, main.EVENT_PARAM_LINES)
+	if ok then log_lines("param of " .. tostring(name) .. " #" .. count, lines) end
 end
 
 -- The engine loads resource files (unlike modules loaded with require) by calling the global data().

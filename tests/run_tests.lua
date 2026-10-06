@@ -101,6 +101,12 @@ test("list skips metatable fields and non-string keys", function()
 	assert(#lines == 3, "got " .. #lines)
 end)
 
+test("list keeps array entries and shows scalar values", function()
+	local lines = probe.list({ { proposal = { addedSegments = { 5 } } }, "x" }, "param", 6)
+	assert(contains(lines, "param[1].proposal.addedSegments[1] = number 5"))
+	assert(contains(lines, "param[2] = string x"))
+end)
+
 test("list honours an explicit line budget", function()
 	local big = {}
 	for i = 1, 50 do big["k" .. i] = i end
@@ -131,9 +137,17 @@ local function mock_engine_env(opts)
 	}
 	local counts = { [1] = 3, [2] = 2 }
 	return { api = {
-		type = { ComponentType = { GAME_TIME = 100, PLAYER = 200, TRANSPORT_VEHICLE = 1, LINE = 2 } },
+		type = { ComponentType = { GAME_TIME = 100, ACCOUNT = 200, TRANSPORT_VEHICLE = 1, STATION = 2 } },
 		engine = {
-			util = { getWorld = function() return 10 end, getPlayer = function() return 20 end },
+			util = {
+				getWorld = function() return 10 end,
+				getPlayer = function() return 20 end,
+				vehicle = { getPosition = function(v) return { x = v + 0.4, y = 10, z = 0.6 } end },
+			},
+			system = {
+				lineSystem = { getLines = function() return { 7, 8 } end },
+				transportVehicleSystem = { getVehicles = function() return { 1, 2 } end },
+			},
 			getComponent = function(entity, comp)
 				if comp == nil then error("bad component type") end
 				return components[entity]
@@ -146,16 +160,18 @@ local function mock_engine_env(opts)
 	} }
 end
 
-test("snapshot reads time, money and counts through api.engine and isolates errors", function()
+test("snapshot reads time, money, counts and vehicle positions through api.engine", function()
 	local snap = probe.snapshot(mock_engine_env())
 	assert(snap.fields.game_time == 42000)
 	assert(snap.fields.money == 5000000)
 	assert(snap.fields.n_transport_vehicle == 3)
+	assert(snap.fields.n_station == 2)
 	assert(snap.fields.n_line == 2)
-	assert(snap.errors.money_account ~= nil, "ACCOUNT is not in the mock ComponentType")
-	assert(snap.errors.n_town ~= nil)
+	-- vehicles 1 and 2: (1+10+1) + (2+10+1) after rounding
+	assert(snap.fields.vehicle_pos_sum == 25, tostring(snap.fields.vehicle_pos_sum))
+	assert(snap.errors.n_town ~= nil, "TOWN is not in the mock ComponentType")
 	local line = probe.format_snapshot(snap)
-	assert(line:find("game_time=42000 money=5000000 n_line=2 n_transport_vehicle=3", 1, true), line)
+	assert(line:find("game_time=42000 money=5000000 n_line=2 n_station=2 n_transport_vehicle=3 vehicle_pos_sum=25", 1, true), line)
 	assert(line:find("n_town=ERR", 1, true), line)
 	assert(contains(probe.format_errors(snap), "n_town: "))
 end)
@@ -203,6 +219,30 @@ test("update runs the probe once and snapshots periodically", function()
 	assert(state:get().probe_version == main.PROBE_VERSION)
 	assert(#state.subscribed == 1 and state.subscribed[1] == "onPostBuildProposal", "subscribed once")
 	assert(contains(logged, "subscribe onPostBuildProposal: ok"))
+end)
+
+test("handleEvent dumps up to BUILD_DUMPS build proposals", function()
+	local main = load_resource("/mp_probe/main.script.lua")
+	main.BUILD_DUMPS = 2
+	logged = {}
+	local state = mock_state()
+	for _ = 1, 4 do main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", { {} }) end
+	local dumps = 0
+	for _, l in ipairs(logged) do
+		if l:find("---- param of onPostBuildProposal", 1, true) then dumps = dumps + 1 end
+	end
+	assert(dumps == 2, "dumps " .. dumps)
+end)
+
+test("handleEvent tolerates seen_events from v2 savegames", function()
+	local main = load_resource("/mp_probe/main.script.lua")
+	logged = {}
+	local state = mock_state()
+	state:set({ seen_events = { ["a.lua|id1|onX"] = true } })
+	main.handleEvent(nil, state, "a.lua", "id1", "onX", {})
+	main.handleEvent(nil, state, "a.lua", "id1", "onX", {})
+	assert(contains(logged, "name=onX #1"))
+	assert(not contains(logged, "name=onX #2"))
 end)
 
 test("handleEvent logs each event type once", function()

@@ -17,9 +17,12 @@ local function sorted_keys(t)
 end
 
 --- Engine proxy tables expose their metatable fields (__index, ...) and internal userdata keys.
--- They repeat under every entry and say nothing about the API, so listings skip them.
+-- They repeat under every entry and say nothing about the API, so listings skip them. Number keys
+-- stay: event parameters and proposals are arrays.
 local function is_noise_key(k)
-	return type(k) ~= "string" or k:sub(1, 2) == "__"
+	local t = type(k)
+	if t == "number" then return false end
+	return t ~= "string" or k:sub(1, 2) == "__"
 end
 
 local function has(env, path)
@@ -92,7 +95,11 @@ function probe.list(value, name, max_depth, lines, max_lines)
 			return
 		end
 		local t = type(v)
-		lines[#lines + 1] = path .. " = " .. t
+		if t == "number" or t == "boolean" or t == "string" then
+			lines[#lines + 1] = path .. " = " .. t .. " " .. tostring(v):sub(1, 80)
+		else
+			lines[#lines + 1] = path .. " = " .. t
+		end
 		if depth >= max_depth or seen[v] then return end
 		local container = nil
 		if t == "table" then
@@ -106,7 +113,8 @@ function probe.list(value, name, max_depth, lines, max_lines)
 		for _, k in ipairs(sorted_keys(container)) do
 			if not is_noise_key(k) then
 				local ok, child = pcall(function() return container[k] end)
-				if ok then walk(child, path .. "." .. k, depth + 1, seen) end
+				local child_path = type(k) == "number" and (path .. "[" .. k .. "]") or (path .. "." .. k)
+				if ok then walk(child, child_path, depth + 1, seen) end
 			end
 			if truncated then return end
 		end
@@ -116,10 +124,16 @@ function probe.list(value, name, max_depth, lines, max_lines)
 	return lines
 end
 
---- Component types whose entity counts go into every snapshot (names as in TF2's api.type.ComponentType).
+--- Component types whose entity counts go into every snapshot. Run 2 showed that TF3 cannot loop
+-- over LINE and BASE_EDGE with forEachEntityWithComponent; lines are counted via lineSystem instead.
 probe.COUNTED_COMPONENTS = {
-	"TRANSPORT_VEHICLE", "LINE", "STATION", "CONSTRUCTION", "BASE_EDGE", "TOWN", "SIM_PERSON",
+	"TRANSPORT_VEHICLE", "STATION", "CONSTRUCTION", "TOWN", "SIM_PERSON",
 }
+
+--- Rounds a coordinate to whole metres so tiny float noise does not hide real divergence.
+local function round(x)
+	return math.floor(x + 0.5)
+end
 
 --- Collects a small, comparable snapshot of the simulation for the determinism test.
 -- TF3 has no game.interface, so everything goes through api.engine. Every call is guarded because
@@ -146,10 +160,20 @@ function probe.snapshot(env)
 		return engine.getComponent(engine.util.getWorld(), ct.GAME_TIME).gameTime
 	end)
 	try("money", function()
-		return engine.getComponent(engine.util.getPlayer(), ct.PLAYER).balance
-	end)
-	try("money_account", function()
 		return engine.getComponent(engine.util.getPlayer(), ct.ACCOUNT).balance
+	end)
+	try("n_line", function()
+		return #engine.system.lineSystem.getLines()
+	end)
+	-- Sum of all vehicle positions: diverges as soon as any vehicle moves differently.
+	try("vehicle_pos_sum", function()
+		local vehicles = engine.system.transportVehicleSystem.getVehicles()
+		local sum = 0
+		for i = 1, #vehicles do
+			local p = engine.util.vehicle.getPosition(vehicles[i])
+			sum = sum + round(p.x) + round(p.y) + round(p.z)
+		end
+		return sum
 	end)
 	for _, comp in ipairs(probe.COUNTED_COMPONENTS) do
 		try("n_" .. comp:lower(), function()
