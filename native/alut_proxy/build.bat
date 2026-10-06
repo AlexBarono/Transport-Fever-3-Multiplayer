@@ -11,5 +11,5 @@ if not defined VSDIR (
 )
 call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
 cd /d "%~dp0"
-cl /nologo /O2 /W4 /GS- /LD alut_proxy.c /Fobuild\ /Febuild\alut.dll /link /NODEFAULTLIB /ENTRY:DllMain kernel32.lib user32.lib || exit /b 1
+cl /nologo /O2 /W4 /GS- /LD alut_proxy.c net.c /Fobuild\ /Febuild\alut.dll /link /NODEFAULTLIB /ENTRY:DllMain kernel32.lib user32.lib ws2_32.lib || exit /b 1
 echo Built build\alut.dll
