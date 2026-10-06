@@ -1,0 +1,588 @@
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Application startup. Hello!
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Startup session with id 6a48f4cf-3a05-4f06-a9f1-3aa4b3cb6e82
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  mod.io backend created for Steam platform
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Hardware concurrency: 24
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  User data folder: C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Starting up build version: 40408, build name "Build"
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Build: Build 40408 Windows 64-bit
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  PreventSetUnhandledExceptionFilter: 1
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_INSPECTOR (x): collides with selectModuleBulldozer (B or x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for constructAlignToTerrain (leftshoulder + dpup): collides with constructOpt6 (P or leftshoulder + dpup)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_GAME_SCREENSHOT (touchpad + rightshoulder): collides with IA_DEBUG_RELOAD_SHADERS (Right Alt + T or touchpad + rightshoulder)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_CONSTRUCTION_ACTION_CANCEL (b): collides with IA_CLOSE_ALL_LONGPRESS (b)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_SKIP_VOICEOVER_AND_CUTSCENE (rightshoulder): collides with IA_NOTIFICATIONS_OPEN (rightshoulder)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_UNDERGOUND_MODE_TOGGLE (leftshoulder + dpdown): collides with constructOpt5 (O or leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_INSPECTOR (x): collides with selectModuleBulldozer (B or x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for constructAlignToTerrain (leftshoulder + dpup): collides with constructOpt6 (P or leftshoulder + dpup)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_GAME_SCREENSHOT (touchpad + rightshoulder): collides with IA_DEBUG_RELOAD_SHADERS (Right Alt + T or touchpad + rightshoulder)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_CONSTRUCTION_ACTION_CANCEL (b): collides with IA_CLOSE_ALL_LONGPRESS (b)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_SKIP_VOICEOVER_AND_CUTSCENE (rightshoulder): collides with IA_NOTIFICATIONS_OPEN (rightshoulder)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_UNDERGOUND_MODE_TOGGLE (leftshoulder + dpdown): collides with constructOpt5 (O or leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_CONSTRUCTION_ACTION_CANCEL and IA_CLOSE_ALL_LONGPRESS both use b)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_CLOSE_ALL_LONGPRESS and IA_CONSTRUCTION_ACTION_CANCEL both use b)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_DEBUG_RELOAD_SHADERS and IA_GAME_SCREENSHOT both use touchpad + rightshoulder)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_INSPECTOR and selectModuleBulldozer both use x)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_GAME_SCREENSHOT and IA_DEBUG_RELOAD_SHADERS both use touchpad + rightshoulder)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_NOTIFICATIONS_OPEN and IA_SKIP_VOICEOVER_AND_CUTSCENE both use rightshoulder)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_SKIP_VOICEOVER_AND_CUTSCENE and IA_NOTIFICATIONS_OPEN both use rightshoulder)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_UNDERGOUND_MODE_TOGGLE and constructOpt5 both use leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructAlignToTerrain and constructOpt6 both use leftshoulder + dpup)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructOpt5 and IA_UNDERGOUND_MODE_TOGGLE both use leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructOpt6 and constructAlignToTerrain both use leftshoulder + dpup)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (selectModuleBulldozer and IA_INSPECTOR both use x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_CLOSE_ALL_LONGPRESS (b): collides with IA_CONSTRUCTION_ACTION_CANCEL (Esc or b or 3)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for constructOpt6 (leftshoulder + dpup): collides with constructAlignToTerrain (T or leftshoulder + dpup)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for selectModuleBulldozer (x): collides with IA_INSPECTOR (x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_NOTIFICATIONS_OPEN (rightshoulder): collides with IA_SKIP_VOICEOVER_AND_CUTSCENE (Esc or rightshoulder)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_DEBUG_RELOAD_SHADERS (touchpad + rightshoulder): collides with IA_GAME_SCREENSHOT (F9 or touchpad + rightshoulder)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_INSPECTOR (x): collides with selectModuleBulldozer (B or x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for constructAlignToTerrain (leftshoulder + dpup): collides with constructOpt6 (P or leftshoulder + dpup)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_GAME_SCREENSHOT (touchpad + rightshoulder): collides with IA_DEBUG_RELOAD_SHADERS (Right Alt + T or touchpad + rightshoulder)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_CONSTRUCTION_ACTION_CANCEL (b): collides with IA_CLOSE_ALL_LONGPRESS (b)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_SKIP_VOICEOVER_AND_CUTSCENE (rightshoulder): collides with IA_NOTIFICATIONS_OPEN (rightshoulder)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for constructOpt5 (leftshoulder + dpdown): collides with IA_UNDERGOUND_MODE_TOGGLE (G or leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_UNDERGOUND_MODE_TOGGLE (leftshoulder + dpdown): collides with constructOpt5 (O or leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - MESSAGE  - Save Pool 2      - Main           ]  Saved settings to settings.lua
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_06: modHubId=BuiltInMods,release/urbangames_campaign_mission_06 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_08: modHubId=BuiltInMods,release/urbangames_campaign_mission_08 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_04: modHubId=BuiltInMods,release/urbangames_campaign_mission_04 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_no_costs_1: modHubId=BuiltInMods,release/urbangames_no_costs (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_sandbox_1: modHubId=BuiltInMods,release/urbangames_sandbox (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_tycoon_1: modHubId=BuiltInMods,release/urbangames_tycoon (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign: modHubId=BuiltInMods,release/urbangames_campaign (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_01: modHubId=BuiltInMods,release/urbangames_campaign_mission_01 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_03: modHubId=BuiltInMods,release/urbangames_campaign_mission_03 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_05: modHubId=BuiltInMods,release/urbangames_campaign_mission_05 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_07: modHubId=BuiltInMods,release/urbangames_campaign_mission_07 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_vehicles_no_end_year_1: modHubId=BuiltInMods,release/urbangames_vehicles_no_end_year (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem mp_probe_1: modHubId=StagingArea,mp_probe (source: StagingArea)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_02: modHubId=BuiltInMods,release/urbangames_campaign_mission_02 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_06/content/'
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_08/content/'
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'base/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_no_costs/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_sandbox/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_tycoon/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_01/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_03/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_05/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_07/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_vehicles_no_end_year/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/staging_area/mp_probe/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_02/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_04/content/'
+[2026-10-06 10:59:14Z - MESSAGE  - Main             - Main           ]  Initialize language: core = de, mod = , locale = de_DE
+[2026-10-06 10:59:14Z - MESSAGE  - Main             - Main           ]  Init locale de_DE.utf8 with base/strings for main base
+[2026-10-06 10:59:14Z - MESSAGE  - Main             - Vulkan         ]  Enabled extension: 'VK_KHR_surface'
+[2026-10-06 10:59:14Z - MESSAGE  - Main             - Vulkan         ]  Enabled extension: 'VK_KHR_win32_surface'
+[2026-10-06 10:59:14Z - MESSAGE  - Main             - Vulkan         ]  Enabled extension: 'VK_KHR_get_physical_device_properties2'
+[2026-10-06 10:59:14Z - MESSAGE  - Main             - Vulkan         ]  Layer found: VK_LAYER_NV_optimus
+----- matches (error|warn|lua|mod|script|fail|exception) -----
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  mod.io backend created for Steam platform
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  PreventSetUnhandledExceptionFilter: 1
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_INSPECTOR (x): collides with selectModuleBulldozer (B or x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_UNDERGOUND_MODE_TOGGLE (leftshoulder + dpdown): collides with constructOpt5 (O or leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_INSPECTOR (x): collides with selectModuleBulldozer (B or x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_UNDERGOUND_MODE_TOGGLE (leftshoulder + dpdown): collides with constructOpt5 (O or leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_CONSTRUCTION_ACTION_CANCEL and IA_CLOSE_ALL_LONGPRESS both use b)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_CLOSE_ALL_LONGPRESS and IA_CONSTRUCTION_ACTION_CANCEL both use b)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_DEBUG_RELOAD_SHADERS and IA_GAME_SCREENSHOT both use touchpad + rightshoulder)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_INSPECTOR and selectModuleBulldozer both use x)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_GAME_SCREENSHOT and IA_DEBUG_RELOAD_SHADERS both use touchpad + rightshoulder)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_NOTIFICATIONS_OPEN and IA_SKIP_VOICEOVER_AND_CUTSCENE both use rightshoulder)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_SKIP_VOICEOVER_AND_CUTSCENE and IA_NOTIFICATIONS_OPEN both use rightshoulder)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (IA_UNDERGOUND_MODE_TOGGLE and constructOpt5 both use leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructAlignToTerrain and constructOpt6 both use leftshoulder + dpup)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructOpt5 and IA_UNDERGOUND_MODE_TOGGLE both use leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (constructOpt6 and constructAlignToTerrain both use leftshoulder + dpup)
+[2026-10-06 10:59:12Z - WARNING  - Main             - Main           ]  Not removed conflicting gamepad-only key assigment (selectModuleBulldozer and IA_INSPECTOR both use x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for selectModuleBulldozer (x): collides with IA_INSPECTOR (x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_INSPECTOR (x): collides with selectModuleBulldozer (B or x)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for constructOpt5 (leftshoulder + dpdown): collides with IA_UNDERGOUND_MODE_TOGGLE (G or leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - Main           ]  Not dropped conflicting gamepad-only default key assignment for IA_UNDERGOUND_MODE_TOGGLE (leftshoulder + dpdown): collides with constructOpt5 (O or leftshoulder + dpdown)
+[2026-10-06 10:59:12Z - MESSAGE  - Save Pool 2      - Main           ]  Saved settings to settings.lua
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_06: modHubId=BuiltInMods,release/urbangames_campaign_mission_06 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_08: modHubId=BuiltInMods,release/urbangames_campaign_mission_08 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_04: modHubId=BuiltInMods,release/urbangames_campaign_mission_04 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_no_costs_1: modHubId=BuiltInMods,release/urbangames_no_costs (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_sandbox_1: modHubId=BuiltInMods,release/urbangames_sandbox (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_tycoon_1: modHubId=BuiltInMods,release/urbangames_tycoon (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign: modHubId=BuiltInMods,release/urbangames_campaign (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_01: modHubId=BuiltInMods,release/urbangames_campaign_mission_01 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_03: modHubId=BuiltInMods,release/urbangames_campaign_mission_03 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_05: modHubId=BuiltInMods,release/urbangames_campaign_mission_05 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_07: modHubId=BuiltInMods,release/urbangames_campaign_mission_07 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_vehicles_no_end_year_1: modHubId=BuiltInMods,release/urbangames_vehicles_no_end_year (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem mp_probe_1: modHubId=StagingArea,mp_probe (source: StagingArea)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  new ModHubMod was installed and will be added to filesystem urbangames_campaign_mission_02: modHubId=BuiltInMods,release/urbangames_campaign_mission_02 (source: BuiltInMods)
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_06/content/'
+[2026-10-06 10:59:12Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_08/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_no_costs/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_sandbox/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_tycoon/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_01/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_03/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_05/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_07/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_vehicles_no_end_year/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_02/content/'
+[2026-10-06 10:59:13Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_04/content/'
+[2026-10-06 10:59:14Z - MESSAGE  - Main             - Main           ]  Initialize language: core = de, mod = , locale = de_DE
+[2026-10-06 10:59:14Z - MESSAGE  - Main             - Vulkan         ]  Enabled extension: 'VK_EXT_descriptor_indexing'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign_mission_06: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign_mission_06 -> BuiltInMods,release/urbangames_campaign_mission_06, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign_mission_08: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign_mission_08 -> BuiltInMods,release/urbangames_campaign_mission_08, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign_mission_04: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign_mission_04 -> BuiltInMods,release/urbangames_campaign_mission_04, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_no_costs_1: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_no_costs -> BuiltInMods,release/urbangames_no_costs, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_sandbox_1: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_sandbox -> BuiltInMods,release/urbangames_sandbox, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_tycoon_1: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_tycoon -> BuiltInMods,release/urbangames_tycoon, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign -> BuiltInMods,release/urbangames_campaign, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign_mission_01: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign_mission_01 -> BuiltInMods,release/urbangames_campaign_mission_01, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign_mission_03: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign_mission_03 -> BuiltInMods,release/urbangames_campaign_mission_03, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign_mission_05: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign_mission_05 -> BuiltInMods,release/urbangames_campaign_mission_05, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign_mission_07: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign_mission_07 -> BuiltInMods,release/urbangames_campaign_mission_07, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_vehicles_no_end_year_1: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_vehicles_no_end_year -> BuiltInMods,release/urbangames_vehicles_no_end_year, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem mp_probe_1: (source: StagingArea) updated modHubId: StagingArea,mp_probe -> StagingArea,mp_probe, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  installed ModHubMod was updated and will be re-added to filesystem urbangames_campaign_mission_02: (source: BuiltInMods) updated modHubId: BuiltInMods,release/urbangames_campaign_mission_02 -> BuiltInMods,release/urbangames_campaign_mission_02, runtimeRevision : 1 -> 2
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_06/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_08/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_03/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_05/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_07/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_vehicles_no_end_year/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_no_costs/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_sandbox/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_02/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_tycoon/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_01/content/'
+[2026-10-06 10:59:15Z - MESSAGE  - Main             - UpdateBaseFileS]  Reading content cache from json for dir 'mods/release/urbangames_campaign_mission_04/content/'
+[2026-10-06 10:59:15Z - VERBOSE  - Main             - Main           ]  Refreshing Mods
+[2026-10-06 10:59:15Z - VERBOSE  - Main             - ModRep         ]  Looking for workshop mods
+[2026-10-06 10:59:15Z - VERBOSE  - Main             - ModRep         ]  Found 15 mods, mod count did not change (took 1 ms)
+[2026-10-06 10:59:15Z - VERBOSE  - Main             - Main           ]  Mods changed on disk, updating...
+[2026-10-06 10:59:15Z - VERBOSE  - Main             - UpdateBaseFileS]  Updating base filesystem mods took 50 ms
+[2026-10-06 10:59:15Z - VERBOSE  - Main             - Main           ]  Mods changed, recreating data...
+[2026-10-06 10:59:17Z - WARNING  - Main Thread      - Main           ]  Error while initializing PDX SDK: No session tokens were found.
+[2026-10-06 10:59:17Z - MESSAGE  - Main Thread      - Main           ]  Hardware Info: osVersion=Windows 11 Pro 26H2 (Build 26300), ramMB=62884, cpuModel=AMD Ryzen 9 9900X3D 12-Core Processor, cpuCount=24, gpu=NVIDIA GeForce RTX 5080
+[2026-10-06 10:59:17Z - WARNING  - ModioAsyncThread - Main           ]  Could not verify user authentication: Invalid user
+[2026-10-06 10:59:22Z - MESSAGE  - Main Thread      - Main           ]  ModioModHubBackend: Setting mod management mode from Disabled to Full
+[2026-10-06 10:59:22Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(216, ModManagerPage)
+[2026-10-06 10:59:22Z - VERBOSE  - Main Thread      - Main           ]  LocalModHubBackend: SetModManagementMode: Full
+[2026-10-06 10:59:22Z - VERBOSE  - Main Thread      - Main           ]  Refreshing Mods
+[2026-10-06 10:59:22Z - VERBOSE  - Main Thread      - ModRep         ]  Looking for workshop mods
+[2026-10-06 10:59:22Z - VERBOSE  - Main Thread      - ModRep         ]  Found 15 mods, mod count did not change (took 1 ms)
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 18 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 19 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 20 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - LoadPool 3       - Main           ]  Texture error: Could not find texture '::/placeholders/mat/tex/unkown_texture.dds'
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 468 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 469 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 470 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - LoadPool 3       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 32 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 33 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 34 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 32 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 33 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]  Preserved props id 34 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:22Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:24Z - WARNING  - Main Thread      - Main           ]  Preserved props id 32 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:24Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:24Z - WARNING  - Main Thread      - Main           ]  Preserved props id 33 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:24Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:24Z - WARNING  - Main Thread      - Main           ]  Preserved props id 34 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:24Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]  Preserved props id 515 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]  Preserved props id 516 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]  Preserved props id 517 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]  Preserved props id 515 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]  Preserved props id 516 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]  Preserved props id 517 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:33Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:36Z - WARNING  - Main Thread      - Main           ]  Preserved props id 515 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:36Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:36Z - WARNING  - Main Thread      - Main           ]  Preserved props id 516 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:36Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:36Z - WARNING  - Main Thread      - Main           ]  Preserved props id 517 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:36Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:38Z - WARNING  - Main Thread      - Main           ]  Preserved props id 515 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:38Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:38Z - WARNING  - Main Thread      - Main           ]  Preserved props id 516 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:38Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:38Z - WARNING  - Main Thread      - Main           ]  Preserved props id 517 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:38Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:40Z - WARNING  - Main Thread      - Main           ]  Preserved props id 515 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:40Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:40Z - WARNING  - Main Thread      - Main           ]  Preserved props id 516 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:40Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:40Z - WARNING  - Main Thread      - Main           ]  Preserved props id 517 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 10:59:40Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 10:59:41Z - MESSAGE  - Main Thread      - Main           ]  ModioModHubBackend: Setting mod management mode from Full to Restricted
+[2026-10-06 10:59:41Z - WARNING  - LoadPool 2       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 10:59:42Z - MESSAGE  - Main Thread      - Main           ]  ModioModHubBackend: Setting mod management mode from Restricted to Disabled
+[2026-10-06 10:59:43Z - MESSAGE  - Main Thread      - Main           ]+ Active mods:
+[2026-10-06 10:59:43Z - MESSAGE  - Main Thread      - Main           ]+ Active mods:
+[2026-10-06 10:59:43Z - MESSAGE  - Main Thread      - Main           ]+ Active mods:
+    | mod params:
+    | ["advancedOptions.subventionMode"] = 4,
+    | ["gameTimeConfig.timeOfDayMode"] = 1,
+[2026-10-06 10:59:43Z - MESSAGE  - Load Game Pool 2 - ModelRep Load  ]  ModelRep load complete, took 502 ms
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/rubber/rubber.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/crude_oil/crude_oil.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/chemicals/chemicals.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/fuel/fuel.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/iron_ore/iron_ore.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/coal/coal.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/clay/clay.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/stone/stone.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/wool/wool.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/fabric/fabric.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/clothes/clothes.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/tinned_food/tinned_food.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/plastic/plastic.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/tools/tools.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/furniture/furniture.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/glass/glass.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/bricks/bricks.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/paper/paper.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/books/books.cargo.lua
+[2026-10-06 10:59:44Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/tires/tires.cargo.lua
+[2026-10-06 10:59:44Z - WARNING  - Load Game Pool 2 - Main           ]  Can't replace ::/tree/lombardy_poplar_boost.mdl with ::/assets/vegetation/trees/lmbrd_ppl_01/lmbrd_ppl_01_boost.mdl: replacement model not found
+[2026-10-06 10:59:45Z - MESSAGE  - Load Game Pool 1 - ModelData Load ]  ModelData load complete, took 1785 ms
+[2026-10-06 10:59:47Z - MESSAGE  - Load Game Pool 2 - Main           ]  SaveGame Complexity Info: estimatedMb=4387, area=126.878, population=957, vehicleModels=3, vehicles=15, assetGroups=19639, assets=213043, mil=21622, models=276779, lines=2, cargoTransported=0, passengersTransported=0, cargoInStock=3293
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]_VERSION: Lua 5.2
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]require('socket'): failed ([string "base/content/base.zip/base/init.lua"]:100: module 'socket' not found:)
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.engine.config.getModParams = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.engine.system.gameScriptSystem = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.engine.system.gameScriptSystem.getEntityForGameScript = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.engine.util.line.getFailedPathReason = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.engine.util.line.getLineTransportModesUnion = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.engine.util.transport.transportModesToCarriers = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ErrorState = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ErrorState.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Failure = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Failure.Reason = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Failure.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.FlatUnorderedSet_ModId = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.FlatUnorderedSet_ModId.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.GameScript = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.GameScript.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.GameScriptDesc = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.GameScriptDesc.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.HeighmapGenerationMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.HeighmapGenerationMode.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ImportBiomesMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ImportBiomesMode.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ImportExportHeightmapMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ImportExportHeightmapMode.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Line.LoadMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.LuaTable = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.LuaTable.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.MetadataMap.Description = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.MetadataMap.Description.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModId = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModId.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModRep = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Model = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelAsset = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelInstance = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelInstance.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelInstanceList = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelInstanceList.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelPerson = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelPerson.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelPersonIdle = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModelPersonIdle.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Modifiers = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Modifiers.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModuleDesc = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ModuleDesc.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Proposal.TransformedModel = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Proposal.TransformedModel.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ScriptParam = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ScriptParam.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ScriptRef = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ScriptRef.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ScriptingSendEvent = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ScriptingSendEvent.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.StdUnorderedMap_String_LuaTable = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.StdUnorderedMap_String_LuaTable.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.StockList.Modifiers = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.StockList.Modifiers.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.StockListSetModifiers = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.StockListSetModifiers.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.StreetGenerationMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ThinModelInstance = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.ThinModelInstance.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.TownIndustryGenerationMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.TownIndustryGenerationMode.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.TransportVehicle.LoadSpeedModifiers = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.TransportVehicle.Modifiers = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.TransportVehicle.Modifiers.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_GameModDesc = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_GameModDesc.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModDependency = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModDependency.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModId = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModId.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModIncompatibility = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModIncompatibility.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModInfo = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModInfo.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModValidatorMessage = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModValidatorMessage.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModelInstance = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ModelInstance.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_Pair_ModId_String = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_Pair_ModId_String.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_PartialUploadError = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_PartialUploadError.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ScriptParam = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ScriptParam.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ThinModelInstance = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_ThinModelInstance.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_TransformedModel = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.Vector_TransformedModel.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.VehicleSetModifiers = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.VehicleSetModifiers.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type._LoadSpeedModifiers = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type._LoadSpeedModifiers.new = function
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.enum.BackgroundContrastMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.enum.CloudTransparencyMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.enum.HudEffectMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.type.enum.InputMode = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.gameScriptRep = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.gameScriptRep.find = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.gameScriptRep.findAndGet = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.gameScriptRep.get = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.gameScriptRep.getAll = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.gameScriptRep.getName = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.gameScriptRep.isVisible = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.modelRep = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.modelRep.find = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.modelRep.findAndGet = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.modelRep.forEachModelWithMetadata = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.modelRep.get = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.modelRep.getAll = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.modelRep.getName = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.modelRep.isVisible = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.moduleRep = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.moduleRep.find = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.moduleRep.findAndGet = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.moduleRep.get = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.moduleRep.getAll = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.moduleRep.getName = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.res.moduleRep.isVisible = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.cmd.makeScriptingSendEventCmd = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.cmd.makeStockListSetModifiersCmd = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.cmd.makeVehicleSetModifiersCmd = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]---- listing api.GameScriptStateNotificationHelper (1 lines) ----
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.GameScriptStateNotificationHelper = table
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]---- listing api.GameScriptTableHelper (1 lines) ----
+[2026-10-06 10:59:47Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]api.GameScriptTableHelper = table
+[2026-10-06 10:59:47Z - MESSAGE  - Main Thread      - ModelData Verif]  ModelData verify complete, took 33 ms
+[2026-10-06 10:59:48Z - WARNING  - LoadPool 4       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 10:59:52Z - WARNING  - Main Thread      - Main           ]  inspectorSelector NOT setActionFn
+[2026-10-06 10:59:52Z - WARNING  - Main Thread      - Main           ]  push() default tool
+[2026-10-06 11:00:40Z - MESSAGE  - Main Thread      - Main           ]  ScriptComponentRoot: Collect Lua Garbage: 16812 KB -> 8243 KB
+[2026-10-06 11:00:50Z - MESSAGE  - Sim Pool 7       - Main           ]  [mp_probe]---- snapshot errors (1 lines) ----
+[2026-10-06 11:00:50Z - MESSAGE  - Sim Pool 7       - Main           ]  [mp_probe]vehicle_pos_sum: [string "mp_probe_1::/mp_probe/probe.lua"]:170: Error decoding argument #2: The lua object can't be cast to desired type
+[2026-10-06 11:04:54Z - WARNING  - LoadPool 1       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 11:04:54Z - WARNING  - LoadPool 2       - Main           ]  Texture error: Could not find texture '::/placeholders/mat/tex/unkown_texture.dds'
+[2026-10-06 11:05:01Z - MESSAGE  - Simulation Threa - Main           ]  SaveGame Complexity Info: estimatedMb=4387, area=126.878, population=957, vehicleModels=3, vehicles=15, assetGroups=21744, assets=215802, mil=23868, models=282784, lines=2, cargoTransported=63, passengersTransported=0, cargoInStock=3377
+[2026-10-06 11:05:05Z - MESSAGE  - Main Thread      - Main           ]  ModioModHubBackend: Setting mod management mode from Disabled to Full
+[2026-10-06 11:05:05Z - WARNING  - LoadPool 1       - Main           ]  Texture error: Could not find texture '::/placeholders/mat/tex/unkown_texture.dds'
+[2026-10-06 11:00:40Z - VERBOSE  - Main Thread      - Main           ]  Writing shader cache to C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/shader_cache/cache.lua
+[2026-10-06 11:05:04Z - VERBOSE  - Main Thread      - Main           ]  Writing shader cache to C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/shader_cache/cache.lua
+[2026-10-06 11:05:05Z - VERBOSE  - Main Thread      - Main           ]  Refreshing Mods
+[2026-10-06 11:05:05Z - VERBOSE  - Main Thread      - ModRep         ]  Looking for workshop mods
+[2026-10-06 11:05:05Z - VERBOSE  - Main Thread      - ModRep         ]  Found 15 mods, mod count did not change (took 1 ms)
+[2026-10-06 11:05:05Z - VERBOSE  - Main Thread      - Main           ]  LocalModHubBackend: SetModManagementMode: Full
+[2026-10-06 11:05:05Z - VERBOSE  - Main Thread      - Main           ]  Mods changed, recreating data...
+[2026-10-06 11:05:05Z - VERBOSE  - Main Thread      - Main           ]  Refreshing Mods
+[2026-10-06 11:05:05Z - VERBOSE  - Main Thread      - ModRep         ]  Looking for workshop mods
+[2026-10-06 11:05:05Z - VERBOSE  - Main Thread      - ModRep         ]  Found 15 mods, mod count did not change (took 1 ms)
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 1095 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 1096 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 1097 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:05Z - WARNING  - LoadPool 2       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 1286 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 22 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 23 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 251 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 252 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]  Preserved props id 508 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:05Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:06Z - WARNING  - Main Thread      - Main           ]  Preserved props id 251 of an instance of ImageView - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:06Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:06Z - WARNING  - Main Thread      - Main           ]  Preserved props id 252 of an instance of Button - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:06Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:06Z - WARNING  - Main Thread      - Main           ]  Preserved props id 508 of an instance of WithComponentParams - this usually means a recipe was called but not attached to the tree.
+[2026-10-06 11:05:06Z - WARNING  - Main Thread      - Main           ]   It has been created by by an instance of MainPage
+[2026-10-06 11:05:07Z - MESSAGE  - Main Thread      - Main           ]  ModioModHubBackend: Setting mod management mode from Full to Disabled
+[2026-10-06 11:05:07Z - MESSAGE  - Main Thread      - Main           ]+ Active mods:
+[2026-10-06 11:05:07Z - MESSAGE  - Main Thread      - Main           ]+ Active mods:
+[2026-10-06 11:05:07Z - MESSAGE  - Main Thread      - Main           ]+ Active mods:
+    | mod params:
+    | ["advancedOptions.subventionMode"] = 4,
+    | ["gameTimeConfig.timeOfDayMode"] = 1,
+[2026-10-06 11:05:08Z - MESSAGE  - Load Game Pool 2 - ModelRep Load  ]  ModelRep load complete, took 760 ms
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/rubber/rubber.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/crude_oil/crude_oil.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/chemicals/chemicals.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/fuel/fuel.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/iron_ore/iron_ore.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/coal/coal.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/clay/clay.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/stone/stone.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/wool/wool.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/fabric/fabric.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/clothes/clothes.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/tinned_food/tinned_food.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/plastic/plastic.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/tools/tools.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/furniture/furniture.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/glass/glass.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/bricks/bricks.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/paper/paper.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/books/books.cargo.lua
+[2026-10-06 11:05:08Z - VERBOSE  - Load Game Pool 2 - Main           ]  Enable for selected economy Cargo Type: ::/cargos/tires/tires.cargo.lua
+[2026-10-06 11:05:08Z - WARNING  - Load Game Pool 2 - Main           ]  Can't replace ::/tree/lombardy_poplar_boost.mdl with ::/assets/vegetation/trees/lmbrd_ppl_01/lmbrd_ppl_01_boost.mdl: replacement model not found
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 2 - Main           ]  SaveGame Complexity Info: estimatedMb=4387, area=126.878, population=957, vehicleModels=3, vehicles=15, assetGroups=21744, assets=215802, mil=23868, models=282784, lines=2, cargoTransported=63, passengersTransported=0, cargoInStock=3377
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 1 - ModelData Load ]  ModelData load complete, took 1960 ms
+[2026-10-06 11:05:09Z - MESSAGE  - Main Thread      - ModelData Verif]  ModelData verify complete, took 31 ms
+[2026-10-06 11:05:09Z - WARNING  - LoadPool 3       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_c_right_c_diag.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_left.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_left_c.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_right.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_right_c.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_con_1.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_con_2.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_con_3.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_con_4.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_roof.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_universal/wh_universal_shack.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_universal/wh_universal_sm.mdl
+[2026-10-06 11:05:11Z - WARNING  - Main Thread      - Main           ]  inspectorSelector NOT setActionFn
+[2026-10-06 11:05:11Z - WARNING  - Main Thread      - Main           ]  push() default tool
+[2026-10-06 11:06:09Z - MESSAGE  - Main Thread      - Main           ]  ScriptComponentRoot: Collect Lua Garbage: 10981 KB -> 6467 KB
+[2026-10-06 11:08:58Z - WARNING  - LoadPool 3       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 11:06:09Z - VERBOSE  - Main Thread      - Main           ]  Writing shader cache to C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/shader_cache/cache.lua
+[2026-10-06 11:08:52Z - VERBOSE  - Main Thread      - Main           ]  Pop construction mode
+[2026-10-06 11:08:52Z - VERBOSE  - Main Thread      - Main           ]  Push management mode
+[2026-10-06 11:09:11Z - WARNING  - Main Thread      - Main           ]  will popSelf
+[2026-10-06 11:09:11Z - VERBOSE  - Main Thread      - Main           ]  Quit management mode
+[2026-10-06 11:09:11Z - WARNING  - Main Thread      - Main           ]  will popSelf
+[2026-10-06 11:09:14Z - WARNING  - LoadPool 3       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 11:09:14Z - WARNING  - LoadPool 2       - Main           ]  Texture error: Could not find texture '::/placeholders/mat/tex/unkown_texture.dds'
+[2026-10-06 11:09:17Z - MESSAGE  - Simulation Threa - Main           ]  SaveGame Complexity Info: estimatedMb=4387, area=126.878, population=957, vehicleModels=3, vehicles=15, assetGroups=22916, assets=217676, mil=25017, models=284723, lines=3, cargoTransported=104, passengersTransported=0, cargoInStock=3443
+[2026-10-06 11:09:35Z - MESSAGE  - Save Pool 5      - Main           ]  Saved settings to settings.lua
+----- last 80 lines -----
+[2026-10-06 11:05:08Z - MESSAGE  - Load Game Pool 2 - Main           ]  No resources are missing!
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 2 - Main           ]  Updating legacy mission state from version: 4 to version: 4
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 2 - Main           ]  Updating legacy mission state: done
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 2 - Main           ]  Updating legacy mission state from version: 4 to version: 4
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 2 - Main           ]  Updating legacy mission state: done
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 2 - Main           ]  SaveGame Complexity Info: estimatedMb=4387, area=126.878, population=957, vehicleModels=3, vehicles=15, assetGroups=21744, assets=215802, mil=23868, models=282784, lines=2, cargoTransported=63, passengersTransported=0, cargoInStock=3377
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 1 - ModelData Load ]  ModelData load complete, took 1960 ms
+[2026-10-06 11:05:09Z - MESSAGE  - Load Game Pool 2 - Main           ]  Enter Game Asynchronously: 2149.554 ms
+[2026-10-06 11:05:09Z - MESSAGE  - Main Thread      - ModelData Verif]  ModelData verify complete, took 31 ms
+[2026-10-06 11:05:09Z - MESSAGE  - Main Thread      - Main           ]  Initial material index generation: 0.004 ms
+[2026-10-06 11:05:09Z - WARNING  - LoadPool 3       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_c_right_c_diag.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_left.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_left_c.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_right.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_goods/top_right_c.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_con_1.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_con_2.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_con_3.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_con_4.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_liquid/wh_liquid_roof.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_universal/wh_universal_shack.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - ModelData Verif]  Verify model: ::/warehouses/wh_universal/wh_universal_sm.mdl
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - Material UBO   ]  Loading material UBOs took 132 ms
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - Main           ]  Material UBO manager: num = 191, size = 4
+[2026-10-06 11:05:09Z - VERBOSE  - Main Thread      - Main           ]  Setting up water wave renderer from environment
+[2026-10-06 11:05:11Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(884, IndustryGreenifyAction)
+[2026-10-06 11:05:11Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(885, MarketingAction)
+[2026-10-06 11:05:11Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(886, GameBarEarningsPlugin)
+[2026-10-06 11:05:11Z - VERBOSE  - Main Thread      - Main           ]  RegisterRecipeInner(887, GameBarTransportedPlugin)
+[2026-10-06 11:05:11Z - WARNING  - Main Thread      - Main           ]  inspectorSelector NOT setActionFn
+[2026-10-06 11:05:11Z - WARNING  - Main Thread      - Main           ]  push() default tool
+[2026-10-06 11:06:09Z - MESSAGE  - Main Thread      - Main           ]  ScriptComponentRoot: Collect Lua Garbage: 10981 KB -> 6467 KB
+[2026-10-06 11:06:09Z - MESSAGE  - Main Thread      - Main           ]  Game is ready
+[2026-10-06 11:06:09Z - MESSAGE  - Main Thread      - Main           ]  Init game took: 62.618120999999995 s
+[2026-10-06 11:06:09Z - MESSAGE  - Main Launcher 1  - Main           ]  Shadow map change size: (4096x4096), viewport size = 2880x1621, cascades = 3
+[2026-10-06 11:06:22Z - MESSAGE  - Sim Pool 13      - Main           ]  [mp_probe]snapshot update=8100 game_time=1620000 money=8894603 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:06:37Z - MESSAGE  - Sim Pool 9       - Main           ]  [mp_probe]snapshot update=8400 game_time=1680000 money=8955285 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:06:52Z - MESSAGE  - Sim Pool 13      - Main           ]  [mp_probe]snapshot update=8700 game_time=1740000 money=8764950 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:07:07Z - MESSAGE  - Sim Pool 4       - Main           ]  [mp_probe]snapshot update=9000 game_time=1800000 money=8825159 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:07:22Z - MESSAGE  - Sim Pool 10      - Main           ]  [mp_probe]snapshot update=9300 game_time=1860000 money=8632855 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:07:37Z - MESSAGE  - Sim Pool 7       - Main           ]  [mp_probe]snapshot update=9600 game_time=1920000 money=8610495 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:07:52Z - MESSAGE  - Sim Pool 12      - Main           ]  [mp_probe]snapshot update=9900 game_time=1980000 money=8673105 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:08:07Z - MESSAGE  - Sim Pool 7       - Main           ]  [mp_probe]snapshot update=10200 game_time=2040000 money=8480227 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:08:22Z - MESSAGE  - Sim Pool 9       - Main           ]  [mp_probe]snapshot update=10500 game_time=2100000 money=8540831 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:08:37Z - MESSAGE  - Sim Pool 10      - Main           ]  [mp_probe]snapshot update=10800 game_time=2160000 money=8430837 n_construction=620 n_line=2 n_sim_person=957 n_station=18 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:08:45Z - MESSAGE  - Simulation Threa - Main           ]  Spawned industry: 43722
+[2026-10-06 11:08:45Z - MESSAGE  - Simulation Threa - Main           ]  Industry 'Allensbach Lehmgrube': connected
+[2026-10-06 11:08:45Z - MESSAGE  - Simulation Threa - Main           ]  Industries: 1/1 connected
+[2026-10-06 11:08:45Z - MESSAGE  - Simulation Threa - Main           ]  Connect industry: 81.879 ms
+[2026-10-06 11:08:52Z - MESSAGE  - Sim Pool 13      - Main           ]  [mp_probe]snapshot update=11100 game_time=2220000 money=8393341 n_construction=621 n_line=2 n_sim_person=957 n_station=19 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:08:58Z - WARNING  - LoadPool 3       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 11:09:07Z - MESSAGE  - Sim Pool 5       - Main           ]  [mp_probe]snapshot update=11400 game_time=2280000 money=8283482 n_construction=621 n_line=3 n_sim_person=957 n_station=19 n_town=10 n_transport_vehicle=15 vehicle_pos_sum=ERR
+[2026-10-06 11:06:09Z - VERBOSE  - Main Thread      - Main           ]  Writing shader cache to C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/shader_cache/cache.lua
+[2026-10-06 11:06:09Z - VERBOSE  - Main Thread      - Main           ]  Saved pipeline cache to C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/shader_cache/pipelines.cache
+[2026-10-06 11:08:52Z - VERBOSE  - Main Thread      - Main           ]  Pop construction mode
+[2026-10-06 11:08:52Z - VERBOSE  - Main Thread      - Main           ]  Push management mode
+[2026-10-06 11:09:11Z - WARNING  - Main Thread      - Main           ]  will popSelf
+[2026-10-06 11:09:11Z - VERBOSE  - Main Thread      - Main           ]  Quit management mode
+[2026-10-06 11:09:11Z - WARNING  - Main Thread      - Main           ]  will popSelf
+[2026-10-06 11:09:12Z - MESSAGE  - Main Thread      - Main           ]  Ignoring Set() on expired ReactRefWrap
+stack traceback:
+    =[C](-1): set
+    ::/gui/main/selector_react_util.tl(103): ?
+[2026-10-06 11:09:14Z - WARNING  - LoadPool 3       - Main           ]  Texture error: Could not find texture ''
+[2026-10-06 11:09:14Z - WARNING  - LoadPool 2       - Main           ]  Texture error: Could not find texture '::/placeholders/mat/tex/unkown_texture.dds'
+[2026-10-06 11:09:17Z - MESSAGE  - Simulation Threa - Main           ]  SaveGame Complexity Info: estimatedMb=4387, area=126.878, population=957, vehicleModels=3, vehicles=15, assetGroups=22916, assets=217676, mil=25017, models=284723, lines=3, cargoTransported=104, passengersTransported=0, cargoInStock=3443
+[2026-10-06 11:09:17Z - MESSAGE  - Simulation Threa - Saving         ]  Available disk space: 226239 MB
+[2026-10-06 11:09:17Z - MESSAGE  - Simulation Threa - Saving         ]  Saving to file C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/save/Test2.sav
+[2026-10-06 11:09:17Z - MESSAGE  - Simulation Threa - Saving         ]  Savegame info: version = 604, size = 32360368, time = Tue Oct  6 13:09:17 2026
+[2026-10-06 11:09:17Z - MESSAGE  - Simulation Threa - Saving         ]  Saving game complete, took 577 ms
+[2026-10-06 11:09:18Z - MESSAGE  - Main Thread      - Main           ]  Ignoring Set() on expired ReactRefWrap
+stack traceback:
+    =[C](-1): set
+    ::/gui/main/selector_react_util.tl(103): ?
+[2026-10-06 11:09:34Z - MESSAGE  - Main Thread      - Main           ]  Game is stopped
+[2026-10-06 11:09:35Z - MESSAGE  - Main Thread      - Main           ]  Shutting down PDX SDK
+[2026-10-06 11:09:35Z - MESSAGE  - Save Pool 5      - Main           ]  Saved settings to settings.lua
+[2026-10-06 11:09:35Z - MESSAGE  - Main Thread      - Main           ]  Normal shutdown. Bye!
