@@ -239,17 +239,54 @@ test("update runs the probe once and snapshots periodically", function()
 	assert(contains(logged, "subscribe onPostBuildProposal: ok"))
 end)
 
-test("handleEvent dumps up to BUILD_DUMPS build proposals", function()
+local function player_build_param()
+	return { { proposal = { addedSegments = { 1 } }, toAdd = {} }, {}, { 501 }, false }
+end
+
+local function town_build_param()
+	return { { proposal = { addedSegments = {} }, toAdd = { { playerEntity = -1 } } }, {}, { 777 }, false }
+end
+
+test("is_player_build tells player builds from town builds", function()
+	local main = load_resource("/mp_probe/main.script.lua")
+	assert(main.is_player_build(player_build_param()))
+	assert(main.is_player_build({ { proposal = { addedSegments = {} }, toAdd = { { playerEntity = 3 } } } }))
+	assert(not main.is_player_build(town_build_param()))
+	assert(not main.is_player_build({ {} }), "malformed param counts as no player build")
+end)
+
+test("handleEvent dumps up to BUILD_DUMPS player builds and one town build", function()
 	local main = load_resource("/mp_probe/main.script.lua")
 	main.BUILD_DUMPS = 2
 	logged = {}
 	local state = mock_state()
-	for _ = 1, 4 do main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", { {} }) end
-	local dumps = 0
+	for _ = 1, 4 do main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param()) end
+	for _ = 1, 3 do main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", town_build_param()) end
+	local player_dumps, town_dumps = 0, 0
 	for _, l in ipairs(logged) do
-		if l:find("---- param of onPostBuildProposal", 1, true) then dumps = dumps + 1 end
+		if l:find("---- param of onPostBuildProposal player", 1, true) then player_dumps = player_dumps + 1
+		elseif l:find("---- param of onPostBuildProposal #", 1, true) then town_dumps = town_dumps + 1 end
 	end
-	assert(dumps == 2, "dumps " .. dumps)
+	assert(player_dumps == 2, "player dumps " .. player_dumps)
+	assert(town_dumps == 1, "town dumps " .. town_dumps)
+	assert(contains(logged, "---- raw debugPrint of onPostBuildProposal player #1"))
+end)
+
+test("player builds dump the components of the new entities", function()
+	local main = load_resource("/mp_probe/main.script.lua")
+	logged = {}
+	local saved_api = api
+	api = { type = { ComponentType = { BASE_EDGE = 1, BASE_NODE = 2 } }, engine = {
+		getComponent = function(entity, comp)
+			if entity == 501 and comp == 1 then return { node0 = 600, node1 = 601, type = 0 } end
+			return nil
+		end,
+	} }
+	main.handleEvent(nil, mock_state(), "", "apply_command", "onPostBuildProposal", player_build_param())
+	api = saved_api
+	assert(contains(logged, "---- entity 501 BASE_EDGE"), table.concat(logged, "\n"))
+	assert(contains(logged, "e501.BASE_EDGE.node0 = number 600"))
+	assert(not contains(logged, "entity 501 BASE_NODE"))
 end)
 
 test("handleEvent starts counting again for a new probe version", function()

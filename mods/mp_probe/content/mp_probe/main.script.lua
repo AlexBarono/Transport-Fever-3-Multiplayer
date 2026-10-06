@@ -10,13 +10,20 @@ local probe = require("/mp_probe/probe.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 4
+main.PROBE_VERSION = 5
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
 main.EVENT_PARAM_LINES = 800
---- Number of build proposals whose structure is dumped (each build looks different).
-main.BUILD_DUMPS = 5
+--- Number of player build proposals whose structure is dumped (each build looks different).
+-- Town builds (playerEntity -1, nothing new for the player) are dumped once at most.
+main.BUILD_DUMPS = 8
+
+--- Components read for every entity a player build creates. Built edges and nodes are what a
+-- second client has to recreate, so their full data is dumped (TF2 names, guarded).
+main.ENTITY_COMPONENTS = {
+	"BASE_EDGE", "BASE_EDGE_STREET", "BASE_EDGE_TRACK", "BASE_NODE", "CONSTRUCTION", "PLAYER_OWNED", "NAME",
+}
 
 --- Events the engine only delivers on subscription. Build proposals are what a multiplayer
 -- bridge has to capture and replay, so their parameter structure is dumped once.
@@ -78,6 +85,40 @@ function main.update(_user_params, state, _dt)
 	state:set(s)
 end
 
+--- True for a build proposal the player made (new road or track segments, or a construction owned
+-- by a player). The game itself also builds (towns), with playerEntity -1 and no segments.
+function main.is_player_build(param)
+	local ok, result = pcall(function()
+		local ctx = param[1]
+		if #ctx.proposal.addedSegments > 0 then return true end
+		for i = 1, #ctx.toAdd do
+			if ctx.toAdd[i].playerEntity ~= -1 then return true end
+		end
+		return false
+	end)
+	return ok and result
+end
+
+--- Dumps the components of every entity a build created, through debugPrint (which may print the
+-- engine's own description of userdata) and through probe.fields.
+function main.dump_new_entities(env, new_ids, label)
+	local engine = env.api and env.api.engine
+	local ct = env.api and env.api.type and env.api.type.ComponentType
+	if not engine or not ct or type(new_ids) ~= "table" then return end
+	for i = 1, math.min(#new_ids, 6) do
+		local id = new_ids[i]
+		for _, comp in ipairs(main.ENTITY_COMPONENTS) do
+			local ok, value = pcall(function() return engine.getComponent(id, ct[comp]) end)
+			if ok and value ~= nil then
+				logger.info("---- entity " .. tostring(id) .. " " .. comp .. " (" .. label .. ") raw:")
+				pcall(debugPrint, value)
+				local ok_f, lines = pcall(probe.fields, value, "e" .. tostring(id) .. "." .. comp, 5, 150)
+				if ok_f then for _, line in ipairs(lines) do logger.info(line) end end
+			end
+		end
+	end
+end
+
 function main.handleEvent(_user_params, state, src, id, name, param)
 	local s = state:get() or {}
 	-- Event counts live in the savegame; start over for each probe version so a new version dumps again.
@@ -86,18 +127,27 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 		s.seen_events_version = main.PROBE_VERSION
 	end
 	local key = tostring(src) .. "|" .. tostring(id) .. "|" .. tostring(name)
+	local player_build = name == "onPostBuildProposal" and main.is_player_build(param)
+	if player_build then key = key .. "|player" end
 	local prev = s.seen_events[key]
 	local count = type(prev) == "number" and prev + 1 or 1
-	local limit = name == "onPostBuildProposal" and main.BUILD_DUMPS or 1
+	local limit = player_build and main.BUILD_DUMPS or 1
 	if count > limit then return end
 	s.seen_events[key] = count
 	state:set(s)
-	logger.info("event src=" .. tostring(src) .. " id=" .. tostring(id) .. " name=" .. tostring(name) .. " #" .. count)
+	local label = tostring(name) .. (player_build and " player" or "") .. " #" .. count
+	logger.info("event src=" .. tostring(src) .. " id=" .. tostring(id) .. " name=" .. label)
 	local ok, lines = pcall(probe.list, param, "param", main.EVENT_PARAM_DEPTH, nil, main.EVENT_PARAM_LINES)
-	if ok then log_lines("param of " .. tostring(name) .. " #" .. count, lines) end
+	if ok then log_lines("param of " .. label, lines) end
 	-- Build proposals arrive as C++ userdata that pairs() cannot enumerate; probe known field names.
-	local ok_f, field_lines = pcall(probe.fields, param, "param", 6, main.EVENT_PARAM_LINES)
-	if ok_f and #field_lines > 0 then log_lines("fields of " .. tostring(name) .. " #" .. count, field_lines) end
+	local ok_f, field_lines = pcall(probe.fields, param, "param", 7, main.EVENT_PARAM_LINES)
+	if ok_f and #field_lines > 0 then log_lines("fields of " .. label, field_lines) end
+	if player_build then
+		logger.info("---- raw debugPrint of " .. label .. " proposal and result:")
+		pcall(debugPrint, param[1])
+		pcall(debugPrint, param[2])
+		main.dump_new_entities(_G, param[3], label)
+	end
 end
 
 -- The engine loads resource files (unlike modules loaded with require) by calling the global data().

@@ -210,6 +210,11 @@ probe.KNOWN_FIELDS = {
 	"checkTerrainAlignment", "costs", "errorState", "critical", "messages", "warnings",
 	"collisionInfo", "entity", "type", "streetType", "trackType", "comp", "node0", "node1",
 	"tangent0", "tangent1", "position", "x", "y", "z",
+	-- TF3 guesses (api.type has Edge, EdgeGeometry.Straight/Arc/CubicSpline, Node, NodeAndEntity).
+	"comp", "edge", "node", "geometry", "streetEdge", "trackEdge", "typeIndex", "objects",
+	"start", "center", "radius", "angle", "length", "p0", "p1", "t0", "t1", "pos", "tangent",
+	"nodes", "edges", "segment", "segments", "data", "owner", "ownerEntity", "width", "speed",
+	"hasBus", "tramTrackType", "catenary", "edgeType", "edgeTypeName",
 }
 
 --- Probes probe.KNOWN_FIELDS on a value (recursing into whatever is found) and on array entries.
