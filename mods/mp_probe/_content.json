@@ -5,6 +5,7 @@
         "mp_probe/logger.lua",
         "mp_probe/main.gs.lua",
         "mp_probe/main.script.lua",
-        "mp_probe/probe.lua"
+        "mp_probe/probe.lua",
+        "mp_probe/world.lua"
     ]
 }
