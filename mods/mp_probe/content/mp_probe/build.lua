@@ -6,7 +6,7 @@
 local build = {}
 
 --- Wire format version, part of every line so an old client can reject a new line.
-build.VERSION = 3
+build.VERSION = 4
 
 local function round(x)
 	return math.floor(x * 1000 + 0.5) / 1000
@@ -95,7 +95,7 @@ local function precedence_from_string(text)
 end
 
 local function vec_to_string(v)
-	return round(v.x) .. "," .. round(v.y) .. "," .. round(v.z)
+	return num(v.x) .. "," .. num(v.y) .. "," .. num(v.z)
 end
 
 local function vec_from_string(s)
@@ -104,40 +104,224 @@ local function vec_from_string(s)
 	return { x = tonumber(x), y = tonumber(y), z = tonumber(z) }
 end
 
---- Turns a captured proposal into one line.
+--- Reads a transformation matrix (api Mat4f or a plain table) as 16 numbers, column by column,
+-- so numbers 13..15 are the position. Several access styles are tried because the TF3 type is
+-- not documented; the one that worked is returned as the second value.
+function build.read_transf(t)
+	if t == nil then return nil, "no transf" end
+	local attempts = {
+		{ "index1", function()
+			local m = {}
+			for i = 1, 16 do m[i] = t[i] end
+			return m
+		end },
+		{ "cols0", function()
+			local m = {}
+			for c = 0, 3 do
+				local col = t:cols(c)
+				m[#m + 1], m[#m + 2], m[#m + 3], m[#m + 4] = col.x, col.y, col.z, col.w
+			end
+			return m
+		end },
+		{ "index0", function()
+			local m = {}
+			for i = 0, 15 do m[i + 1] = t[i] end
+			return m
+		end },
+	}
+	local errors = {}
+	for _, attempt in ipairs(attempts) do
+		local ok, m = pcall(attempt[2])
+		if ok and type(m) == "table" then
+			local complete = true
+			for i = 1, 16 do
+				if type(m[i]) ~= "number" then complete = false end
+			end
+			if complete then return m, attempt[1] end
+			errors[#errors + 1] = attempt[1] .. ": not 16 numbers"
+		else
+			errors[#errors + 1] = attempt[1] .. ": " .. tostring(m):sub(1, 60)
+		end
+	end
+	return nil, table.concat(errors, "; ")
+end
+
+--- Percent-encodes every character that is not a letter, digit, "_", "." or "-", so a text field
+-- never contains the separators of the line (space, ";", "|", ",") or of a params literal.
+function build.escape(text)
+	return (string.gsub(tostring(text), "[^%w_%.%-]", function(c) return string.format("%%%02X", c:byte()) end))
+end
+
+function build.unescape(text)
+	return (string.gsub(text, "%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end))
+end
+
+--- A number with up to 6 decimals and no trailing zeros (rotation parts of a transformation need
+-- more than the 3 decimals of positions).
+local function fine(x)
+	local s = string.format("%.6f", x)
+	s = s:gsub("0+$", ""):gsub("%.$", "")
+	if s == "-0" then s = "0" end
+	return s
+end
+
+--- Writes a construction's params table as a literal: {key=value,...} with keys sorted, strings
+-- as 's<escaped>', numbers as 'n<number>', booleans as 'T'/'F'. Functions and userdata cannot
+-- travel and raise an error.
+function build.params_to_string(value)
+	local t = type(value)
+	if t == "number" then
+		if value == math.floor(value) and math.abs(value) < 1e15 then return "n" .. string.format("%d", value) end
+		return "n" .. string.format("%.10g", value)
+	elseif t == "string" then
+		return "s" .. build.escape(value)
+	elseif t == "boolean" then
+		return value and "T" or "F"
+	elseif t == "table" then
+		local keys = {}
+		for k in pairs(value) do keys[#keys + 1] = k end
+		table.sort(keys, function(a, b)
+			if type(a) == type(b) then return a < b end
+			return type(a) == "number"
+		end)
+		local parts = {}
+		for _, k in ipairs(keys) do
+			parts[#parts + 1] = build.params_to_string(k) .. "=" .. build.params_to_string(value[k])
+		end
+		return "{" .. table.concat(parts, ",") .. "}"
+	end
+	error("params value of type " .. t .. " cannot be sent", 0)
+end
+
+--- Parses build.params_to_string. Returns the value, or nil plus an error. A small parser of its
+-- own, so a line from the network is never run as Lua code.
+function build.params_from_string(text)
+	local pos = 1
+	local parse
+	local function fail(msg) error("params: " .. msg .. " at " .. pos, 0) end
+	function parse()
+		local c = text:sub(pos, pos)
+		if c == "n" then
+			local s, e = text:find("^[-%d%.eE+]+", pos + 1)
+			if not s then fail("bad number") end
+			pos = e + 1
+			return tonumber(text:sub(s, e)) or fail("bad number")
+		elseif c == "s" then
+			local s, e = text:find("^[%w_%.%-%%]*", pos + 1)
+			pos = e + 1
+			return build.unescape(text:sub(s, e))
+		elseif c == "T" or c == "F" then
+			pos = pos + 1
+			return c == "T"
+		elseif c == "{" then
+			pos = pos + 1
+			local t = {}
+			if text:sub(pos, pos) == "}" then
+				pos = pos + 1
+				return t
+			end
+			while true do
+				local k = parse()
+				if text:sub(pos, pos) ~= "=" then fail("missing =") end
+				pos = pos + 1
+				t[k] = parse()
+				local sep = text:sub(pos, pos)
+				pos = pos + 1
+				if sep == "}" then return t end
+				if sep ~= "," then fail("missing , or }") end
+			end
+		end
+		fail("unexpected '" .. c .. "'")
+	end
+	local ok, value = pcall(parse)
+	if not ok then return nil, value end
+	if pos ~= #text + 1 then return nil, "params: trailing text at " .. pos end
+	return value
+end
+
+local function list_items(list)
+	local items = {}
+	local ok, n = pcall(function() return #list end)
+	for i = 1, (ok and n or 0) do items[i] = list[i] end
+	return items
+end
+
+--- Turns a captured build into one line (format B4, see docs/phase1-bridge.md).
 -- New nodes and segments keep only their position and shape; their engine ids become placeholders
--- -1, -2, ... because the other game will create different ones. A node the player connected to
--- (not part of addedNodes) keeps its real id, which only works inside the same game, so the count
--- of those is reported in `info.foreign_nodes` and the caller can skip such a line.
+-- -1, -2, ... because the other game creates different ones. Existing things the build touches
+-- (nodes it connects to, segments and nodes it removes, constructions it demolishes) are named by
+-- their position, which the receiver turns back into its own entities (world.lua).
 -- @param proposal userdata param[1].proposal of onPostBuildProposal
--- @return string line, table info { nodes, segments, foreign_nodes }
-function build.serialize(proposal)
+-- @param opts table|nil {
+--   node_position = function(id) -> {x,y,z} of an existing node,
+--   to_add = param[1].toAdd (constructions), to_remove = param[1].toRemove (construction ids),
+--   construction = function(id) -> { file, position } of a demolished construction,
+--   read_transf = function(transf) -> 16 numbers, or nil and a message }
+-- @return string line, table info { nodes, segments, foreign_nodes, removed_segments,
+--   removed_nodes, constructions, demolished, edge_objects, dropped = list of what was left out }
+function build.serialize(proposal, opts)
+	opts = opts or {}
 	local parts = { "B" .. build.VERSION }
 	local placeholder = {}
 	local road_ids, road_count = {}, 0
-	local info = { nodes = 0, segments = 0, foreign_nodes = 0 }
-	local nodes = proposal.addedNodes
-	for i = 1, #nodes do
-		local node = nodes[i]
-		placeholder[node.entity] = -i
-		info.nodes = i
-		parts[#parts + 1] = "n" .. (-i) .. ";" .. vec_to_string(node.comp.position)
+	local info = { nodes = 0, segments = 0, foreign_nodes = 0, removed_segments = 0, removed_nodes = 0,
+		constructions = 0, demolished = 0, edge_objects = 0, dropped = {} }
+
+	-- Nodes a construction owns (0-based indexes into addedNodes, run 5); the construction
+	-- creates them and the segments touching them itself.
+	local frozen = {}
+	for _, index in ipairs(list_items(proposal.frozenNodes)) do frozen[index + 1] = true end
+	local frozen_ids = {}
+	local nodes = list_items(proposal.addedNodes)
+	for i, node in ipairs(nodes) do
+		if frozen[i] then frozen_ids[node.entity] = true end
 	end
-	local segments = proposal.addedSegments
-	for i = 1, #segments do
-		local seg = segments[i]
+
+	local segments, used = {}, {}
+	for _, seg in ipairs(list_items(proposal.addedSegments)) do
 		local comp = seg.comp
-		local n0, n1 = placeholder[comp.node0], placeholder[comp.node1]
-		if not n0 then
-			n0 = comp.node0
-			info.foreign_nodes = info.foreign_nodes + 1
+		if frozen_ids[comp.node0] or frozen_ids[comp.node1] then
+			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (part of a construction)"
+		else
+			segments[#segments + 1] = seg
+			used[comp.node0], used[comp.node1] = true, true
 		end
-		if not n1 then
-			n1 = comp.node1
-			info.foreign_nodes = info.foreign_nodes + 1
+	end
+
+	local count = 0
+	for _, node in ipairs(nodes) do
+		if used[node.entity] then
+			count = count + 1
+			placeholder[node.entity] = -count
+			parts[#parts + 1] = "n" .. (-count) .. ";" .. vec_to_string(node.comp.position)
 		end
+	end
+	info.nodes = count
+
+	local foreign, foreign_count = {}, 0
+	local function node_ref(id)
+		if placeholder[id] then return placeholder[id] end
+		if not foreign[id] then
+			local p = opts.node_position and opts.node_position(id)
+			if not p then error("existing node " .. tostring(id) .. " has no position", 0) end
+			foreign_count = foreign_count + 1
+			foreign[id] = foreign_count
+			parts[#parts + 1] = "f" .. foreign_count .. ";" .. vec_to_string(p)
+		end
+		return "f" .. foreign[id]
+	end
+
+	for i, seg in ipairs(segments) do
+		local comp = seg.comp
+		local n0, n1 = node_ref(comp.node0), node_ref(comp.node1)
 		if comp.roadTemplate == nil or comp.roadStyle == nil then
 			error("segment " .. tostring(seg.entity) .. " has no roadTemplate/roadStyle", 0)
+		end
+		-- Stops and signals on a segment are not copied yet (v13); the segment is.
+		local objects = 0
+		pcall(function() objects = #comp.objects end)
+		if objects > 0 then
+			info.dropped[#info.dropped + 1] = objects .. " stop(s)/signal(s) on segment " .. tostring(seg.entity)
 		end
 		info.segments = i
 		-- TF3 keeps the street or track type in the segment itself (run 5 raw dump):
@@ -159,16 +343,74 @@ function build.serialize(proposal)
 			precedence_to_string(seg, "params"), precedence_to_string(seg, "streetEdge"),
 		}, ";")
 	end
+	info.foreign_nodes = foreign_count
+
+	-- Removed nodes: their positions are only in the proposal, the entities are gone.
+	local removed_position = {}
+	for _, node in ipairs(list_items(proposal.removedNodes)) do
+		local ok, p = pcall(function()
+			local v = node.comp.position
+			return { x = v.x, y = v.y, z = v.z }
+		end)
+		if ok then
+			removed_position[node.entity] = p
+			info.removed_nodes = info.removed_nodes + 1
+			parts[#parts + 1] = "x;" .. vec_to_string(p)
+		end
+	end
+	local function position_of(id)
+		return removed_position[id] or (opts.node_position and opts.node_position(id))
+	end
+	for _, seg in ipairs(list_items(proposal.removedSegments)) do
+		local comp = seg.comp
+		local p0, p1 = position_of(comp.node0), position_of(comp.node1)
+		if not p0 or not p1 then error("removed segment " .. tostring(seg.entity) .. " has no node positions", 0) end
+		info.removed_segments = info.removed_segments + 1
+		parts[#parts + 1] = "r;" .. vec_to_string(p0) .. ";" .. vec_to_string(p1) .. ";" .. tostring(seg.type)
+	end
+
+	for _, eo in ipairs(list_items(proposal.edgeObjectsToAdd)) do
+		info.edge_objects = info.edge_objects + 1
+		local name = ""
+		pcall(function() name = eo.name end)
+		info.dropped[#info.dropped + 1] = "new stop/signal " .. tostring(name)
+	end
+
+	for _, con in ipairs(list_items(opts.to_add)) do
+		local m, how = (opts.read_transf or build.read_transf)(con.transf)
+		if not m then error("construction " .. tostring(con.fileName) .. ": transf unreadable (" .. tostring(how) .. ")", 0) end
+		local numbers = {}
+		for i = 1, 16 do numbers[i] = fine(m[i]) end
+		local params = build.params_to_string(con.params)
+		info.constructions = info.constructions + 1
+		parts[#parts + 1] = table.concat({ "c", build.escape(con.fileName), build.escape(con.name or ""),
+			table.concat(numbers, ","), params }, ";")
+	end
+	for _, id in ipairs(list_items(opts.to_remove)) do
+		local con = opts.construction and opts.construction(id)
+		if not con then error("demolished construction " .. tostring(id) .. " is unknown", 0) end
+		info.demolished = info.demolished + 1
+		parts[#parts + 1] = "d;" .. build.escape(con.file) .. ";" .. vec_to_string(con.position)
+	end
 	return table.concat(parts, " "), info
 end
 
+local function node_ref_from_string(text)
+	local f = string.match(text, "^f(%d+)$")
+	if f then return "f" .. f end
+	return tonumber(text)
+end
+
 --- Parses a line produced by build.serialize.
--- @return table|nil data { version, nodes = {{id, position}}, segments = {{id, type, node0, node1,
---   tangent0, tangent1, typeIndex, roadType, distance, roadTemplate, roadStyle, lanes, params,
---   streetEdge}} }, or nil plus an error message
+-- @return table|nil data { version, nodes = {{id, position}}, foreign = {[k] = position},
+--   segments = {{id, type, node0, node1 (number or "f<k>"), tangent0, tangent1, typeIndex, roadType,
+--   distance, roadTemplate, roadStyle, lanes, params, streetEdge}}, removed_segments = {{p0, p1,
+--   type}}, removed_nodes = {position}, constructions = {{file, name, transf, params}},
+--   demolished = {{file, position}} }, or nil plus an error message
 function build.deserialize(line)
 	if type(line) ~= "string" then return nil, "not a string" end
-	local data = { nodes = {}, segments = {} }
+	local data = { nodes = {}, foreign = {}, segments = {}, removed_segments = {}, removed_nodes = {},
+		constructions = {}, demolished = {} }
 	local roads = {}
 	for token in string.gmatch(line, "%S+") do
 		local kind = token:sub(1, 1)
@@ -188,6 +430,36 @@ function build.deserialize(line)
 			local position = id and vec_from_string(pos)
 			if not position then return nil, "bad node token " .. token end
 			data.nodes[#data.nodes + 1] = { id = tonumber(id), position = position }
+		elseif kind == "f" then
+			local id, pos = string.match(token, "^f(%d+);(.+)$")
+			local position = id and vec_from_string(pos)
+			if not position then return nil, "bad existing node token " .. token end
+			data.foreign["f" .. id] = position
+		elseif kind == "x" then
+			local position = vec_from_string(token:sub(3))
+			if not position then return nil, "bad removed node token " .. token end
+			data.removed_nodes[#data.removed_nodes + 1] = position
+		elseif kind == "r" then
+			local a, b, t = string.match(token, "^r;([^;]+);([^;]+);(%d+)$")
+			local p0, p1 = a and vec_from_string(a), b and vec_from_string(b)
+			if not p0 or not p1 then return nil, "bad removed segment token " .. token end
+			data.removed_segments[#data.removed_segments + 1] = { p0 = p0, p1 = p1, type = tonumber(t) }
+		elseif kind == "c" then
+			local file, name, numbers, params_text = string.match(token, "^c;([^;]+);([^;]*);([^;]+);([^;]+)$")
+			if not file then return nil, "bad construction token " .. token:sub(1, 80) end
+			local transf = {}
+			for n in string.gmatch(numbers, "[^,]+") do transf[#transf + 1] = tonumber(n) end
+			if #transf ~= 16 then return nil, "bad construction transf " .. numbers end
+			local params, err = build.params_from_string(params_text)
+			if err then return nil, err end
+			data.constructions[#data.constructions + 1] = {
+				file = build.unescape(file), name = build.unescape(name), transf = transf, params = params,
+			}
+		elseif kind == "d" then
+			local file, pos = string.match(token, "^d;([^;]+);([^;]+)$")
+			local position = pos and vec_from_string(pos)
+			if not position then return nil, "bad demolish token " .. token end
+			data.demolished[#data.demolished + 1] = { file = build.unescape(file), position = position }
 		elseif kind == "s" then
 			local fields = {}
 			for field in string.gmatch(token:sub(2), "[^;]+") do fields[#fields + 1] = field end
@@ -196,11 +468,13 @@ function build.deserialize(line)
 			if not road then return nil, "unknown road type in " .. token end
 			local t0, t1 = vec_from_string(fields[5]), vec_from_string(fields[6])
 			if not t0 or not t1 then return nil, "bad tangent in " .. token end
+			local n0, n1 = node_ref_from_string(fields[3]), node_ref_from_string(fields[4])
+			if not n0 or not n1 then return nil, "bad node in " .. token end
 			data.segments[#data.segments + 1] = {
 				id = tonumber(fields[1]),
 				type = tonumber(fields[2]),
-				node0 = tonumber(fields[3]),
-				node1 = tonumber(fields[4]),
+				node0 = n0,
+				node1 = n1,
 				tangent0 = t0,
 				tangent1 = t1,
 				typeIndex = tonumber(fields[7]),
@@ -215,7 +489,58 @@ function build.deserialize(line)
 		end
 	end
 	if not data.version then return nil, "no version token" end
+	for _, seg in ipairs(data.segments) do
+		for _, ref in ipairs({ seg.node0, seg.node1 }) do
+			if type(ref) == "string" and not data.foreign[ref] then return nil, "unknown existing node " .. ref end
+		end
+	end
 	return data
+end
+
+--- Turns the existing things a parsed line names by position into this game's entities.
+-- Segment node references "f<k>" become entity ids; removed segments, removed nodes and
+-- demolished constructions get `entity`. A removed segment or demolished construction that is not
+-- found makes the whole build fail (TF2 multiplayer mod: building without removing would double
+-- the road); a removed node that is not found is left out (the street graph cleanup removes it).
+-- @param finder table { find_node = function(position) -> id, find_edge = function(a, b) -> id,
+--   find_construction = function(file, position) -> id }
+-- @return boolean ok, string|nil what could not be found, table notes
+function build.resolve(data, finder)
+	local notes = {}
+	local ids = {}
+	for ref, position in pairs(data.foreign) do
+		local id = finder.find_node(position)
+		if not id then
+			return false, string.format("joins a road or track that does not exist here (node near %.1f,%.1f)",
+				position.x, position.y), notes
+		end
+		ids[ref] = id
+	end
+	data.positions_of = {}
+	for ref, id in pairs(ids) do data.positions_of[id] = data.foreign[ref] end
+	for _, seg in ipairs(data.segments) do
+		if type(seg.node0) == "string" then seg.node0 = ids[seg.node0] end
+		if type(seg.node1) == "string" then seg.node1 = ids[seg.node1] end
+	end
+	for _, r in ipairs(data.removed_segments) do
+		local a, b = finder.find_node(r.p0), finder.find_node(r.p1)
+		r.entity = a and b and a ~= b and finder.find_edge(a, b) or nil
+		if not r.entity then
+			return false, string.format("removes a road or track that does not exist here (%.1f,%.1f to %.1f,%.1f)",
+				r.p0.x, r.p0.y, r.p1.x, r.p1.y), notes
+		end
+	end
+	for _, n in ipairs(data.removed_nodes) do
+		n.entity = finder.find_node(n)
+		if not n.entity then notes[#notes + 1] = string.format("removed node near %.1f,%.1f not found", n.x, n.y) end
+	end
+	for _, d in ipairs(data.demolished) do
+		d.entity = finder.find_construction(d.file, d.position)
+		if not d.entity then
+			return false, "demolishes " .. d.file .. " which does not exist here", notes
+		end
+	end
+	return true, nil, notes
 end
 
 --- Writes obj[key] = value. A failure goes into `errors` as "label: message" instead of raising,
@@ -340,11 +665,25 @@ build.LAYOUTS = {
 	{
 		name = "SimpleProposal",
 		new = function(t) return t.SimpleProposal.new() end,
-		fill = function(p, nodes, edges, errors)
+		fill = function(p, nodes, edges, errors, extra)
+			extra = extra or {}
 			update(p, "streetProposal", function(sp)
 				try_set(sp, "nodesToAdd", nodes, errors, "streetProposal.nodesToAdd")
 				try_set(sp, "edgesToAdd", edges, errors, "streetProposal.edgesToAdd")
+				-- Removals are entity ids of this game (TF2 multiplayer mod: edgesToRemove/nodesToRemove).
+				if extra.edges_to_remove and #extra.edges_to_remove > 0 then
+					try_set(sp, "edgesToRemove", extra.edges_to_remove, errors, "streetProposal.edgesToRemove")
+				end
+				if extra.nodes_to_remove and #extra.nodes_to_remove > 0 then
+					try_set(sp, "nodesToRemove", extra.nodes_to_remove, errors, "streetProposal.nodesToRemove")
+				end
 			end, errors, "streetProposal")
+			if extra.constructions and #extra.constructions > 0 then
+				try_set(p, "constructionsToAdd", extra.constructions, errors, "constructionsToAdd")
+			end
+			if extra.constructions_to_remove and #extra.constructions_to_remove > 0 then
+				try_set(p, "constructionsToRemove", extra.constructions_to_remove, errors, "constructionsToRemove")
+			end
 		end,
 		read = function(p)
 			local sp = p.streetProposal
@@ -536,6 +875,7 @@ function build.make_proposal(env, data, layout, player, list_kind)
 	local errors = {}
 	local positions = {}
 	for _, node in ipairs(data.nodes) do positions[node.id] = node.position end
+	for id, p in pairs(data.positions_of or {}) do positions[id] = p end
 	local nodes, edges = {}, {}
 	for _, node in ipairs(data.nodes) do nodes[#nodes + 1] = build.make_node(api, data, node, errors) end
 	for _, seg in ipairs(data.segments) do
@@ -545,8 +885,19 @@ function build.make_proposal(env, data, layout, player, list_kind)
 		nodes = build.to_vector(api, "Vector_NodeAndEntity", nodes)
 		edges = build.to_vector(api, "Vector_SegmentAndEntity", edges)
 	end
+	local extra = { edges_to_remove = {}, nodes_to_remove = {}, constructions = {}, constructions_to_remove = {} }
+	for _, r in ipairs(data.removed_segments or {}) do extra.edges_to_remove[#extra.edges_to_remove + 1] = r.entity end
+	for _, n in ipairs(data.removed_nodes or {}) do
+		if n.entity then extra.nodes_to_remove[#extra.nodes_to_remove + 1] = n.entity end
+	end
+	for i, c in ipairs(data.constructions or {}) do
+		extra.constructions[i] = build.make_construction(api, c, player, errors, "construction[" .. i .. "]")
+	end
+	for _, d in ipairs(data.demolished or {}) do
+		extra.constructions_to_remove[#extra.constructions_to_remove + 1] = d.entity
+	end
 	local proposal = layout.new(api.type)
-	layout.fill(proposal, nodes, edges, errors, build.make_context(env, player))
+	layout.fill(proposal, nodes, edges, errors, extra)
 	-- The same field fails for every segment and lane; report each message once with a count.
 	local unique, seen = {}, {}
 	for _, e in ipairs(errors) do
@@ -560,7 +911,66 @@ function build.make_proposal(env, data, layout, player, list_kind)
 	for i, e in ipairs(unique) do
 		if seen[e].n > 1 then unique[i] = e .. " (" .. seen[e].n .. "x)" end
 	end
-	return proposal, build.check(layout, proposal, data), unique
+	local check = build.check(layout, proposal, data)
+	-- Removals and constructions read back as well; a list the proposal dropped must not be sent.
+	local readback = {
+		{ "edgesToRemove", #extra.edges_to_remove, function() return proposal.streetProposal.edgesToRemove end },
+		{ "nodesToRemove", #extra.nodes_to_remove, function() return proposal.streetProposal.nodesToRemove end },
+		{ "constructionsToAdd", #extra.constructions, function() return proposal.constructionsToAdd end },
+		{ "constructionsToRemove", #extra.constructions_to_remove, function() return proposal.constructionsToRemove end },
+	}
+	for _, r in ipairs(readback) do
+		if r[2] > 0 then
+			local ok, list = pcall(r[3])
+			local n = ok and count(list) or 0
+			check.text = check.text .. ", " .. r[1] .. " " .. n .. "/" .. r[2]
+			if n ~= r[2] then check.complete = false end
+		end
+	end
+	return proposal, check, unique
+end
+
+--- Creates the api.type.SimpleProposal.ConstructionEntity for one parsed construction. The
+-- transformation is tried as api.type.Mat4f of four Vec4f columns (TF2), as a plain list of 16
+-- numbers, and by changing the entity's own matrix; each attempt is read back.
+function build.make_construction(api, c, player, errors, label)
+	local entry = api.type.SimpleProposal.ConstructionEntity.new()
+	try_set(entry, "fileName", c.file, errors, label .. ".fileName")
+	-- TF2 multiplayer mod: without a name the construction's children crash the GUI on click.
+	try_set(entry, "name", c.name or "", errors, label .. ".name")
+	try_set(entry, "params", c.params, errors, label .. ".params")
+	if player then try_set(entry, "playerEntity", player, errors, label .. ".playerEntity") end
+	local t = c.transf
+	local function matches()
+		local ok, m = pcall(function() return build.read_transf(entry.transf) end)
+		if not ok or not m then return false end
+		for i = 1, 16 do
+			if math.abs(m[i] - t[i]) > 0.01 then return false end
+		end
+		return true
+	end
+	local attempts = {
+		function()
+			local v = api.type.Vec4f
+			entry.transf = api.type.Mat4f.new(v.new(t[1], t[2], t[3], t[4]), v.new(t[5], t[6], t[7], t[8]),
+				v.new(t[9], t[10], t[11], t[12]), v.new(t[13], t[14], t[15], t[16]))
+		end,
+		function() entry.transf = { t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9], t[10], t[11], t[12],
+			t[13], t[14], t[15], t[16] } end,
+		function()
+			local m = entry.transf
+			for i = 1, 16 do m[i] = t[i] end
+			entry.transf = m
+		end,
+	}
+	local failed = {}
+	for i, attempt in ipairs(attempts) do
+		local ok, err = pcall(attempt)
+		if ok and matches() then return entry end
+		failed[#failed + 1] = "way " .. i .. ": " .. (ok and "reads back different" or tostring(err):sub(1, 60))
+	end
+	errors[#errors + 1] = label .. ".transf: " .. table.concat(failed, "; ")
+	return entry
 end
 
 --- Argument lists tried for api.cmd.makeWorldBuildProposalCmd (TF2 passed proposal, context and an
@@ -650,13 +1060,25 @@ function build.outcome(result)
 	return o
 end
 
---- Moves every node of parsed data by (dx, dy). Only for the single-PC test, where the copy has
--- to appear next to the original instead of on top of it.
+--- Moves everything in parsed data by (dx, dy): new and existing nodes, removals and
+-- constructions. Only for the single-PC test, where the copy has to appear next to the original.
 function build.offset(data, dx, dy)
-	for _, node in ipairs(data.nodes) do
-		node.position.x = node.position.x + dx
-		node.position.y = node.position.y + dy
+	local function move(p)
+		p.x = p.x + dx
+		p.y = p.y + dy
 	end
+	for _, node in ipairs(data.nodes) do move(node.position) end
+	for _, p in pairs(data.foreign or {}) do move(p) end
+	for _, r in ipairs(data.removed_segments or {}) do
+		move(r.p0)
+		move(r.p1)
+	end
+	for _, p in ipairs(data.removed_nodes or {}) do move(p) end
+	for _, c in ipairs(data.constructions or {}) do
+		c.transf[13] = c.transf[13] + dx
+		c.transf[14] = c.transf[14] + dy
+	end
+	for _, d in ipairs(data.demolished or {}) do move(d.position) end
 	return data
 end
 

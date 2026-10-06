@@ -7,18 +7,19 @@
 local logger = require("/mp_probe/logger.lua")
 local probe = require("/mp_probe/probe.lua")
 local build = require("/mp_probe/build.lua")
+local world = require("/mp_probe/world.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 12
+main.PROBE_VERSION = 13
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
 main.EVENT_PARAM_LINES = 800
 --- Number of player build proposals whose structure is dumped (each build looks different).
 -- Town builds (playerEntity -1, nothing new for the player) are dumped once at most.
-main.BUILD_DUMPS = 3
+main.BUILD_DUMPS = 12
 
 --- Line budget per build dump. Run 5 showed that an unlimited dump of a station proposal writes
 -- about 85000 lines and freezes the simulation for a minute, so every dump is capped.
@@ -221,6 +222,26 @@ function main.log_replay_result(result, success, label, outcome)
 	if ok and #lines > 0 then log_lines("replay result fields", lines) end
 end
 
+function main.count_keys(t)
+	local n = 0
+	for _ in pairs(t or {}) do n = n + 1 end
+	return n
+end
+
+--- Lookups of existing things by position for build.resolve. The node index is built on first use.
+function main.finder(env)
+	local index = nil
+	local function nodes()
+		if not index then index = world.node_index(env) end
+		return index
+	end
+	return {
+		find_node = function(position) return world.find_node(nodes(), position) end,
+		find_edge = function(a, b) return world.find_edge(env, a, b) end,
+		find_construction = function(file, position) return world.find_construction(env, file, position) end,
+	}
+end
+
 --- Rebuilds a captured line, by default REPLAY_SIDE_OFFSET metres beside the original.
 -- @param number number|string which replay or received line this is (for the log)
 -- @param state table|nil script state; when given, the quiet time for the copy's own build event
@@ -244,14 +265,25 @@ function main.replay_line(env, line, number, state, distance)
 		state:set(s)
 	end
 	distance = distance or main.REPLAY_SIDE_OFFSET
-	local dx, dy = 0, 0
-	if distance ~= 0 then
-		dx, dy = build.side_offset(data, distance)
-		build.offset(data, dx, dy)
-	end
+	-- The one-PC test always moves by the same vector (north), so a later build that joins or
+	-- removes the first copy finds it again.
+	local dx, dy = 0, distance
+	if distance ~= 0 then build.offset(data, dx, dy) end
 	local player = current_player(env)
-	logger.info(string.format("replay #%s: %d nodes, %d segments, moved by %.1f,%.1f, player %s",
-		tostring(number), #data.nodes, #data.segments, dx, dy, tostring(player)))
+	logger.info(string.format("replay #%s: %d nodes, %d segments, %d existing nodes, %d removed segments, " ..
+		"%d constructions, %d demolished, moved by %.1f,%.1f, player %s", tostring(number), #data.nodes,
+		#data.segments, main.count_keys(data.foreign), #data.removed_segments, #data.constructions,
+		#data.demolished, dx, dy, tostring(player)))
+	local ok_r, found, missing, notes = pcall(build.resolve, data, main.finder(env))
+	if not ok_r then
+		logger.info("replay: lookup failed (" .. tostring(found):sub(1, 200) .. ")")
+		return
+	end
+	for _, note in ipairs(notes or {}) do logger.info("replay note: " .. note) end
+	if not found then
+		logger.info("replay SKIPPED: the build " .. tostring(missing))
+		return
+	end
 	local ok, message = build.replay(env, data, {
 		log = function(text) logger.info("replay " .. text) end,
 		on_result = main.log_replay_result,
@@ -285,6 +317,22 @@ function main.update(_user_params, state, _dt)
 		-- A savegame from an older probe may have used up its replays already.
 		s.replays_requested = 0
 		s.replay_version = main.PROBE_VERSION
+	end
+
+	if s.constructions_scanned ~= main.PROBE_VERSION then
+		local ok, list = pcall(world.player_constructions, _G)
+		if ok then
+			s.constructions = {}
+			local n = 0
+			for id, info in pairs(list) do
+				s.constructions[tostring(id)] = info
+				n = n + 1
+			end
+			logger.info("constructions of players found: " .. n)
+		else
+			logger.info("constructions scan failed: " .. tostring(list):sub(1, 200))
+		end
+		s.constructions_scanned = main.PROBE_VERSION
 	end
 
 	s.updates = (s.updates or 0) + 1
@@ -366,20 +414,59 @@ end
 --- Serialises a player build and logs the line. The line is what a second game would receive;
 -- it is kept in the savegame state so a replay test can rebuild it later.
 function main.capture_build(state, s, param, label)
-	local ok, line, info = pcall(build.serialize, param[1].proposal)
+	local env = _G
+	local cons = s.constructions or {}
+	local ok, line, info = pcall(build.serialize, param[1].proposal, {
+		node_position = function(id) return world.node_position(env, id) end,
+		to_add = param[1].toAdd,
+		to_remove = param[1].toRemove,
+		construction = function(id) return cons[tostring(id)] end,
+		read_transf = function(t)
+			local m, how = build.read_transf(t)
+			if m and s.transf_logged ~= main.PROBE_VERSION then
+				logger.info("construction transf read as " .. how)
+				s.transf_logged = main.PROBE_VERSION
+			end
+			return m, how
+		end,
+	})
 	if not ok then
 		logger.info("capture failed (" .. label .. "): " .. tostring(line))
 		return
 	end
 	logger.info("capture " .. label .. " nodes=" .. info.nodes .. " segments=" .. info.segments ..
-		" foreign_nodes=" .. info.foreign_nodes)
+		" foreign_nodes=" .. info.foreign_nodes .. " removed_segments=" .. info.removed_segments ..
+		" removed_nodes=" .. info.removed_nodes .. " constructions=" .. info.constructions ..
+		" demolished=" .. info.demolished .. " edge_objects=" .. info.edge_objects)
+	for _, what in ipairs(info.dropped) do logger.info("capture leaves out " .. what) end
 	logger.info("capture line " .. line)
-	if info.segments > 0 and info.foreign_nodes == 0 then
+	if info.segments + info.removed_segments + info.constructions + info.demolished > 0 then
 		s.last_build = line
 		state:set(s)
 		logger.info("capture stored for replay (" .. #line .. " characters)")
 		logger.info(main.SEND_MARKER .. line)
 	end
+end
+
+--- Keeps file and position of every construction in the script state, because a demolish event
+-- only names the construction's id and arrives after it is gone. Fed from the ids each build
+-- creates (also copies built for the other player) and once per savegame from a full scan.
+function main.remember_constructions(env, s, param)
+	s.constructions = s.constructions or {}
+	pcall(function()
+		local ids = param[3]
+		for i = 1, #ids do
+			-- Town buildings come through here too; only player constructions are kept.
+			if world.is_player_owned(env, ids[i]) then
+				local info = world.construction_info(env, ids[i])
+				if info then s.constructions[tostring(ids[i])] = info end
+			end
+		end
+	end)
+	pcall(function()
+		local removed = param[1].toRemove
+		for i = 1, #removed do s.constructions[tostring(removed[i])] = nil end
+	end)
 end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
@@ -415,14 +502,11 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			-- segments, so they no longer count.
 			logger.info("build right after a replay (probably the copy, not captured): " .. main.describe_build(param))
 		elseif player_build then
-			local constructions = main.construction_count(param)
-			if constructions > 0 then
-				logger.info("capture skipped: the build contains " .. constructions ..
-					" construction(s) such as a station; only roads and tracks are copied so far")
-			else
-				main.capture_build(state, s, param, "player build")
-			end
+			main.capture_build(state, s, param, "player build")
 		end
+		-- After the capture, which still needs the demolished constructions.
+		main.remember_constructions(_G, s, param)
+		state:set(s)
 	end
 	local prev = s.seen_events[key]
 	local count = type(prev) == "number" and prev + 1 or 1

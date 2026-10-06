@@ -409,7 +409,7 @@ test("serialize turns a captured street into one line with placeholder ids", fun
 	local line, info = build.serialize(run5_street())
 	assert(info.nodes == 3 and info.segments == 2, info.nodes .. "/" .. info.segments)
 	assert(info.foreign_nodes == 0, "all three nodes are new")
-	assert(line:sub(1, 2) == "B3", line)
+	assert(line:sub(1, 2) == "B4", line)
 	assert(line:find("n-1;-2888.017,-3941.508,1.675", 1, true), line)
 	assert(line:find("s-1;0;-1;-2;", 1, true), line)
 	assert(line:find("s-2;0;-2;-3;", 1, true), line)
@@ -421,11 +421,55 @@ test("serialize turns a captured street into one line with placeholder ids", fun
 	assert(#line < 600, "a street build fits in a short line: " .. #line)
 end)
 
-test("serialize counts nodes the player connected to", function()
+test("serialize names nodes the player connected to by their position", function()
 	local proposal = run5_street()
 	proposal.addedNodes = { proposal.addedNodes[1] }
-	local _, info = build.serialize(proposal)
-	assert(info.foreign_nodes == 3, info.foreign_nodes)
+	local positions = { [51498] = { x = 10, y = 20, z = 1 }, [51458] = { x = 30, y = 40, z = 2 } }
+	local line, info = build.serialize(proposal, { node_position = function(id) return positions[id] end })
+	assert(info.foreign_nodes == 2, info.foreign_nodes)
+	assert(line:find(" f1;10,20,1 ", 1, true) and line:find(" f2;30,40,2 ", 1, true), line)
+	assert(line:find("s-1;0;-1;f1;", 1, true) and line:find("s-2;0;f1;f2;", 1, true), line)
+	assert(not line:find("51498", 1, true), "engine ids must not travel")
+	local data = assert(build.deserialize(line))
+	assert(data.segments[2].node0 == "f1" and data.foreign.f2.y == 40)
+	assert(not pcall(build.serialize, proposal), "without positions an existing node cannot be named")
+end)
+
+test("resolve finds existing nodes, removed segments and demolished constructions here", function()
+	local proposal = run5_street()
+	proposal.addedNodes = { proposal.addedNodes[1], proposal.addedNodes[2] }
+	proposal.removedNodes = { { entity = 77, comp = { position = { x = 5, y = 6, z = 0 } } } }
+	proposal.removedSegments = { { entity = 78, type = 0, comp = { node0 = 77, node1 = 51458 } } }
+	local positions = { [51458] = { x = 30, y = 40, z = 2 } }
+	local line, info = build.serialize(proposal, {
+		node_position = function(id) return positions[id] end,
+		to_remove = { 900 },
+		construction = function(id) return id == 900 and { file = "::/depots/road depot.con", position = { x = 1, y = 2, z = 3 } } end,
+	})
+	assert(info.removed_segments == 1 and info.removed_nodes == 1 and info.demolished == 1, line)
+	assert(line:find(" r;5,6,0;30,40,2;0", 1, true) and line:find(" x;5,6,0", 1, true), line)
+	assert(line:find(" d;%3A%3A%2Fdepots%2Froad%20depot.con;1,2,3", 1, true), line)
+	local data = assert(build.deserialize(line))
+	assert(data.demolished[1].file == "::/depots/road depot.con")
+	local here = { { id = 501, p = { x = 30.4, y = 40.3, z = 2 } }, { id = 502, p = { x = 5, y = 6.5, z = 0 } } }
+	local finder = {
+		find_node = function(pos)
+			for _, n in ipairs(here) do
+				if math.abs(n.p.x - pos.x) <= 1.5 and math.abs(n.p.y - pos.y) <= 1.5 then return n.id end
+			end
+		end,
+		find_edge = function(a, b) if (a == 502 and b == 501) or (a == 501 and b == 502) then return 600 end end,
+		find_construction = function(file, pos) if file == "::/depots/road depot.con" and pos.x == 1 then return 700 end end,
+	}
+	local ok, missing = build.resolve(data, finder)
+	assert(ok, missing)
+	assert(data.segments[2].node1 == 501 and data.removed_segments[1].entity == 600)
+	assert(data.removed_nodes[1].entity == 502 and data.demolished[1].entity == 700)
+	assert(data.positions_of[501].x == 30)
+	data = assert(build.deserialize(line))
+	here[1].p.x = 90
+	local ok2, missing2 = build.resolve(data, finder)
+	assert(not ok2 and missing2:find("does not exist here", 1, true), missing2)
 end)
 
 test("serialize gives each lane layout its own road token and marks missing params", function()
@@ -462,16 +506,18 @@ end)
 test("deserialize rejects broken lines", function()
 	assert(build.deserialize("n-1;1,2,3") == nil, "a line without a version is rejected")
 	assert(build.deserialize("B99 n-1;1,2,3") == nil, "a newer format is rejected")
-	assert(build.deserialize("B3 n-1;1,2") == nil, "a short position is rejected")
-	assert(build.deserialize("B3 s-1;0;-1") == nil, "a short segment is rejected")
-	assert(build.deserialize("B3 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;7;-;-") == nil, "an undefined road type is rejected")
-	assert(build.deserialize("B3 t1;a;b;1,2,3 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a short lane is rejected")
-	assert(build.deserialize("B3 t1;a;b s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a road token without lanes is rejected")
+	assert(build.deserialize("B4 n-1;1,2") == nil, "a short position is rejected")
+	assert(build.deserialize("B4 s-1;0;-1") == nil, "a short segment is rejected")
+	assert(build.deserialize("B4 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;7;-;-") == nil, "an undefined road type is rejected")
+	assert(build.deserialize("B4 t1;a;b;1,2,3 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a short lane is rejected")
+	assert(build.deserialize("B4 t1;a;b s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a road token without lanes is rejected")
 	assert(build.deserialize("B2 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1") == nil, "format 2 lacks the lanes")
-	local no_lanes = assert(build.deserialize("B3 t1;a;b;- s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-"))
+	local no_lanes = assert(build.deserialize("B4 t1;a;b;- s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-"))
 	assert(no_lanes.segments[1].lanes == nil and no_lanes.segments[1].params == nil)
+	assert(build.deserialize("B4 s-1;0;f1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "an unknown existing node is rejected")
+	assert(build.deserialize("B4 c;a;b;1,2;n1") == nil, "a construction needs 16 transf numbers")
 	assert(build.deserialize(42) == nil)
-	local data = assert(build.deserialize("B3"), "an empty proposal parses")
+	local data = assert(build.deserialize("B4"), "an empty proposal parses")
 	assert(#data.nodes == 0 and #data.segments == 0)
 end)
 
@@ -631,10 +677,15 @@ local function mock_types(opts)
 	if opts.layouts == nil or opts.layouts.SimpleProposal then
 		t.SimpleProposal = { new = function()
 			return struct("SimpleProposal", {
-				streetProposal = struct("SimpleStreetProposal", { nodesToAdd = "list", edgesToAdd = "list" }, list_opts),
+				streetProposal = struct("SimpleStreetProposal", { nodesToAdd = "list", edgesToAdd = "list",
+					edgesToRemove = "list", nodesToRemove = "list" }, list_opts),
 				constructionsToAdd = "list",
+				constructionsToRemove = "list",
 			})
-		end }
+		end, ConstructionEntity = { new = function()
+			return struct("ConstructionEntity", { fileName = "", name = "", params = {}, playerEntity = -1,
+				transf = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } })
+		end } }
 	end
 	return t
 end
@@ -668,13 +719,14 @@ local function mock_build_api(opts)
 				sent[#sent + 1] = cmd
 				cmd.layout = type_name_of(cmd.proposal)
 				local nodes, edges = sent_lists(cmd.proposal)
-				local builds = #edges > 0 and (opts.builds == nil or opts.builds[cmd.layout] == true)
+				local work = #edges + #cmd.proposal.constructionsToAdd + #cmd.proposal.streetProposal.edgesToRemove
+				local builds = work > 0 and (opts.builds == nil or opts.builds[cmd.layout] == true)
 				local entities = {}
 				if builds then for i = 1, #nodes + #edges do entities[i] = 1000 + i end end
 				if callback then
 					callback({
 						resultEntities = entities,
-						resultProposalData = { costs = builds and 500 * #edges or 0, errorState = {
+						resultProposalData = { costs = builds and 500 * work or 0, errorState = {
 							critical = false, messages = {}, warnings = builds and {} or { "nothing to build" } } },
 					}, true)
 				end
@@ -908,7 +960,7 @@ test("a replay request travels as script event with the line, the event state bu
 		state:set(s)
 		fresh_main().handleEvent(nil, state, ev[1], ev[2], ev[3], ev[4])
 		assert(contains(logged, "replay event received (src=mp_probe id=mp_probe_replay, line "))
-		assert(contains(logged, "replay #1: 3 nodes, 2 segments, moved by"))
+		assert(contains(logged, "replay #1: 3 nodes, 2 segments, 0 existing nodes, 0 removed segments"), table.concat(logged, "\n"))
 		assert(contains(logged, "player 29125"))
 		assert(contains(logged, "replay proposal check SimpleProposal/table: complete, nodes 3/3, edges 2/2"))
 		assert(contains(logged, "---- replay proposal SimpleProposal/table edge[1]"), table.concat(logged, "\n"))
@@ -955,7 +1007,7 @@ test("a stored capture is logged behind the send marker for the DLL", function()
 			local at = line:find(main.SEND_MARKER, 1, true)
 			if at then found = line:sub(at + #main.SEND_MARKER) end
 		end
-		assert(found and found:sub(1, 3) == "B3 ", table.concat(logged, "\n"))
+		assert(found and found:sub(1, 3) == "B4 ", table.concat(logged, "\n"))
 		assert(build.deserialize(found), "the sent line parses")
 	end)
 end)
@@ -977,7 +1029,8 @@ test("a line from the other PC is built in place, once, and acknowledged on ever
 		assert(ev[4].line == line and ev[4].offset == 0 and ev[4].source == "net")
 		logged = {}
 		fresh_main().handleEvent(nil, mock_state(), ev[1], ev[2], ev[3], ev[4])
-		assert(contains(logged, "replay #4711.1: 3 nodes, 2 segments, moved by 0.0,0.0"), table.concat(logged, "\n"))
+		assert(contains(logged, "replay #4711.1: 3 nodes, 2 segments, ") and contains(logged, "moved by 0.0,0.0"),
+			table.concat(logged, "\n"))
 		assert(contains(logged, "replay result (SimpleProposal/table): BUILT"))
 		local nodes = sent_lists(t.sent[1].proposal)
 		assert(math.abs(nodes[1].comp.position.x - (-2888.017)) < 0.001, "built in place")
@@ -998,7 +1051,7 @@ test("a loopback line is built beside the original", function()
 		assert(not contains(logged, "moved by 0.0,0.0"), table.concat(logged, "\n"))
 		assert(contains(logged, "replay result (SimpleProposal/table): BUILT"))
 		local nodes = sent_lists(t.sent[1].proposal)
-		assert(math.abs(nodes[1].comp.position.x - (-2888.017)) > 1, "moved beside")
+		assert(math.abs(nodes[1].comp.position.y - (-3941.508 + 40)) < 0.01, "moved 40 m north")
 	end)
 end)
 
@@ -1088,16 +1141,103 @@ test("a new probe version gives a savegame its replays back", function()
 	assert(state:get().replays_requested == 2, "reset once per version")
 end)
 
-test("builds with a construction such as a station are not captured", function()
-	local main = fresh_main()
-	logged = {}
-	local state = mock_state()
-	local param = player_build_param()
-	param[1].toAdd = { { playerEntity = 29125 } }
-	main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", param)
-	assert(contains(logged, "capture skipped: the build contains 1 construction(s) such as a station"), table.concat(logged, "\n"))
-	assert(not contains(logged, "capture stored for replay"))
-	assert((state:get() or {}).last_build == nil)
+--- Depot build of run 12 (logs/probe-log-12-mp_probe.txt, "player #3"): one construction, its
+-- entrance segment touches the frozen node (0-based index 1) and is left to the construction.
+local function depot_param()
+	local transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -2970.633, -3889.26, 3.18, 1 }
+	local seg = run5_street().addedSegments[1]
+	seg.comp.node0, seg.comp.node1 = 50605, 45373
+	return {
+		{
+			proposal = {
+				addedNodes = {
+					{ entity = 50605, comp = { position = { x = -2970.633, y = -3896.631, z = 3.18 } } },
+					{ entity = 45373, comp = { position = { x = -2970.633, y = -3881.891, z = 3.18 } } },
+				},
+				addedSegments = { seg },
+				frozenNodes = { 1 },
+			},
+			toAdd = { { fileName = "::/depots/road/road_depot/road_depot.con", name = "Rehna Strassendepot Süd",
+				params = { seed = 12, paramX = 0.5, modules = { [3] = "a b;c" }, flag = true }, transf = transf,
+				playerEntity = 29125 } },
+			toRemove = {},
+		},
+		{}, { 51088 }, true,
+	}
+end
+
+test("a construction travels with file, name, transf and params, without its own segments", function()
+	with_engine_api({}, function(t)
+		local main = fresh_main()
+		logged = {}
+		local state = mock_state()
+		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", depot_param())
+		assert(contains(logged, "capture player build nodes=0 segments=0 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
+			table.concat(logged, "\n"))
+		assert(contains(logged, "capture leaves out segment"), "the entrance is the construction's own")
+		local line = state:get().last_build
+		assert(line and line:find(" c;%3A%3A%2Fdepots%2Froad%2Froad_depot%2Froad_depot.con;Rehna%20Strassendepot%20S%C3%BCd;1,0,0,0,0,1,0,0,0,0,1,0,-2970.633,-3889.26,3.18,1;{", 1, true), line)
+		local data = assert(build.deserialize(line))
+		local c = data.constructions[1]
+		assert(c.name == "Rehna Strassendepot Süd" and c.file == "::/depots/road/road_depot/road_depot.con")
+		assert(c.params.seed == 12 and c.params.paramX == 0.5 and c.params.flag == true and c.params.modules[3] == "a b;c")
+		logged = {}
+		fresh_main().replay_line(t.env, line, "c1", nil, 0)
+		assert(contains(logged, "replay proposal check SimpleProposal/table: complete") and contains(logged, "constructionsToAdd 1/1"),
+			table.concat(logged, "\n"))
+		local sent = t.sent[1].proposal.constructionsToAdd[1]
+		assert(sent.fileName == c.file and sent.name == c.name and sent.playerEntity == 29125)
+		assert(sent.transf[13] == -2970.633 and sent.params.modules[3] == "a b;c")
+	end)
+end)
+
+test("world finds nodes, edges and constructions of the running game by position", function()
+	local world = require("/mp_probe/world.lua")
+	local comps = {
+		[1] = { BASE_NODE = { position = { x = 100, y = 200, z = 5 } } },
+		[2] = { BASE_NODE = { position = { x = 100.8, y = 200.9, z = 5 } } },
+		[3] = { BASE_NODE = { position = { x = 100.5, y = 200.5, z = 15 } } },
+		[4] = { BASE_NODE = { position = { x = 300, y = 200, z = 0 } } },
+		[10] = { BASE_EDGE = { node0 = 4, node1 = 1 } },
+		[20] = { CONSTRUCTION = { fileName = "a.con", transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 50, 60, 0, 1 } },
+			PLAYER_OWNED = { player = 7 } },
+		[21] = { CONSTRUCTION = { fileName = "town.con", transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 } },
+			PLAYER_OWNED = { player = -1 } },
+	}
+	local env = { api = { type = { ComponentType = { BASE_NODE = "BASE_NODE", BASE_EDGE = "BASE_EDGE",
+		CONSTRUCTION = "CONSTRUCTION", PLAYER_OWNED = "PLAYER_OWNED" } },
+		engine = {
+			getComponent = function(id, ct) return comps[id] and comps[id][ct] end,
+			forEachEntityWithComponent = function(fn, ct)
+				local ids = {}
+				for id, c in pairs(comps) do if c[ct] then ids[#ids + 1] = id end end
+				table.sort(ids)
+				for _, id in ipairs(ids) do fn(id) end
+			end,
+			system = { streetSystem = {} },
+		} } }
+	local index = world.node_index(env)
+	assert(world.find_node(index, { x = 100.1, y = 200.1, z = 5 }) == 1, "the closest node")
+	assert(world.find_node(index, { x = 100.6, y = 200.6, z = 15 }) == 3, "height breaks the tie")
+	assert(world.find_node(index, { x = 103, y = 200, z = 5 }) == nil, "nothing within 1.5 m")
+	assert(world.find_edge(env, 1, 4) == 10 and world.find_edge(env, 1, 2) == nil)
+	assert(world.find_construction(env, "a.con", { x = 51, y = 60, z = 0 }) == 20)
+	assert(world.find_construction(env, "a.con", { x = 55, y = 60, z = 0 }) == nil)
+	local mine = world.player_constructions(env)
+	assert(mine[20] and mine[20].position.y == 60 and mine[21] == nil)
+end)
+
+test("params literals survive a round trip and reject broken text", function()
+	local value = { 1, 2.5, -3, { x = "y z" }, seed = 42, s = "", b = false, nested = { [10] = { "%;|" } } }
+	local text = build.params_to_string(value)
+	assert(not text:find("[ ;|]"), text)
+	local back = assert(build.params_from_string(text))
+	assert(back[2] == 2.5 and back[3] == -3 and back[4].x == "y z" and back.seed == 42 and back.s == "" and back.b == false)
+	assert(back.nested[10][1] == "%;|")
+	assert(build.params_to_string(back) == text, "deterministic")
+	assert(build.params_from_string("{sa=n1") == nil and build.params_from_string("x") == nil)
+	assert(build.params_from_string("n1junk") == nil)
+	assert(not pcall(build.params_to_string, { f = print }), "functions cannot travel")
 end)
 
 test("replay without the engine api says so", function()

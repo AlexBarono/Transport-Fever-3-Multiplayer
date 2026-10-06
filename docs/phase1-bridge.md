@@ -311,3 +311,10 @@ Geplantes Zeilenformat B4 (Felder mit `;`, Text mit %-Kodierung für Leerzeichen
 Bei Bauten mit Gebäude fallen Kanten weg, die einen eingefrorenen Knoten berühren (`frozenNodes` sind 0-basierte Indizes in `addedNodes`, Lauf 5); die erzeugt das Gebäude selbst. Bestehende Haltestellen auf einer geänderten Kante werden in v13 noch nicht unterstützt (Bau wird mit Hinweis übersprungen).
 
 Allein-Test: `loop`-Zeilen werden immer um (0, 40 m) verschoben statt quer zur ersten Kante, damit Anschlüsse und Abriss die 40 m versetzte Kopie treffen. Testablauf: erst eine freie Straße A bauen (Kopie A'), dann an A anschließen, Haltestelle, Depot, Bahnhof an A, zum Schluss etwas abreißen.
+
+### Probe v13 umgesetzt
+
+- `build.lua`: Format B4 (`f`, `r`, `x`, `c`, `d` wie oben), `build.resolve` sucht Bestehendes über einen Finder, `build.make_construction` (Mat4f aus vier Vec4f, sonst Liste mit 16 Zahlen, jeweils zurückgelesen), `build.params_to_string`/`params_from_string` (eigener Parser).
+- `world.lua`: Knoten-Raster (16 m Zellen) über `forEachEntityWithComponent(BASE_NODE)`, Kante zwischen zwei Knoten (`streetSystem.getNodeSegments`, sonst alle Kanten), Gebäude gleicher Datei im Umkreis 2 m, Spieler-Gebäude-Liste.
+- `main.script.lua`: Gebäude werden nicht mehr übersprungen; Haltestellen/Signale werden noch weggelassen und im Log genannt. Allein-Test verschiebt immer um (0, +40 m). Bei Abriss-Ereignissen merkt sich der Mod Gebäude im Skript-Zustand (einmaliger Scan pro Spielstand, danach aus den Bau-Ereignissen).
+- Bisher unbekannt und deshalb im Log: wie TF3 `transf` lesen und setzen lässt, ob ein Abriss als `onPostBuildProposal` mit `isPlayerBuild=true` kommt, welche Felder Kantenobjekte haben (die Dumps zeigen jetzt `edgeEntity`, `param`, `left`, `oneWay`, `model`).

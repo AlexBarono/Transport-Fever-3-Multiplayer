@@ -231,6 +231,8 @@ probe.KNOWN_FIELDS = {
 	-- Lanes and the rest of a TF3 segment (run 5 raw dump).
 	"laneConfigs", "forward", "height", "offset", "transportModes", "precedenceNode0",
 	"precedenceNode1", "roadDevelopmentLocked", "edgeDecorations", "emissionEmitter",
+	-- Edge objects (stops, signals) as the TF2 multiplayer mod built them (docs/tf2mp-reference.md).
+	"edgeEntity", "param", "left", "oneWay", "model", "first", "second",
 }
 
 --- Probes probe.KNOWN_FIELDS on a value (recursing into whatever is found) and on array entries.
