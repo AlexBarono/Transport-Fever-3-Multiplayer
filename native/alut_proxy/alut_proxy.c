@@ -1,70 +1,65 @@
 /*
- * Test proxy for alut.dll (phase 0, step 3).
+ * Proxy for alut.dll, the native entry point of the multiplayer mod.
  *
- * All 20 exports are forwarded to alut_orig.dll via forwards.h, so the
- * game keeps using the original code. The only thing this DLL does on its
- * own is write one line to %LOCALAPPDATA%\TF3Multiplayer\proxy.log when it
- * is loaded and unloaded, which proves the game accepts a replaced alut.dll.
+ * All 20 exports are forwarded to alut_orig.dll (the renamed original) via
+ * forwards.h, so the game keeps using the original code.
  *
- * Only kernel32 and user32 (wsprintfA) are used, because DllMain runs under the
- * loader lock. Both are already loaded by the game before alut.dll.
+ * On its own this DLL
+ *   - writes alut_proxy.log next to itself (the game process has no
+ *     LOCALAPPDATA, see docs/native-entry-point.md), and
+ *   - starts the UDP peer link from net.c if alut_proxy.ini enables it
+ *     (phase 1, step 2).
+ *
+ * DllMain runs under the loader lock, so it only uses kernel32/user32 and
+ * leaves Winsock to the network thread.
  */
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#include "proxy.h"
 
 #include "forwards.h"
 
-#define PROXY_VERSION "2"
-
 static HINSTANCE self;
+static char log_path[MAX_PATH];
 
-static int append(const char *path, const char *line, int len)
+int proxy_file_next_to_dll(char *out, const char *name)
 {
-	DWORD written;
-	HANDLE h = CreateFileA(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	DWORD n = GetModuleFileNameA(self, out, MAX_PATH);
+	char *slash;
 
-	if (h == INVALID_HANDLE_VALUE)
+	if (n == 0 || n >= MAX_PATH - 32)
 		return 0;
-	WriteFile(h, line, (DWORD)len, &written, NULL);
-	CloseHandle(h);
+	slash = out + n;
+	while (slash > out && *slash != '\\')
+		slash--;
+	wsprintfA(slash, "\\%s", name);
 	return 1;
 }
 
-/*
- * Writes the line to %LOCALAPPDATA%\TF3Multiplayer\proxy.log and, because the
- * game may be started without LOCALAPPDATA in its environment, also to
- * alut_proxy.log next to this DLL.
- */
-static void log_line(const char *event)
+void proxy_log(const char *fmt, ...)
 {
-	char dir[MAX_PATH];
-	char path[MAX_PATH];
-	char line[512];
+	char line[600];
 	SYSTEMTIME t;
-	DWORD n;
+	va_list args;
 	int len;
-	char *slash;
+	HANDLE h;
+	DWORD written;
 
 	GetLocalTime(&t);
-	len = wsprintfA(line, "%04d-%02d-%02d %02d:%02d:%02d alut proxy v" PROXY_VERSION " %s pid=%lu\r\n",
-		t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, event, GetCurrentProcessId());
+	len = wsprintfA(line, "%04d-%02d-%02d %02d:%02d:%02d [%lu] ",
+		t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, GetCurrentProcessId());
+	va_start(args, fmt);
+	len += wvsprintfA(line + len, fmt, args);
+	va_end(args);
+	line[len++] = '\r';
+	line[len++] = '\n';
+	line[len] = 0;
+
 	OutputDebugStringA(line);
-
-	n = GetEnvironmentVariableA("LOCALAPPDATA", dir, sizeof(dir));
-	if (n > 0 && n < sizeof(dir) - 32) {
-		wsprintfA(path, "%s\\TF3Multiplayer", dir);
-		CreateDirectoryA(path, NULL);
-		wsprintfA(path, "%s\\TF3Multiplayer\\proxy.log", dir);
-		append(path, line, len);
-	}
-
-	n = GetModuleFileNameA(self, path, sizeof(path));
-	if (n > 0 && n < sizeof(path) - 32) {
-		slash = path + n;
-		while (slash > path && *slash != '\\')
-			slash--;
-		lstrcpyA(slash, "\\alut_proxy.log");
-		append(path, line, len);
+	if (!log_path[0])
+		return;
+	h = CreateFileA(log_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (h != INVALID_HANDLE_VALUE) {
+		WriteFile(h, line, (DWORD)len, &written, NULL);
+		CloseHandle(h);
 	}
 }
 
@@ -74,9 +69,12 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 	if (reason == DLL_PROCESS_ATTACH) {
 		self = instance;
 		DisableThreadLibraryCalls(instance);
-		log_line("loaded");
+		proxy_file_next_to_dll(log_path, "alut_proxy.log");
+		proxy_log("alut proxy v" PROXY_VERSION " loaded");
+		net_start();
 	} else if (reason == DLL_PROCESS_DETACH) {
-		log_line("unloaded");
+		net_stop();
+		proxy_log("alut proxy v" PROXY_VERSION " unloaded");
 	}
 	return TRUE;
 }

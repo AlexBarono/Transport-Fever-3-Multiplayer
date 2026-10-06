@@ -1,9 +1,35 @@
-# alut.dll Test-Proxy
+# alut.dll Proxy (nativer Einstiegspunkt)
 
-Testet, ob TF3 eine ausgetauschte `alut.dll` lädt (Phase 0, Schritt 3, siehe `docs/native-entry-point.md`).
+TF3 lädt `alut.dll` aus dem Spielordner. Dieser Proxy ersetzt sie (siehe `docs/native-entry-point.md`).
 
-- Die Proxy-DLL leitet alle 20 Exporte an `alut_orig.dll` (die umbenannte Original-DLL) weiter.
-- Sie macht selbst nur eins: Beim Laden und Entladen schreibt sie eine Zeile nach `%LOCALAPPDATA%\TF3Multiplayer\proxy.log`.
+- Alle 20 Exporte werden an `alut_orig.dll` (die umbenannte Original-DLL) weitergeleitet (`forwards.h`).
+- Log: `alut_proxy.log` neben der DLL im Spielordner. Im Spielprozess fehlt `LOCALAPPDATA`, deshalb kein Log dort.
+- Ab v3: optionale UDP-Verbindung zwischen zwei Spielen (`net.c`, Phase 1, Schritt 2). Ohne `alut_proxy.ini` ist sie aus.
+
+## Netzwerk-Test (v3)
+
+`alut_proxy.ini` neben die `alut.dll` in den Spielordner legen.
+
+PC 1 (Host):
+
+```
+[net]
+mode=host
+port=47800
+```
+
+PC 2 (Client), `host` = IP-Adresse von PC 1:
+
+```
+[net]
+mode=client
+port=47800
+host=192.168.1.10
+```
+
+Beide Spiele starten. Windows fragt beim Host evtl. nach einer Firewall-Freigabe für TF3 (privates Netzwerk erlauben). Im Log sollte auf beiden Seiten `net: connected to ...` stehen. Bisher werden nur HELLO-Pakete alle 2 Sekunden ausgetauscht, noch keine Spieldaten.
+
+Ohne Spiel und ohne zweiten PC: `test_net.ps1` lädt die DLL in zwei Prozessen auf 127.0.0.1.
 
 ## Bauen
 
@@ -24,10 +50,4 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 powershell -ExecutionPolicy Bypass -File uninstall.ps1
 ```
 
-`install.ps1` benennt die signierte Original-`alut.dll` in `alut_orig.dll` um und kopiert den Proxy als `alut.dll` in den Spielordner. `uninstall.ps1` stellt das Original wieder her. Alternativ stellt Steam über „Dateien auf Fehler überprüfen“ das Original wieder her (dann bleibt nur eine überflüssige `alut_orig.dll` liegen).
-
-## Test
-
-1. TF3 starten, bis ins Hauptmenü, wieder beenden.
-2. `%LOCALAPPDATA%\TF3Multiplayer\proxy.log` sollte `loaded` und `unloaded` enthalten.
-3. Ton im Spiel prüfen (alut ist für Audio zuständig).
+`install.ps1` benennt beim ersten Mal die signierte Original-`alut.dll` in `alut_orig.dll` um und kopiert den Proxy als `alut.dll` in den Spielordner. `uninstall.ps1` stellt das Original wieder her. Alternativ stellt Steam über „Dateien auf Fehler überprüfen“ das Original wieder her (dann bleibt nur eine überflüssige `alut_orig.dll` liegen).
