@@ -60,3 +60,29 @@ Beispiele aus Lauf 5: Straße = 2 Segmente, 3 Knoten, 7.379; Gleis = 2 Segmente 
 - TF3 hat `api.type.Proposal.new`, `api.type.StreetProposal.new`, `api.type.SegmentAndEntity.new`, `api.type.NodeAndEntity.new` und `api.type.Context.new`. Das ist dasselbe Muster wie TF2, wo `SimpleProposal` hieß, was in TF3 `Proposal` heißt.
 - Unbekannt ist, wie `api.cmd.makeWorldBuildProposalCmd` aufgerufen wird und ob der Eingabe-Vorschlag `streetProposal.edgesToAdd` oder `addedSegments` erwartet. v6 probiert beide Layouts und fünf Signaturen durch und schreibt ins Log, welche Variante angenommen wurde.
 - Auslöser für den Test: Sobald die DLL `TF3MP_IN` auf einen Wert mit `replay` setzt, baut der Mod den letzten aufgezeichneten Bau erneut. Damit lässt sich der Kern von Phase 1 auf einem einzelnen PC prüfen.
+
+## Ergebnis Lauf 6 (06.10.2026, Probe v6 + DLL v5)
+
+Logs: [logs/probe-log-6-mp_probe.txt](../logs/probe-log-6-mp_probe.txt), [logs/probe-log-6-context.txt](../logs/probe-log-6-context.txt), [logs/proxy-log-6.txt](../logs/proxy-log-6.txt)
+
+- Kein Hängen mehr. Jeder Dump dauert jetzt 0,00–0,03 s (`dump of onPostBuildProposal player #1 took 0.02 s`).
+- **Aufzeichnung funktioniert.** Zwei Spielerbauten, beide ohne fremde Knoten:
+  - `player #1` (Gleis, `type 1`): `B1 n-1;-2913.082,-3802.594,2.358 n-2;-2823.126,-3804.284,1.679 n-3;-2733.171,-3805.975,1 s-1;1;-1;-2;89.955,-1.69,-0.679;89.955,-1.69,-0.679;-1 s-2;1;-2;-3;89.955,-1.69,-0.679;89.955,-1.69,-0.679;-1` (198 Zeichen)
+  - `player #2` (Straße, `type 0`): `B1 n-1;-2921.463,-3716.057,1.817 n-2;-2833.287,-3716.686,1.516 n-3;-2745.111,-3717.314,0.884 s-1;0;-1;-2;88.176,-0.629,-0.302;88.176,-0.629,-0.467;-1 s-2;0;-2;-3;88.176,-0.629,-0.467;88.176,-0.629,-0.631;-1` (206 Zeichen)
+- **Die DLL hat den Wiederaufbau angefordert:** `the mod stored a build for replay` (14:29:03), 2 s später `TF3MP_IN=replay 319`. Der Mod hat das beim nächsten Tick gelesen (`bridge in TF3MP_IN=replay 319`). Nur der erste Bau (Gleis) wurde angefordert, für den zweiten kam kein `replay` mehr.
+- **Der Wiederaufbau ist fehlgeschlagen**, und zwar schon beim Zusammenbauen des Vorschlags. Keine der fünf Signaturen von `makeWorldBuildProposalCmd` wurde überhaupt aufgerufen. Im Spiel entstand keine zweite Straße (vom Nutzer bestätigt). Vollständige Fehlerzeile (der Logger kürzt sie am Ende):
+
+```
+replay: failed,
+  streetProposal: build.lua:122: no streetProposal field ||
+  added: build.lua:131: attempt to get length of local 'node_list' (a nil va…
+```
+
+Bedeutung: Ein frisches `api.type.Proposal.new()` hat in TF3 weder `streetProposal` noch `addedNodes`/`addedSegments`. Der Vorschlag, den `onPostBuildProposal` meldet, ist also kein `Proposal`. Die api.type-Liste aus diesem Lauf enthält passende Kandidaten:
+
+- `api.type.WorldBuildProposal.new` – passt vom Namen her zu `makeWorldBuildProposalCmd`, vermutlich der Typ von `param[1]` (Felder `proposal`, `toAdd`, `toRemove`).
+- `api.type.StreetProposal.new` (mit `StreetProposal.EdgeObject`) – vermutlich der Typ von `param[1].proposal` mit `addedNodes`/`addedSegments`/`edgeObjectsToAdd`.
+- `api.type.SimpleProposal.new`, `api.type.SimpleStreetProposal.new`, `api.type.ProposalData.new`.
+- `api.type.Vector_NodeAndEntity.new`, `api.type.Vector_SegmentAndEntity.new` – die Listen sind wohl C++-Vektoren, keine Lua-Tabellen. Anhängen also eher über deren Methoden als über `list[#list + 1]`.
+
+Nächster Schritt für Probe v7: `WorldBuildProposal.new()` bzw. `StreetProposal.new()` anlegen, die vorhandenen Felder und Methoden ins Log schreiben und die Listen über die Vector-Typen befüllen. Danach erst die Signaturen von `makeWorldBuildProposalCmd` durchprobieren.
