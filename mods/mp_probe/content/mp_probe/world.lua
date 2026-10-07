@@ -141,6 +141,57 @@ function world.find_node(index, pos, radius)
 	return best
 end
 
+--- All nodes of a world.node_index within `radius` metres (horizontally) of pos, nearest first.
+function world.nodes_near(index, pos, radius)
+	local out = {}
+	local cx, cy = math.floor(pos.x / index.size), math.floor(pos.y / index.size)
+	local span = math.max(1, math.ceil(radius / index.size))
+	for x = cx - span, cx + span do
+		for y = cy - span, cy + span do
+			for _, n in ipairs(index.cells[x .. ":" .. y] or {}) do
+				local dx, dy = n.p.x - pos.x, n.p.y - pos.y
+				local d2 = dx * dx + dy * dy
+				if d2 <= radius * radius then out[#out + 1] = { id = n.id, p = n.p, d2 = d2 } end
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		if a.d2 ~= b.d2 then return a.d2 < b.d2 end
+		return a.id < b.id
+	end)
+	return out
+end
+
+--- Segment ids at a node (empty if unreadable).
+function world.node_segments(env, node)
+	local ok, list = pcall(function() return env.api.engine.system.streetSystem.getNodeSegments(node) end)
+	if ok and list ~= nil then return build.list_items(list) end
+	return {}
+end
+
+--- The two end nodes of an edge entity, or nil.
+function world.edge_nodes(env, id)
+	local edge = component(env, id, "BASE_EDGE")
+	if not edge then return nil end
+	local ok, a, b = pcall(function() return edge.node0, edge.node1 end)
+	if ok and a ~= nil and b ~= nil then return a, b end
+	return nil
+end
+
+--- Positions of the two end nodes of an edge entity, or nil.
+function world.edge_ends(env, id)
+	local a, b = world.edge_nodes(env, id)
+	if not a then return nil end
+	local p0, p1 = world.node_position(env, a), world.node_position(env, b)
+	if p0 and p1 then return p0, p1 end
+	return nil
+end
+
+--- Whether a node has a BaseNodeConfig (lane connections, run 20b).
+function world.has_node_config(env, node)
+	return component(env, node, "BASE_NODE_CONFIG") ~= nil
+end
+
 --- Edge entity joining nodes a and b (either direction), or nil.
 function world.find_edge(env, a, b)
 	local found = nil

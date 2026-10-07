@@ -1,10 +1,12 @@
---- Construction entrances (v20).
+--- Construction entrances (v20, v21).
 -- The build tool lays a depot's entrance street from the road to the depot's gate and hands the
 -- gate node to the construction: in its proposal the gate is a new node that both
--- proposal.frozenNodes and toAdd[i].frozenNodes name (run 19). A SimpleProposal has no field for
--- that. The copied construction makes its own gate node and the copied entrance ends in a second
--- node on the same spot, so the depot cannot be reached (run 18). This module tells whether a
--- copy's gate is welded and tries the engine's own ways to weld it. Every engine call is guarded.
+-- proposal.frozenNodes and toAdd[i].frozenNodes name (run 19), and afterwards the entrance is one
+-- of the construction's own frozen edges (run 20b). A SimpleProposal has no field for that. A
+-- copied construction lays its own entrance; the copied entrance street came on top of it as a
+-- second one ending in a second node on the gate (run 20b), so v21 leaves that street out and the
+-- construction's own entrance has to meet the road. This module tells whether a copy's entrance
+-- reaches the road and tries the engine's own ways to join it. Every engine call is guarded.
 -- @module mp_probe.weld
 local build = require("/mp_probe/build.lua")
 local world = require("/mp_probe/world.lua")
@@ -58,32 +60,47 @@ function weld.frozen_of(env, construction)
 	return nodes, edges
 end
 
---- Segment ids at a node (empty if unreadable).
-function weld.segments_at(env, node)
-	local ok, list = pcall(function() return env.api.engine.system.streetSystem.getNodeSegments(node) end)
-	if ok and list ~= nil then return list_items(list) end
-	return {}
-end
+weld.segments_at = world.node_segments
+weld.nodes_near = world.nodes_near
 
---- All nodes of a world.node_index within `radius` metres (horizontally) of pos.
-function weld.nodes_near(index, pos, radius)
-	local out = {}
-	local cx, cy = math.floor(pos.x / index.size), math.floor(pos.y / index.size)
-	for x = cx - 1, cx + 1 do
-		for y = cy - 1, cy + 1 do
-			for _, n in ipairs(index.cells[x .. ":" .. y] or {}) do
-				local dx, dy = n.p.x - pos.x, n.p.y - pos.y
-				if dx * dx + dy * dy <= radius * radius then out[#out + 1] = n end
+--- How many nodes weld.status walks along a construction's own edges from one gate.
+weld.WALK_LIMIT = 64
+
+--- Follows the construction's own (frozen) edges from a gate and returns the first node that
+-- also has a segment of someone else (the road its entrance joins) and how many such segments it
+-- has, or nil.
+local function road_from(env, gate, frozen_edges)
+	local seen, queue, head = { [gate] = true }, { gate }, 1
+	while head <= #queue and #queue <= weld.WALK_LIMIT do
+		local n = queue[head]
+		head = head + 1
+		local road = 0
+		for _, e in ipairs(weld.segments_at(env, n)) do
+			if frozen_edges[e] then
+				local a, b = world.edge_nodes(env, e)
+				local other = (a == n) and b or a
+				if other ~= nil and not seen[other] then
+					seen[other] = true
+					queue[#queue + 1] = other
+				end
+			else
+				road = road + 1
 			end
 		end
+		if road > 0 then return n, road, queue end
 	end
-	return out
+	return nil, nil, queue
 end
 
---- Whether the construction's gates have a street from outside.
+--- Whether the construction's gates reach the street network. Run 20b: TF3 hands the entrance
+-- street to the construction, so even the player's own depot has only its entrance at the gate,
+-- among the construction's frozen edges ("0 outside, 1 inner"). The check therefore follows the
+-- construction's own edges from each gate; it is welded when a node on that way also has a segment
+-- that is not the construction's (the road the entrance joins).
 -- @param gate_positions list of {x, y, z} where the line puts the gates (may be empty)
 -- @return table { welded = true, false or nil (no gate found), gates = {{id, position, outside,
---   inner}}, loose = {{id, position, segments}} (other nodes on a gate spot), text }
+--   inner, road, road_segments}}, loose = {{id, position, segments}} (other nodes on a gate spot),
+--   text }
 function weld.status(env, construction, gate_positions)
 	local nodes, frozen_edges = weld.frozen_of(env, construction)
 	local st = { welded = nil, gates = {}, loose = {} }
@@ -94,8 +111,25 @@ function weld.status(env, construction, gate_positions)
 		for _, e in ipairs(weld.segments_at(env, id)) do
 			if frozen_edges[e] then inner = inner + 1 else outside = outside + 1 end
 		end
-		if outside > 0 then st.welded = true elseif st.welded == nil then st.welded = false end
-		st.gates[#st.gates + 1] = { id = id, position = world.node_position(env, id), outside = outside, inner = inner }
+		local road, road_segments, walked = road_from(env, id, frozen_edges)
+		if road then st.welded = true elseif st.welded == nil then st.welded = false end
+		-- Where the construction's own entrance ends when it reaches no road (a dead end).
+		local tip = nil
+		if not road then
+			for _, n in ipairs(walked) do
+				if n ~= id and #weld.segments_at(env, n) == 1 then tip = n end
+			end
+		end
+		st.gates[#st.gates + 1] = { id = id, position = world.node_position(env, id), outside = outside, inner = inner,
+			road = road, road_segments = road_segments, tip = tip, tip_position = tip and world.node_position(env, tip) }
+	end
+	-- Other nodes on the spot where an entrance ends: a road node there that the entrance did not
+	-- join is the copy's own street.
+	local spots = {}
+	for _, pos in ipairs(gate_positions or {}) do spots[#spots + 1] = pos end
+	gate_positions = spots
+	for _, g in ipairs(st.gates) do
+		if g.tip_position then gate_positions[#gate_positions + 1] = g.tip_position end
 	end
 	if #(gate_positions or {}) > 0 then
 		local ok, index = pcall(world.node_index, env)
@@ -103,7 +137,9 @@ function weld.status(env, construction, gate_positions)
 			local seen = {}
 			for _, pos in ipairs(gate_positions) do
 				for _, n in ipairs(weld.nodes_near(index, pos, weld.GATE_RADIUS)) do
-					if not is_gate[n.id] and not seen[n.id] then
+					local own = false
+					for _, g in ipairs(st.gates) do if g.tip == n.id then own = true end end
+					if not is_gate[n.id] and not own and not seen[n.id] then
 						seen[n.id] = true
 						st.loose[#st.loose + 1] = { id = n.id, position = n.p, segments = #weld.segments_at(env, n.id) }
 					end
@@ -113,8 +149,11 @@ function weld.status(env, construction, gate_positions)
 	end
 	local parts = {}
 	for _, g in ipairs(st.gates) do
-		parts[#parts + 1] = string.format("gate %s at %s (%d outside, %d inner)", tostring(g.id), fmt(g.position),
-			g.outside, g.inner)
+		local reach = g.road and string.format("road at node %s with %d segments", tostring(g.road), g.road_segments)
+			or g.tip and string.format("no road reached, entrance ends at node %s at %s", tostring(g.tip), fmt(g.tip_position))
+			or "no road reached"
+		parts[#parts + 1] = string.format("gate %s at %s (%d outside, %d inner, %s)", tostring(g.id), fmt(g.position),
+			g.outside, g.inner, reach)
 	end
 	if #parts == 0 then parts[1] = "no gate node found" end
 	for _, n in ipairs(st.loose) do
@@ -204,6 +243,17 @@ function weld.describe_proposal(p)
 			return "#" .. #list_items(sp.removedNodes) .. " {" .. table.concat(items, ",") .. "}"
 		end)
 		try("frozenNodes", function() return ids(sp.frozenNodes) end)
+		try("nodeConfigsToAdd", function()
+			local items = {}
+			for i, c in ipairs(list_items(sp.nodeConfigsToAdd)) do
+				if i > limit then items[#items + 1] = "..."; break end
+				local text = tostring(c.entity)
+				pcall(function() text = text .. ":" .. #list_items(c.comp.laneConnections) .. " lanes" end)
+				items[#items + 1] = text
+			end
+			return "#" .. #list_items(sp.nodeConfigsToAdd) .. " {" .. table.concat(items, ",") .. "}"
+		end)
+		try("nodeConfigsToRemove", function() return ids(sp.nodeConfigsToRemove) end)
 	else
 		out[#out + 1] = "no street part (" .. tostring(sp):sub(1, 60) .. ")"
 	end
@@ -291,7 +341,7 @@ end
 -- @param opts table { log = function(text), player, on_result, dump = function(label, value) }
 -- @return table list of { file, position, verdict } for a later check
 function weld.repair(env, data, opts)
-	local gates = weld.gate_positions(data)
+	local gates = data.gate_positions or weld.gate_positions(data)
 	local checked = {}
 	for _, c in ipairs(data.constructions or {}) do
 		local pos = { x = c.transf[13], y = c.transf[14], z = c.transf[15] }

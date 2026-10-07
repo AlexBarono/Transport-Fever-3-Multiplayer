@@ -6,6 +6,7 @@
         "mp_probe/logger.lua",
         "mp_probe/main.gs.lua",
         "mp_probe/main.script.lua",
+        "mp_probe/nodecfg.lua",
         "mp_probe/probe.lua",
         "mp_probe/weld.lua",
         "mp_probe/wire.lua",

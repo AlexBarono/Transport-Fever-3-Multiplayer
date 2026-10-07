@@ -6,7 +6,7 @@
 local build = {}
 
 --- Wire format version, part of every line so an old client can reject a new line.
-build.VERSION = 4
+build.VERSION = 5
 
 local function round(x)
 	return math.floor(x * 1000 + 0.5) / 1000
@@ -487,7 +487,151 @@ function build.serialize(proposal, opts)
 		parts[#parts + 1] = "d;" .. build.escape(con.file) .. ";" .. vec_to_string(con.position)
 		::continue::
 	end
-	return table.concat(parts, " "), info
+
+	local line = table.concat(parts, " ")
+	-- The build itself must travel even if its node configurations cannot be read.
+	local ok_c, config_tokens = pcall(build.serialize_configs, proposal, opts, info, list_items(proposal.addedSegments),
+		added_position)
+	if not ok_c then
+		info.dropped[#info.dropped + 1] = "node configs (" .. tostring(config_tokens):sub(1, 120) .. ")"
+		info.node_configs, config_tokens = 0, {}
+	end
+	if #config_tokens > 0 then
+		local text = table.concat(config_tokens, " ")
+		if #line + 1 + #text > build.CONFIG_LINE_LIMIT then
+			info.dropped[#info.dropped + 1] = info.node_configs .. " node configs (line would be " ..
+				(#line + 1 + #text) .. " characters)"
+			info.node_configs = 0
+		else
+			line = line .. " " .. text
+		end
+	end
+	return line, info
+end
+
+--- Node configurations (v21). TF3 keeps the lane connections, crosswalks and traffic light setup of
+-- a street node in a BaseNodeConfig, and a player's build hands one per node it touches to the game
+-- in proposal.nodeConfigsToAdd (run 20b: six for a road of six nodes). A copy without them has
+-- nodes nothing can drive through, and clicking such a junction breaks the game's window
+-- ("attempt to index local 'baseNodeConfig' (a nil value)", double_slip_switch.tl).
+-- They travel by position, like everything else: the node, and each segment a connection or
+-- crosswalk names, by the positions of its two end nodes ("e" tokens). The receiver applies them
+-- after the build (nodecfg.lua), when every segment has its id in that game, including the ones a
+-- construction lays itself.
+build.CONFIG_LINE_LIMIT = 14000
+
+--- Reads a number field that may come as a number, boolean or enum value.
+local function int_of(v)
+	if type(v) == "number" then return v end
+	if type(v) == "boolean" then return v and 1 or 0 end
+	local n = tonumber(tostring(v))
+	if n then return n end
+	error("not a number: " .. tostring(v), 0)
+end
+
+--- One entry of nodeConfigsToAdd as a plain table: { node, conns = {{s0, l0, s1, l1, road, tram}},
+-- walks = {segment ids}, pref, double, lanes_modified, states_modified, tltype, states = {{duration,
+-- min, skip, lanes}} }. Raises when a required field cannot be read.
+function build.read_node_config(entry)
+	local comp = entry.comp
+	local c = { node = entry.entity, conns = {}, walks = {}, states = {} }
+	for _, lc in ipairs(list_items(comp.laneConnections)) do
+		c.conns[#c.conns + 1] = { s0 = lc.segment0, l0 = int_of(lc.lane0), s1 = lc.segment1, l1 = int_of(lc.lane1),
+			road = lc.withRoad == true, tram = lc.withTram == true }
+	end
+	for _, w in ipairs(list_items(comp.crosswalks)) do c.walks[#c.walks + 1] = w end
+	c.pref = 2
+	pcall(function() c.pref = int_of(comp.trafficLightPreference) end)
+	pcall(function() c.double = comp.doubleSlipSwitch == true end)
+	pcall(function() c.lanes_modified = comp.userModifiedLaneConnections == true end)
+	pcall(function() c.states_modified = comp.userModifiedTrafficLightStates == true end)
+	c.tltype = -1
+	pcall(function()
+		local tlc = comp.trafficLightConfig
+		c.tltype = int_of(tlc.trafficLightType)
+		for _, st in ipairs(list_items(tlc.states)) do
+			local lanes = {}
+			pcall(function()
+				for _, l in ipairs(list_items(st.lockedLanes)) do lanes[#lanes + 1] = int_of(l) end
+			end)
+			c.states[#c.states + 1] = { duration = st.duration or 0, min = st.minDuration or 0,
+				skip = st.canSkip == true, lanes = lanes }
+		end
+	end)
+	return c
+end
+
+--- The "e" and "k" tokens of a build's node configurations (see above).
+-- @param segments list of the proposal's addedSegments
+-- @param added_position table node id -> position of the added nodes
+function build.serialize_configs(proposal, opts, info, segments, added_position)
+	info.node_configs, info.config_removes = 0, 0
+	pcall(function() info.config_removes = #list_items(proposal.nodeConfigsToRemove) end)
+	local entries = {}
+	pcall(function() entries = list_items(proposal.nodeConfigsToAdd) end)
+	if #entries == 0 then return {} end
+	local seg_nodes = {}
+	for _, seg in ipairs(segments) do
+		pcall(function() seg_nodes[seg.entity] = { seg.comp.node0, seg.comp.node1 } end)
+	end
+	local function node_pos(id)
+		return added_position[id] or (opts.node_position and opts.node_position(id))
+	end
+	local function ends_of(id)
+		local pair = seg_nodes[id]
+		if pair then
+			local p0, p1 = node_pos(pair[1]), node_pos(pair[2])
+			if p0 and p1 then return p0, p1 end
+		end
+		if opts.segment_ends then return opts.segment_ends(id) end
+		return nil
+	end
+	local tokens, seg_index, seg_tokens = {}, {}, {}
+	local function seg_ref(id)
+		if seg_index[id] then return seg_index[id] end
+		local p0, p1 = ends_of(id)
+		if not p0 or not p1 then error("segment " .. tostring(id) .. " has no end positions", 0) end
+		local k = #seg_tokens + 1
+		seg_index[id] = k
+		seg_tokens[k] = "e" .. k .. ";" .. vec_to_string(p0) .. ";" .. vec_to_string(p1)
+		return k
+	end
+	local config_tokens = {}
+	for _, entry in ipairs(entries) do
+		local ok, token = pcall(function()
+			local c = build.read_node_config(entry)
+			local pos = node_pos(c.node)
+			if not pos then error("node " .. tostring(c.node) .. " has no position", 0) end
+			local conns = {}
+			for _, lc in ipairs(c.conns) do
+				local flags = (lc.road and "r" or "") .. (lc.tram and "t" or "")
+				conns[#conns + 1] = table.concat({ seg_ref(lc.s0), num(lc.l0), seg_ref(lc.s1), num(lc.l1),
+					flags == "" and "-" or flags }, ":")
+			end
+			local walks = {}
+			for _, w in ipairs(c.walks) do walks[#walks + 1] = seg_ref(w) end
+			local states = {}
+			for _, st in ipairs(c.states) do
+				local lanes = {}
+				for _, l in ipairs(st.lanes) do lanes[#lanes + 1] = num(l) end
+				states[#states + 1] = table.concat({ num(st.duration), num(st.min), st.skip and "T" or "F",
+					#lanes > 0 and table.concat(lanes, "+") or "-" }, ":")
+			end
+			local flags = (c.double and "d" or "") .. (c.lanes_modified and "l" or "") .. (c.states_modified and "t" or "")
+			return table.concat({ "k", vec_to_string(pos), flags == "" and "-" or flags, num(c.pref), num(c.tltype),
+				#conns > 0 and table.concat(conns, ",") or "-", #walks > 0 and table.concat(walks, ",") or "-",
+				#states > 0 and table.concat(states, ",") or "-" }, ";")
+		end)
+		if ok then
+			config_tokens[#config_tokens + 1] = token
+			info.node_configs = info.node_configs + 1
+		else
+			info.dropped[#info.dropped + 1] = "node config " .. tostring(entry.entity) .. " (" .. tostring(token) .. ")"
+		end
+	end
+	for _, t in ipairs(seg_tokens) do tokens[#tokens + 1] = t end
+	for _, t in ipairs(config_tokens) do tokens[#tokens + 1] = t end
+	return tokens
 end
 
 local function node_ref_from_string(text)
@@ -505,7 +649,8 @@ end
 function build.deserialize(line)
 	if type(line) ~= "string" then return nil, "not a string" end
 	local data = { nodes = {}, foreign = {}, segments = {}, removed_segments = {}, removed_nodes = {},
-		constructions = {}, demolished = {}, objects = {}, access = {}, gates = {} }
+		constructions = {}, demolished = {}, objects = {}, access = {}, gates = {}, configs = {},
+		config_segments = {} }
 	local roads = {}
 	for token in string.gmatch(line, "%S+") do
 		local kind = token:sub(1, 1)
@@ -563,6 +708,15 @@ function build.deserialize(line)
 			local id = string.match(token, "^g;(%-%d+)$")
 			if not id then return nil, "bad gate token " .. token end
 			data.gates[tonumber(id)] = true
+		elseif kind == "e" then
+			local k, a, b = string.match(token, "^e(%d+);([^;]+);([^;]+)$")
+			local p0, p1 = a and vec_from_string(a), b and vec_from_string(b)
+			if not p0 or not p1 then return nil, "bad config segment token " .. token end
+			data.config_segments[tonumber(k)] = { p0 = p0, p1 = p1 }
+		elseif kind == "k" then
+			local c, err = build.parse_config(token)
+			if not c then return nil, err end
+			data.configs[#data.configs + 1] = c
 		elseif kind == "o" then
 			local seg, side, param, pos, model, name, flags =
 				string.match(token, "^o;(%d+);(%-?%d+);([^;]+);([^;]+);([^;]+);([^;]*);([^;]+)$")
@@ -621,7 +775,64 @@ function build.deserialize(line)
 			if type(ref) == "string" and not data.foreign[ref] then return nil, "unknown existing node " .. ref end
 		end
 	end
+	for _, c in ipairs(data.configs) do
+		for k in pairs(build.config_refs(c)) do
+			if not data.config_segments[k] then return nil, "node config names unknown segment e" .. k end
+		end
+	end
 	return data
+end
+
+--- Parses one "k" token (see build.serialize_configs).
+-- @return table { position, double, lanes_modified, states_modified, pref, tltype, conns = {{a, l0,
+--   b, l1, road, tram}} (a, b = "e" token numbers), walks = {numbers}, states = {{duration, min, skip,
+--   lanes}} }, or nil and an error message
+function build.parse_config(token)
+	local fields = {}
+	for field in string.gmatch(token, "[^;]+") do fields[#fields + 1] = field end
+	if #fields ~= 8 or fields[1] ~= "k" then return nil, "bad node config token " .. token:sub(1, 80) end
+	local position = vec_from_string(fields[2])
+	local pref, tltype = tonumber(fields[4]), tonumber(fields[5])
+	if not position or not pref or not tltype then return nil, "bad node config token " .. token:sub(1, 80) end
+	local flags = fields[3]
+	local c = { position = position, pref = pref, tltype = tltype, conns = {}, walks = {}, states = {},
+		double = flags:find("d", 1, true) ~= nil, lanes_modified = flags:find("l", 1, true) ~= nil,
+		states_modified = flags:find("t", 1, true) ~= nil }
+	if fields[6] ~= "-" then
+		for item in string.gmatch(fields[6], "[^,]+") do
+			local a, l0, b, l1, f = string.match(item, "^(%d+):(%-?%d+):(%d+):(%-?%d+):([%-rt]+)$")
+			if not a then return nil, "bad lane connection " .. item end
+			c.conns[#c.conns + 1] = { a = tonumber(a), l0 = tonumber(l0), b = tonumber(b), l1 = tonumber(l1),
+				road = f:find("r", 1, true) ~= nil, tram = f:find("t", 1, true) ~= nil }
+		end
+	end
+	if fields[7] ~= "-" then
+		for item in string.gmatch(fields[7], "[^,]+") do
+			local k = tonumber(item)
+			if not k then return nil, "bad crosswalk " .. item end
+			c.walks[#c.walks + 1] = k
+		end
+	end
+	if fields[8] ~= "-" then
+		for item in string.gmatch(fields[8], "[^,]+") do
+			local d, m, skip, lanes_text = string.match(item, "^([^:]+):([^:]+):([TF]):([^:]+)$")
+			if not d or not tonumber(d) or not tonumber(m) then return nil, "bad traffic light state " .. item end
+			local lanes = {}
+			if lanes_text ~= "-" then
+				for l in string.gmatch(lanes_text, "[^+]+") do lanes[#lanes + 1] = tonumber(l) end
+			end
+			c.states[#c.states + 1] = { duration = tonumber(d), min = tonumber(m), skip = skip == "T", lanes = lanes }
+		end
+	end
+	return c
+end
+
+--- The "e" token numbers a parsed node config names, as a set.
+function build.config_refs(c)
+	local refs = {}
+	for _, lc in ipairs(c.conns) do refs[lc.a], refs[lc.b] = true, true end
+	for _, w in ipairs(c.walks) do refs[w] = true end
+	return refs
 end
 
 --- Turns the existing things a parsed line names by position into this game's entities.
@@ -767,6 +978,7 @@ local function update(obj, key, change, errors, label)
 	-- Written back even after a failed change, so whatever did change is kept.
 	return try_set(obj, key, nested, errors, label) and ok_change
 end
+build.try_set, build.update = try_set, update
 
 --- Sets a Vec3f field to a new api.type.Vec3f. If that does not work, the copy of the current
 -- vector is changed and written back instead; only when both fail is an error recorded.
@@ -1359,6 +1571,11 @@ function build.offset(data, dx, dy)
 	end
 	for _, d in ipairs(data.demolished or {}) do move(d.position) end
 	for _, o in ipairs(data.objects or {}) do move(o.position) end
+	for _, c in ipairs(data.configs or {}) do move(c.position) end
+	for _, e in pairs(data.config_segments or {}) do
+		move(e.p0)
+		move(e.p1)
+	end
 	return data
 end
 

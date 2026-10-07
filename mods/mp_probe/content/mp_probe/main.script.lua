@@ -10,11 +10,12 @@ local build = require("/mp_probe/build.lua")
 local world = require("/mp_probe/world.lua")
 local actions = require("/mp_probe/actions.lua")
 local weld = require("/mp_probe/weld.lua")
+local nodecfg = require("/mp_probe/nodecfg.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 20
+main.PROBE_VERSION = 21
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -65,7 +66,7 @@ main.BRIDGE_ENV = "TF3MP_IN"
 main.ACTION_EVERY = 10
 --- Dump every replay result (slow for stations, run 14).
 main.DUMP_REPLAY_RESULTS = false
---- Action kinds polled by actions.lua (the rest comes from build events, format B4).
+--- Action kinds polled by actions.lua (the rest comes from build events, format B5).
 main.ACTION_KINDS = { "line", "vehicle" }
 --- v20: a copied construction's entrance is checked again this much game time after the copy,
 -- in case the world was not up to date right after the command.
@@ -317,10 +318,27 @@ function main.replay_line(env, line, number, state, distance)
 	if distance ~= 0 then build.offset(data, dx, dy) end
 	local player = current_player(env)
 	logger.info(string.format("replay #%s: %d nodes, %d segments, %d existing nodes, %d removed segments, " ..
-		"%d constructions, %d demolished, moved by %.1f,%.1f, player %s", tostring(number), #data.nodes,
-		#data.segments, main.count_keys(data.foreign), #data.removed_segments, #data.constructions,
-		#data.demolished, dx, dy, tostring(player)))
+		"%d constructions, %d demolished, %d node configs, moved by %.1f,%.1f, player %s", tostring(number),
+		#data.nodes, #data.segments, main.count_keys(data.foreign), #data.removed_segments, #data.constructions,
+		#data.demolished, #data.configs, dx, dy, tostring(player)))
 	local has_gates = next(data.gates or {}) ~= nil and #data.constructions > 0
+	if has_gates then
+		-- Run 20b: the copied construction lays its own entrance, and the copied entrance street
+		-- came on top of it as a second one ending in a second node on the gate. v21 leaves the
+		-- street out; weld.lua checks that the construction's own entrance meets the road.
+		data.gate_positions = weld.gate_positions(data)
+		local before = #data.segments
+		build.drop_access(data)
+		logger.info(string.format("replay: %d entrance segment(s) left out, the construction lays its own",
+			before - #data.segments))
+	end
+	local configs_only = #data.nodes == 0 and #data.segments == 0 and #data.removed_segments == 0 and
+		#data.removed_nodes == 0 and #data.constructions == 0 and #data.demolished == 0 and #data.configs > 0
+	if configs_only then
+		logger.info("replay #" .. tostring(number) .. ": only node configurations (" .. #data.configs .. ")")
+		main.apply_node_configs(env, data, player)
+		return
+	end
 	local described = false
 	local ok_r, found, missing, notes = pcall(build.resolve, data, main.finder(env))
 	if not ok_r then
@@ -356,6 +374,17 @@ function main.replay_line(env, line, number, state, distance)
 	})
 	logger.info("replay: " .. (ok and "sent, " or "failed, ") .. message)
 	if ok and has_gates then main.weld_copy(env, data, state, player) end
+	if ok then main.apply_node_configs(env, data, player) end
+end
+
+--- v21: gives the copy's nodes the lane connections the original got (nodecfg.lua).
+function main.apply_node_configs(env, data, player)
+	if #(data.configs or {}) == 0 then return end
+	local ok, err = pcall(nodecfg.apply, env, data, {
+		log = function(text) logger.info(text) end,
+		player = player,
+	})
+	if not ok then logger.info("node configs failed: " .. tostring(err):sub(1, 200)) end
 end
 
 --- v20: checks the entrance of a copied construction and tries to weld it (weld.lua); remembers
@@ -456,7 +485,7 @@ function main.update(_user_params, state, _dt)
 	end
 	if (not s.actions or s.updates % main.ACTION_EVERY == 0) and not s.action_busy
 		and not (s.action_work and #s.action_work > 0) then
-		-- Roads, buildings and demolition travel as B4 lines from the build events; the polled
+		-- Roads, buildings and demolition travel as B5 lines from the build events; the polled
 		-- actions only add lines and vehicles, so nothing is copied twice.
 		local kinds = main.ACTION_KINDS
 		local ok, err = pcall(actions.poll, _G, s, function(text) logger.info(text) end, kinds)
@@ -563,6 +592,7 @@ function main.capture_build(state, s, param, label)
 	local cons = s.constructions or {}
 	local opts = {
 		node_position = function(id) return world.node_position(env, id) end,
+		segment_ends = function(id) return world.edge_ends(env, id) end,
 		to_add = param[1].toAdd,
 		to_remove = param[1].toRemove,
 		construction = function(id) return cons[tostring(id)] end,
@@ -593,10 +623,12 @@ function main.capture_build(state, s, param, label)
 		" foreign_nodes=" .. info.foreign_nodes .. " removed_segments=" .. info.removed_segments ..
 		" removed_nodes=" .. info.removed_nodes .. " constructions=" .. info.constructions ..
 		" demolished=" .. info.demolished .. " edge_objects=" .. info.edge_objects ..
-		" access_segments=" .. tostring(info.access))
+		" access_segments=" .. tostring(info.access) .. " node_configs=" .. tostring(info.node_configs) ..
+		" config_removes=" .. tostring(info.config_removes))
 	for _, what in ipairs(info.dropped) do logger.info("capture leaves out " .. what) end
 	logger.info("capture line " .. line)
-	if info.segments + info.removed_segments + info.constructions + info.demolished > 0 then
+	-- v21: a build that only changes node configurations (lane connections, traffic lights) travels too.
+	if info.segments + info.removed_segments + info.constructions + info.demolished + (info.node_configs or 0) > 0 then
 		s.last_build = line
 		state:set(s)
 		logger.info("capture stored for replay (" .. #line .. " characters)")

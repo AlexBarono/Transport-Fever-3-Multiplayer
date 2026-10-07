@@ -409,7 +409,7 @@ test("serialize turns a captured street into one line with placeholder ids", fun
 	local line, info = build.serialize(run5_street())
 	assert(info.nodes == 3 and info.segments == 2, info.nodes .. "/" .. info.segments)
 	assert(info.foreign_nodes == 0, "all three nodes are new")
-	assert(line:sub(1, 2) == "B4", line)
+	assert(line:sub(1, 2) == "B5", line)
 	assert(line:find("n-1;-2888.017,-3941.508,1.675", 1, true), line)
 	assert(line:find("s-1;0;-1;-2;", 1, true), line)
 	assert(line:find("s-2;0;-2;-3;", 1, true), line)
@@ -517,18 +517,18 @@ end)
 test("deserialize rejects broken lines", function()
 	assert(build.deserialize("n-1;1,2,3") == nil, "a line without a version is rejected")
 	assert(build.deserialize("B99 n-1;1,2,3") == nil, "a newer format is rejected")
-	assert(build.deserialize("B4 n-1;1,2") == nil, "a short position is rejected")
-	assert(build.deserialize("B4 s-1;0;-1") == nil, "a short segment is rejected")
-	assert(build.deserialize("B4 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;7;-;-") == nil, "an undefined road type is rejected")
-	assert(build.deserialize("B4 t1;a;b;1,2,3 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a short lane is rejected")
-	assert(build.deserialize("B4 t1;a;b s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a road token without lanes is rejected")
+	assert(build.deserialize("B5 n-1;1,2") == nil, "a short position is rejected")
+	assert(build.deserialize("B5 s-1;0;-1") == nil, "a short segment is rejected")
+	assert(build.deserialize("B5 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;7;-;-") == nil, "an undefined road type is rejected")
+	assert(build.deserialize("B5 t1;a;b;1,2,3 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a short lane is rejected")
+	assert(build.deserialize("B5 t1;a;b s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "a road token without lanes is rejected")
 	assert(build.deserialize("B2 s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1") == nil, "format 2 lacks the lanes")
-	local no_lanes = assert(build.deserialize("B4 t1;a;b;- s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-"))
+	local no_lanes = assert(build.deserialize("B5 t1;a;b;- s-1;0;-1;-2;1,0,0;1,0,0;-1;1;0;1;-;-"))
 	assert(no_lanes.segments[1].lanes == nil and no_lanes.segments[1].params == nil)
-	assert(build.deserialize("B4 s-1;0;f1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "an unknown existing node is rejected")
-	assert(build.deserialize("B4 c;a;b;1,2;n1") == nil, "a construction needs 16 transf numbers")
+	assert(build.deserialize("B5 s-1;0;f1;-2;1,0,0;1,0,0;-1;1;0;1;-;-") == nil, "an unknown existing node is rejected")
+	assert(build.deserialize("B5 c;a;b;1,2;n1") == nil, "a construction needs 16 transf numbers")
 	assert(build.deserialize(42) == nil)
-	local data = assert(build.deserialize("B4"), "an empty proposal parses")
+	local data = assert(build.deserialize("B5"), "an empty proposal parses")
 	assert(#data.nodes == 0 and #data.segments == 0)
 end)
 
@@ -1043,7 +1043,7 @@ test("a stored capture is logged behind the send marker for the DLL", function()
 			local at = line:find(main.SEND_MARKER, 1, true)
 			if at then found = line:sub(at + #main.SEND_MARKER) end
 		end
-		assert(found and found:sub(1, 3) == "B4 ", table.concat(logged, "\n"))
+		assert(found and found:sub(1, 3) == "B5 ", table.concat(logged, "\n"))
 		assert(build.deserialize(found), "the sent line parses")
 	end)
 end)
@@ -1202,7 +1202,7 @@ local function depot_param()
 	}
 end
 
-test("a construction travels with file, name, transf, params and its entrance (v20)", function()
+test("a construction travels with file, name, transf, params and its entrance, which the copy leaves out (v21)", function()
 	with_engine_api({}, function(t)
 		local main = fresh_main()
 		logged = {}
@@ -1227,8 +1227,11 @@ test("a construction travels with file, name, transf, params and its entrance (v
 		local sent = t.sent[1].proposal.constructionsToAdd[1]
 		assert(sent.fileName == c.file and sent.name == c.name and sent.playerEntity == 29125)
 		assert(sent.transf[13] == -2970.633 and sent.params.modules[3] == "a b;c")
+		-- Run 20b: the copied construction lays its own entrance; a second one would end beside it.
 		local _, edges = sent_lists(t.sent[1].proposal)
-		assert(#edges == 1, "the entrance is built together with the construction")
+		assert(#edges == 0, "the entrance street is left out")
+		assert(contains(logged, "replay: 1 entrance segment(s) left out, the construction lays its own"),
+			table.concat(logged, "\n"))
 		-- The command was described before sending, and the weld was checked afterwards.
 		assert(contains(logged, "weld command before sending: command fields {"), table.concat(logged, "\n"))
 		assert(contains(logged, "weld: the copied road_depot.con near -2970.6,-3889.3 is not here"), table.concat(logged, "\n"))
@@ -1274,23 +1277,32 @@ test("a depot joined to a road travels as one line with entrance and gate (v20)"
 	-- The fallback without entrance forgets the gate (its node is gone).
 	build.drop_access(data)
 	assert(next(data.gates) == nil and #data.segments == 2 and #data.nodes == 1)
-	assert(not build.deserialize("B4 n-1;0,0,0 g;-3"), "a gate on an unknown node is refused")
+	assert(not build.deserialize("B5 n-1;0,0,0 g;-3"), "a gate on an unknown node is refused")
 end)
 
---- A small world for weld.lua: depot 500 whose gate node 601 lies where the copied entrance
--- ends in its own node 602 (run 18).
+--- A small world for weld.lua as run 20b left it: depot 500 with gate node 601 and its own
+-- entrance 801 ending in node 604, on the spot of the copied road's node 603 (road 701 to 605) but
+-- not joined to it.
 local function weld_world()
 	local w = { comps = {}, segments = {}, sent = {} }
 	local gate = { x = 10, y = 20, z = 2 }
 	w.gate = gate
 	w.comps[500] = { CONSTRUCTION = { fileName = "::/depots/road/road_depot/road_depot.con",
-		transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 0, 2, 1 }, frozenNodes = { 601 }, frozenEdges = {} } }
+		transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 0, 2, 1 }, frozenNodes = { 601 }, frozenEdges = { 801 } } }
 	w.comps[601] = { BASE_NODE = { position = { x = 10, y = 20, z = 2 } } }
-	w.comps[602] = { BASE_NODE = { position = { x = 10.0004, y = 20.0003, z = 2 } } }
 	w.comps[603] = { BASE_NODE = { position = { x = 10, y = 38, z = 2 } } }
-	w.segments = { [601] = {}, [602] = { 701 }, [603] = { 701 } }
+	w.comps[604] = { BASE_NODE = { position = { x = 10.0004, y = 38.0003, z = 2 } } }
+	w.comps[605] = { BASE_NODE = { position = { x = 40, y = 38, z = 2 } } }
+	w.comps[701] = { BASE_EDGE = { node0 = 603, node1 = 605 } }
+	w.comps[801] = { BASE_EDGE = { node0 = 604, node1 = 601 } }
+	w.segments = { [601] = { 801 }, [604] = { 801 }, [603] = { 701 }, [605] = { 701 } }
+	--- What the engine's refresh does when it joins the entrance to the road node on its end.
+	function w.join()
+		w.comps[801].BASE_EDGE.node0 = 603
+		w.segments[603], w.segments[604] = { 701, 801 }, nil
+	end
 	w.env = { api = {
-		type = { ComponentType = { CONSTRUCTION = "CONSTRUCTION", BASE_NODE = "BASE_NODE" },
+		type = { ComponentType = { CONSTRUCTION = "CONSTRUCTION", BASE_NODE = "BASE_NODE", BASE_EDGE = "BASE_EDGE" },
 			Context = { new = function() return {} end },
 			SimpleProposal = { new = function() return {} end, ConstructionEntity = { new = function() return {} end } },
 			Vec4f = { new = function(x, y, z, ww) return { x, y, z, ww } end },
@@ -1350,16 +1362,19 @@ test("a copied entrance is checked once more a little later", function()
 	end)
 end)
 
-test("weld status tells a welded gate from a copied entrance ending beside it (run 18)", function()
+test("weld status follows the construction's own entrance to the road (run 20b)", function()
 	local weld = require("/mp_probe/weld.lua")
 	local w = weld_world()
 	local st = weld.status(w.env, 500, { w.gate })
-	assert(st.welded == false and #st.gates == 1 and st.gates[1].outside == 0, st.text)
-	assert(#st.loose == 1 and st.loose[1].id == 602 and st.loose[1].segments == 1, st.text)
-	assert(st.text:find("gate 601 at 10.0,20.0 (0 outside, 0 inner); other node 602 at 10.0,20.0 (1 segments) -> NOT WELDED", 1, true), st.text)
-	w.segments[601], w.segments[602] = { 701 }, nil
+	assert(st.welded == false and #st.gates == 1 and st.gates[1].outside == 0 and st.gates[1].inner == 1, st.text)
+	assert(#st.loose == 1 and st.loose[1].id == 603 and st.loose[1].segments == 1, st.text)
+	assert(st.text:find("gate 601 at 10.0,20.0 (0 outside, 1 inner, no road reached, entrance ends at node 604 at 10.0,38.0); " ..
+		"other node 603 at 10.0,38.0 (1 segments) -> NOT WELDED", 1, true), st.text)
+	-- The player's own depot (run 20b): the entrance is the construction's, its end is on the road.
+	w.join()
 	st = weld.status(w.env, 500, { w.gate })
 	assert(st.welded == true and #st.loose == 0, st.text)
+	assert(st.text:find("gate 601 at 10.0,20.0 (0 outside, 1 inner, road at node 603 with 1 segments) -> WELDED", 1, true), st.text)
 	-- A construction without gate nodes is not touched.
 	w.comps[500].CONSTRUCTION.frozenNodes = {}
 	w.env.api.engine.system.streetConnectorSystem.getNode2StreetConnectorMap = function() return {} end
@@ -1371,7 +1386,7 @@ test("weld repair stops at the first step that welds the gate", function()
 	local w = weld_world()
 	local logs = {}
 	-- The engine's refresh adopts the waiting entrance end.
-	w.on_send = function() w.segments[601], w.segments[602] = { 701 }, nil end
+	w.on_send = w.join
 	local checked = weld.repair(w.env, w.data, { log = function(text) logs[#logs + 1] = text end, player = 29125 })
 	local all = table.concat(logs, "\n")
 	assert(#w.sent == 1 and w.sent[1].proposal.toRemove[1] == 500, all)
@@ -1540,7 +1555,7 @@ test("an existing stop on a rebuilt edge stays, a new one is added beside it (v1
 end)
 
 test("demolishing a depot leaves its own segment to the game (run 15)", function()
-	local data = assert(build.deserialize("B4 r;0,0,0;0,18,0;0 r;0,0,0;0,18,0;0 x;0,0,0 x;0,18,0 d;depot.con;5,5,0"))
+	local data = assert(build.deserialize("B5 r;0,0,0;0,18,0;0 r;0,0,0;0,18,0;0 x;0,0,0 x;0,18,0 d;depot.con;5,5,0"))
 	local finder = {
 		find_node = function(pos) return pos.y == 0 and 11 or 12 end,
 		find_edge = function() return 600 end,
@@ -1552,12 +1567,12 @@ test("demolishing a depot leaves its own segment to the game (run 15)", function
 	assert(#data.removed_segments == 0 and data.removed_nodes[1].entity == nil, "nothing named twice")
 	assert(data.demolished[1].entity == 700 and #notes >= 1)
 	-- Run 15: the copy's access segment lies elsewhere; the demolition still goes ahead.
-	data = assert(build.deserialize("B4 x;0,0,0 r;0,0,0;0,18,0;0 d;depot.con;5,5,0"))
+	data = assert(build.deserialize("B5 x;0,0,0 r;0,0,0;0,18,0;0 d;depot.con;5,5,0"))
 	finder.find_edge = function() return nil end
 	assert(build.resolve(data, finder))
 	assert(data.removed_nodes[1].entity == nil, "its end node stays as well (run 16)")
 	-- The same segment twice without a demolition is removed once.
-	data = assert(build.deserialize("B4 r;0,0,0;0,18,0;0 r;0,18,0;0,0,0;0"))
+	data = assert(build.deserialize("B5 r;0,0,0;0,18,0;0 r;0,18,0;0,0,0;0"))
 	finder.find_edge = function() return 601 end
 	assert(build.resolve(data, finder))
 	assert(#data.removed_segments == 1)
@@ -1574,6 +1589,300 @@ test("params literals survive a round trip and reject broken text", function()
 	assert(build.params_from_string("{sa=n1") == nil and build.params_from_string("x") == nil)
 	assert(build.params_from_string("n1junk") == nil)
 	assert(not pcall(build.params_to_string, { f = print }), "functions cannot travel")
+end)
+
+--- run5_street with the node configurations a TF3 build carries (run 20b): the middle node joins
+-- both new segments, the first node joins an existing segment 40000 and has a traffic light, the
+-- last names a segment nobody knows.
+local function street_with_configs()
+	local p = run5_street()
+	p.nodeConfigsToAdd = {
+		{ entity = 51498, comp = {
+			laneConnections = {
+				{ segment0 = 51563, lane0 = 1, segment1 = 51564, lane1 = 2, withRoad = true, withTram = false },
+				{ segment0 = 51564, lane0 = 1, segment1 = 51563, lane1 = 2, withRoad = true, withTram = false },
+			},
+			crosswalks = { 51563, 51564 }, trafficLightPreference = 2, doubleSlipSwitch = false,
+			trafficLightConfig = { states = {}, trafficLightType = -1 }, userModifiedTrafficLightStates = false } },
+		{ entity = 51389, comp = {
+			laneConnections = { { segment0 = 40000, lane0 = 1, segment1 = 51563, lane1 = 2, withRoad = true, withTram = true } },
+			crosswalks = {}, trafficLightPreference = 0, doubleSlipSwitch = false,
+			trafficLightConfig = { trafficLightType = 1,
+				states = { { lockedLanes = { 0, 1 }, duration = 30, minDuration = 10.5, canSkip = true } } },
+			userModifiedTrafficLightStates = true } },
+		{ entity = 51458, comp = {
+			laneConnections = { { segment0 = 99999, lane0 = 0, segment1 = 51564, lane1 = 0, withRoad = true, withTram = false } },
+			crosswalks = {}, trafficLightPreference = 2, doubleSlipSwitch = false,
+			trafficLightConfig = { states = {}, trafficLightType = -1 } } },
+	}
+	p.nodeConfigsToRemove = { 39000 }
+	return p
+end
+
+local function config_opts()
+	return { segment_ends = function(id)
+		if id == 40000 then return { x = -2900, y = -3950, z = 1.5 }, { x = -2888.0170898438, y = -3941.5083007812, z = 1.6745910644531 } end
+	end }
+end
+
+test("node configurations travel by position with the segments they name (v21, run 20b)", function()
+	local line, info = build.serialize(street_with_configs(), config_opts())
+	assert(info.node_configs == 2 and info.config_removes == 1, info.node_configs .. "/" .. info.config_removes)
+	assert(contains(info.dropped, "node config 51458 (segment 99999 has no end positions)"), table.concat(info.dropped, "\n"))
+	assert(line:find(" e1;-2888.017,-3941.508,1.675;-2818.543,-3887.282,1.473 e2;-2818.543,-3887.282,1.473;-2749.069,-3833.056,1.003" ..
+		" e3;-2900,-3950,1.5;-2888.017,-3941.508,1.675", 1, true), line)
+	assert(line:find(" k;-2818.543,-3887.282,1.473;-;2;-1;1:1:2:2:r,2:1:1:2:r;1,2;-", 1, true), line)
+	assert(line:find(" k;-2888.017,-3941.508,1.675;t;0;1;3:1:1:2:rt;-;30:10.5:T:0+1", 1, true), line)
+	local data = assert(build.deserialize(line))
+	assert(#data.configs == 2 and data.config_segments[3].p0.x == -2900, line)
+	local c = data.configs[1]
+	assert(c.position.x == -2818.543 and c.pref == 2 and c.tltype == -1 and not c.double and not c.states_modified)
+	assert(c.conns[1].a == 1 and c.conns[1].l0 == 1 and c.conns[1].b == 2 and c.conns[1].l1 == 2 and c.conns[1].road and not c.conns[1].tram)
+	assert(#c.walks == 2 and c.walks[2] == 2)
+	local t = data.configs[2]
+	assert(t.states_modified and t.conns[1].tram and t.states[1].duration == 30 and t.states[1].min == 10.5 and t.states[1].skip)
+	assert(t.states[1].lanes[1] == 0 and t.states[1].lanes[2] == 1)
+	-- The one-PC test moves them along with the rest.
+	build.offset(data, 0, 100)
+	assert(data.configs[1].position.y == -3787.282 and data.config_segments[3].p1.y == -3841.508)
+	-- A configuration naming a segment the line does not describe is refused.
+	assert(build.deserialize("B5 k;0,0,0;-;2;-1;1:0:2:1:r;-;-") == nil)
+	assert(build.deserialize("B5 e1;0,0,0;1,0,0 k;0,0,0;-;2;-1;1:0:1:x;-;-") == nil, "bad lane connection flags")
+	-- Without configurations the line stays as before.
+	local plain = build.serialize(run5_street())
+	assert(not plain:find(" k;", 1, true) and not plain:find(" e1;", 1, true), plain)
+end)
+
+test("node configurations are left out when the line would get too long", function()
+	local saved = build.CONFIG_LINE_LIMIT
+	build.CONFIG_LINE_LIMIT = 500
+	local line, info = build.serialize(street_with_configs(), config_opts())
+	build.CONFIG_LINE_LIMIT = saved
+	assert(info.node_configs == 0 and not line:find(" k;", 1, true), line)
+	assert(contains(info.dropped, "2 node configs (line would be"), table.concat(info.dropped, "\n"))
+end)
+
+--- A street for nodecfg.lua: nodes 1 - 2 - 3 joined by edges 11 and 12; node 9 lies on node 2's spot
+-- without any segment (like the second node of run 20b); node 1 has a configuration already.
+local function config_world(opts)
+	opts = opts or {}
+	local w = { comps = {}, segments = {}, sent = {} }
+	local function node(id, x, y) w.comps[id] = { BASE_NODE = { position = { x = x, y = y, z = 0 } } } end
+	node(1, 0, 0); node(2, 100.0004, 0); node(3, 200, 0); node(9, 100, 0)
+	w.comps[11] = { BASE_EDGE = { node0 = 1, node1 = 2 } }
+	w.comps[12] = { BASE_EDGE = { node0 = 2, node1 = 3 } }
+	w.comps[1].BASE_NODE_CONFIG = { laneConnections = {} }
+	w.segments = { [1] = { 11 }, [2] = { 11, 12 }, [3] = { 12 }, [9] = {} }
+	w.env = { api = {
+		type = {
+			ComponentType = { BASE_NODE = "BASE_NODE", BASE_EDGE = "BASE_EDGE", BASE_NODE_CONFIG = "BASE_NODE_CONFIG" },
+			Context = { new = function() return {} end },
+			SimpleProposal = { new = function() return { streetProposal = {} } end },
+			TrafficLightState = { new = function() return {} end },
+			BaseNodeLaneConnectionAndEntity = { new = function()
+				return { entity = 0, comp = { laneConnections = {}, crosswalks = {}, trafficLightPreference = 2,
+					doubleSlipSwitch = false, trafficLightConfig = { states = {}, trafficLightType = -1 } } }
+			end },
+		},
+		engine = {
+			getComponent = function(id, ct) return w.comps[id] and w.comps[id][ct] end,
+			system = { streetSystem = {
+				getNodeSegments = function(n) return w.segments[n] or {} end,
+				getNode2SegmentMap = function() return w.segments end,
+			} },
+		},
+		cmd = {
+			makeWorldBuildProposalCmd = function(p) return { proposal = p } end,
+			sendCommand = function(cmd, callback)
+				w.sent[#w.sent + 1] = cmd
+				local sp = cmd.proposal.streetProposal
+				local refuse = (opts.refuse_several and #sp.nodeConfigsToAdd > 1) == true
+				if not refuse then
+					for _, id in ipairs(sp.nodeConfigsToRemove or {}) do w.comps[id].BASE_NODE_CONFIG = nil end
+					for _, e in ipairs(sp.nodeConfigsToAdd) do w.comps[e.entity].BASE_NODE_CONFIG = e.comp end
+				end
+				callback({ resultEntities = {}, resultProposalData = { costs = 0,
+					errorState = { critical = refuse, messages = refuse and { "Bau nicht möglich" } or {}, warnings = {} } } }, not refuse)
+			end,
+		},
+	} }
+	w.data = assert(build.deserialize("B5 e1;0,0,0;100,0,0 e2;100,0,0;200,0,0 " ..
+		"k;100,0,0;-;2;-1;1:1:2:2:r,2:1:1:2:r;1,2;- k;0,0,0;-;0;1;1:1:1:2:r;-;30:10:T:0+1 k;500,500,0;-;2;-1;-;-;-"))
+	return w
+end
+
+test("node configurations are placed on the node all their segments end at, replacing an old one", function()
+	local nodecfg = require("/mp_probe/nodecfg.lua")
+	local w = config_world()
+	local logs = {}
+	local placed, total = nodecfg.apply(w.env, w.data, { log = function(text) logs[#logs + 1] = text end, player = 29125 })
+	local all = table.concat(logs, "\n")
+	assert(placed == 2 and total == 3, all)
+	assert(#w.sent == 1, all)
+	local sp = w.sent[1].proposal.streetProposal
+	assert(#sp.nodeConfigsToAdd == 2 and sp.nodeConfigsToRemove[1] == 1 and #sp.nodeConfigsToRemove == 1, all)
+	local mid = w.comps[2].BASE_NODE_CONFIG
+	assert(mid and #mid.laneConnections == 2 and mid.laneConnections[1].segment0 == 11 and mid.laneConnections[1].segment1 == 12, all)
+	assert(mid.laneConnections[1].lane0 == 1 and mid.laneConnections[1].lane1 == 2 and mid.laneConnections[1].withRoad == true)
+	assert(mid.crosswalks[1] == 11 and mid.crosswalks[2] == 12 and w.comps[9].BASE_NODE_CONFIG == nil, "not on the loose node")
+	local first = w.comps[1].BASE_NODE_CONFIG
+	assert(first.trafficLightPreference == 0 and first.trafficLightConfig.trafficLightType == 1, all)
+	local st = first.trafficLightConfig.states[1]
+	assert(st.duration == 30 and st.minDuration == 10 and st.canSkip == true and st.lockedLanes[2] == 1, all)
+	assert(all:find("node configs: node config near 500.0,500.0 not placed (0 segments named, no node there that they all end at)", 1, true), all)
+	assert(all:find("node configs all 2: sent (sent with signature 1), success=true, critical false; 2/2 nodes have one now " ..
+		"(1 replaced; connections as table 2)", 1, true), all)
+	assert(all:find("node configs result: 2/3 placed, 1 not found here", 1, true), all)
+end)
+
+test("node configurations the game refuses together are sent one node at a time", function()
+	local nodecfg = require("/mp_probe/nodecfg.lua")
+	local w = config_world({ refuse_several = true })
+	local logs = {}
+	local placed = nodecfg.apply(w.env, w.data, { log = function(text) logs[#logs + 1] = text end })
+	local all = table.concat(logs, "\n")
+	-- Node 1 has its old configuration, so only node 2 needs a second try.
+	assert(placed == 2 and #w.sent == 2, all)
+	assert(all:find("success=false, critical true, message: Bau nicht möglich", 1, true), all)
+	assert(all:find("node configs node 1 (2): sent", 1, true), all)
+	assert(#w.comps[2].BASE_NODE_CONFIG.laneConnections == 2, all)
+end)
+
+test("a segment that cannot be found keeps its node configuration back", function()
+	local nodecfg = require("/mp_probe/nodecfg.lua")
+	local w = config_world()
+	w.segments[3] = {}
+	w.segments[2] = { 11 }
+	local logs = {}
+	local placed = nodecfg.apply(w.env, w.data, { log = function(text) logs[#logs + 1] = text end })
+	local all = table.concat(logs, "\n")
+	assert(placed == 1 and w.comps[2].BASE_NODE_CONFIG == nil, all)
+	assert(all:find("node config near 100.0,0.0 not placed (2 segments named, not found: e2)", 1, true), all)
+end)
+
+test("a junction whose entrance ends in a node of its own still gets the connections along the road (run 20b)", function()
+	local nodecfg = require("/mp_probe/nodecfg.lua")
+	local w = config_world()
+	-- The construction's entrance 13 starts at node 9 on the junction's spot, not at node 2.
+	w.comps[4] = { BASE_NODE = { position = { x = 100, y = -50, z = 0 } } }
+	w.comps[13] = { BASE_EDGE = { node0 = 9, node1 = 4 } }
+	w.segments[9], w.segments[4] = { 13 }, { 13 }
+	w.data = assert(build.deserialize("B5 e1;0,0,0;100,0,0 e2;100,0,0;200,0,0 e3;100,0,0;100,-50,0 " ..
+		"k;100,0,0;-;2;-1;1:1:2:2:r,2:1:1:2:r,1:1:3:0:r;1,2,3;-"))
+	local logs = {}
+	local placed = nodecfg.apply(w.env, w.data, { log = function(text) logs[#logs + 1] = text end })
+	local all = table.concat(logs, "\n")
+	assert(placed == 1 and #w.comps[2].BASE_NODE_CONFIG.laneConnections == 2, all)
+	assert(#w.comps[2].BASE_NODE_CONFIG.crosswalks == 2 and w.comps[9].BASE_NODE_CONFIG == nil, all)
+	assert(all:find("node config near 100.0,0.0 placed in part on node 2 (2 of 3 connections; 2 of 3 segments, " ..
+		"no node there that they all end at)", 1, true), all)
+end)
+
+test("lane connections the proposal refuses as tables are copied from an existing node", function()
+	local nodecfg = require("/mp_probe/nodecfg.lua")
+	local w = config_world()
+	-- Like an engine list of structs: only LaneConnection objects are kept, and reading hands out copies.
+	local LC = {}
+	local function lane_connection(v)
+		return setmetatable({ segment0 = v.segment0, lane0 = v.lane0, segment1 = v.segment1, lane1 = v.lane1,
+			withRoad = v.withRoad, withTram = v.withTram }, LC)
+	end
+	local function engine_comp()
+		local kept = {}
+		return setmetatable({ crosswalks = {}, trafficLightPreference = 2, doubleSlipSwitch = false,
+			trafficLightConfig = { states = {}, trafficLightType = -1 } }, {
+			__index = function(_, k)
+				if k == "laneConnections" then
+					local out = {}
+					for i, lc in ipairs(kept) do out[i] = lane_connection(lc) end
+					return out
+				end
+			end,
+			__newindex = function(t, k, v)
+				if k ~= "laneConnections" then rawset(t, k, v); return end
+				kept = {}
+				for _, lc in ipairs(v) do
+					if getmetatable(lc) == LC then kept[#kept + 1] = lane_connection(lc) end
+				end
+			end,
+		})
+	end
+	w.env.api.type.BaseNodeLaneConnectionAndEntity.new = function() return { entity = 0, comp = engine_comp() } end
+	local old = engine_comp()
+	old.laneConnections = { lane_connection({ segment0 = 11, lane0 = 0, segment1 = 11, lane1 = 1, withRoad = true }) }
+	w.comps[1].BASE_NODE_CONFIG = old
+	local logs = {}
+	local placed = nodecfg.apply(w.env, w.data, { log = function(text) logs[#logs + 1] = text end })
+	local all = table.concat(logs, "\n")
+	assert(placed == 2, all)
+	local mid = w.comps[2].BASE_NODE_CONFIG.laneConnections
+	assert(#mid == 2 and mid[1].segment0 == 11 and mid[2].segment0 == 12 and mid[2].lane1 == 2, all)
+	assert(all:find("connections as copy 2", 1, true), all)
+end)
+
+test("a player build with node configurations captures them and the copy gets them after the build", function()
+	with_engine_api({}, function(t)
+		local main = fresh_main()
+		logged = {}
+		local state = mock_state()
+		local param = player_build_param()
+		param[1].proposal = street_with_configs()
+		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", param)
+		assert(contains(logged, "node_configs=1 config_removes=1"), table.concat(logged, "\n"))
+		local line = state:get().last_build
+		assert(line:find(" k;-2818.543,-3887.282,1.473;", 1, true), line)
+		-- The copy: built first, then the configurations go out on their own.
+		local applied = nil
+		t.env.api.type.BaseNodeLaneConnectionAndEntity = { new = function() return { entity = 0, comp = {} } end }
+		logged = {}
+		local nodecfg = require("/mp_probe/nodecfg.lua")
+		local saved = nodecfg.apply
+		nodecfg.apply = function(env, data) applied = data; return 0, #data.configs end
+		local ok, err = pcall(function() fresh_main().replay_line(t.env, line, "k1", nil, 0) end)
+		nodecfg.apply = saved
+		assert(ok, err)
+		assert(contains(logged, "1 node configs, moved by 0.0,0.0"), table.concat(logged, "\n"))
+		assert(applied and #applied.configs == 1 and #t.sent == 1, table.concat(logged, "\n"))
+	end)
+end)
+
+test("a build that only changes node configurations travels and is applied without building", function()
+	with_engine_api({}, function(t)
+		local main = fresh_main()
+		logged = {}
+		local state = mock_state()
+		local param = player_build_param()
+		local p = street_with_configs()
+		-- Only the middle node's configuration changed (a traffic light set by the player).
+		p.addedNodes, p.addedSegments, p.nodeConfigsToRemove = {}, {}, { 51498 }
+		p.nodeConfigsToAdd = { p.nodeConfigsToAdd[1] }
+		param[1].proposal = p
+		local positions = { [51498] = { x = 5, y = 6, z = 0 }, [51389] = { x = 0, y = 0, z = 0 }, [51458] = { x = 10, y = 12, z = 0 } }
+		local edges = { [51563] = { 51389, 51498 }, [51564] = { 51498, 51458 } }
+		t.env.api.type.ComponentType.BASE_NODE = "BASE_NODE"
+		t.env.api.type.ComponentType.BASE_EDGE = "BASE_EDGE"
+		local get = t.env.api.engine.getComponent
+		t.env.api.engine.getComponent = function(id, ct)
+			if ct == "BASE_NODE" and positions[id] then return { position = positions[id] } end
+			if ct == "BASE_EDGE" and edges[id] then return { node0 = edges[id][1], node1 = edges[id][2] } end
+			return get(id, ct)
+		end
+		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", param)
+		assert(contains(logged, "nodes=0 segments=0"), table.concat(logged, "\n"))
+		assert(contains(logged, "node_configs=1 config_removes=1"), table.concat(logged, "\n"))
+		local line = state:get().last_build
+		assert(line and line:find("k;5,6,0;-;2;-1;1:1:2:2:r,2:1:1:2:r;1,2;-", 1, true), tostring(line))
+		local applied = nil
+		local nodecfg = require("/mp_probe/nodecfg.lua")
+		local saved = nodecfg.apply
+		nodecfg.apply = function(env, data) applied = data; return 1, 1 end
+		logged = {}
+		local ok, err = pcall(function() fresh_main().replay_line(t.env, line, "k2", nil, 0) end)
+		nodecfg.apply = saved
+		assert(ok, err)
+		assert(contains(logged, "replay #k2: only node configurations (1)"), table.concat(logged, "\n"))
+		assert(applied and #t.sent == 0, "nothing is built")
+	end)
 end)
 
 test("replay without the engine api says so", function()

@@ -461,7 +461,7 @@ test("main dispatch does not overwrite mappings or busy flags from an immediate 
 end)
 test("the installed mod manifest includes every required action module", function()
 	local f = assert(io.open("mods/mp_probe/_content.json", "r")); local manifest = f:read("*a"); f:close()
-	for _, name in ipairs({ "actions.lua", "wire.lua", "build.lua", "world.lua", "weld.lua" }) do
+	for _, name in ipairs({ "actions.lua", "wire.lua", "build.lua", "world.lua", "weld.lua", "nodecfg.lua" }) do
 		assert(manifest:find('"mp_probe/' .. name .. '"', 1, true), name .. " missing from manifest")
 		local file = assert(io.open("mods/mp_probe/content/mp_probe/" .. name, "r")); file:close()
 	end
