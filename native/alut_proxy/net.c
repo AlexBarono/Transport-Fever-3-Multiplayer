@@ -32,7 +32,9 @@
 #define HELLO_INTERVAL_MS 2000
 #define PEER_TIMEOUT_MS 10000
 #define RESEND_MS 1000
-#define QUEUE_SIZE 8
+/* v9: 128 instead of 8 (about 2 MB per queue). With 8, the ninth build made while the other game
+ * was not there yet (or slow to confirm) was dropped for good. */
+#define QUEUE_SIZE 128
 #define TOKEN_MAX 32
 #define STATE_RESEND_MS 1000
 
@@ -260,6 +262,16 @@ int net_inbox_value(char *out, int size)
 	}
 	LeaveCriticalSection(&lock);
 	return e != NULL;
+}
+
+int net_inbox_count(void)
+{
+	int n;
+
+	EnterCriticalSection(&lock);
+	n = inbox.count;
+	LeaveCriticalSection(&lock);
+	return n;
 }
 
 int net_inbox_ack(const char *token)

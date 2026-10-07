@@ -1163,6 +1163,35 @@ test("replay requests stop after MAX_REPLAYS and need a capture first", function
 	end)
 end)
 
+test("a received line is taken between bridge ticks, without the bridge marker (v25)", function()
+	local line = build.serialize(run5_street())
+	with_engine_api({}, function(t)
+		local main = fresh_main()
+		local value = "line 77.1 net " .. line
+		local saved_os = os
+		os = setmetatable({ getenv = function(name) if name == "TF3MP_IN" then return value end end }, { __index = saved_os })
+		logged = {}
+		local state = mock_state()
+		state:set({ probe_version = main.PROBE_VERSION, subscribed = main.PROBE_VERSION,
+			replay_version = main.PROBE_VERSION, constructions_scanned = main.PROBE_VERSION,
+			actions_version = main.PROBE_VERSION, updates = 0 })
+		local ok, err = pcall(function()
+			for _ = 1, main.INBOX_EVERY do fresh_main().update(nil, state, 0) end
+			assert(#t.events == 1 and t.events[1][4].number == "77.1", "events " .. #t.events)
+			assert(contains(logged, "net received token=77.1 kind=net"))
+			assert(not contains(logged, "bridge out seq="), "no marker between bridge ticks")
+			-- The same line is not taken twice; the regular bridge tick still comes every BRIDGE_EVERY.
+			for _ = main.INBOX_EVERY + 1, main.BRIDGE_EVERY do fresh_main().update(nil, state, 0) end
+			assert(#t.events == 1 and contains(logged, "bridge out seq=1"))
+			value = "ack 1"
+			for _ = 1, main.INBOX_EVERY do fresh_main().update(nil, state, 0) end
+			assert(#t.events == 1)
+		end)
+		os = saved_os
+		assert(ok, err)
+	end)
+end)
+
 test("a new probe version gives a savegame its replays back", function()
 	local main = fresh_main()
 	logged = {}

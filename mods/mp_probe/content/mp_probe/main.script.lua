@@ -17,7 +17,7 @@ local gui = require("/mp_probe/gui.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 24
+main.PROBE_VERSION = 25
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -63,6 +63,11 @@ main.REPLAY_EVENT = "mp_probe_replay"
 -- channels: Lua -> DLL through tagged lines in stdout.txt (the DLL tails the log), DLL -> Lua through
 -- the process environment (the DLL calls _putenv_s on the shared CRT, Lua reads os.getenv).
 main.BRIDGE_EVERY = 50
+--- v25: between bridge ticks, a received line waiting in TF3MP_IN or an action line waiting to go
+-- out is handled every INBOX_EVERY updates (2 s of game time at 1x instead of 10 s), without the
+-- "bridge out" marker in the log. DLL v9 offers a line as soon as it arrives; DLL v8 only on the
+-- marker or after the previous line was acknowledged.
+main.INBOX_EVERY = 10
 main.BRIDGE_ENV = "TF3MP_IN"
 --- Poll purchases/line edits more frequently than the full street graph.
 main.ACTION_EVERY = 10
@@ -129,11 +134,22 @@ end
 -- false so that a first nil (variable not set) is logged too.
 local last_bridge_in = false
 
+--- True if a line from the other game waits in TF3MP_IN or an action line waits to go out.
+function main.bridge_has_work(env, s)
+	if actions.next_line_waiting(s) then return true end
+	local getenv = env.os and env.os.getenv
+	if not getenv then return false end
+	local ok, value = pcall(getenv, main.BRIDGE_ENV)
+	local token = ok and type(value) == "string" and value:match("^line (%S+) ")
+	return token ~= nil and token ~= s.last_line_token
+end
+
 --- Sends one numbered line towards the DLL and logs whatever the DLL put into the environment.
 -- A value "replay N" asks for a replay; N is remembered in the savegame state so that the next Sim
 -- Pool state, which has its own last_bridge_in, does not act on the same request again.
-function main.bridge_tick(env, seq, s, state)
-	logger.info("bridge out seq=" .. seq)
+-- @param quiet boolean v25: a tick between bridge ticks, without the "bridge out" marker
+function main.bridge_tick(env, seq, s, state, quiet)
+	if not quiet then logger.info("bridge out seq=" .. seq) end
 	local outgoing = s and actions.next_line(s)
 	if outgoing then logger.info(main.SEND_MARKER .. outgoing) end
 	if state then state:set(s) end
@@ -585,10 +601,11 @@ function main.update(_user_params, state, _dt)
 		local ok, err = pcall(actions.poll, _G, s, function(text) logger.info(text) end, kinds)
 		if not ok then logger.info("action poll failed: " .. tostring(err):sub(1, 220)) end
 	end
-	if s.updates % main.BRIDGE_EVERY == 0 then
+	local bridge_now = s.updates % main.BRIDGE_EVERY == 0
+	if bridge_now or (s.updates % main.INBOX_EVERY == 0 and main.bridge_has_work(_G, s)) then
 		-- Store the baseline before dispatching an event that can update replay mappings.
 		state:set(s)
-		local ok, err = pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY, s, state)
+		local ok, err = pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY, s, state, not bridge_now)
 		if not ok then logger.info("bridge tick failed: " .. tostring(err):sub(1, 200)) end
 		-- An immediate event/callback may already have refreshed parts of the baseline.
 		local live = state:get() or s
@@ -600,6 +617,8 @@ function main.update(_user_params, state, _dt)
 	end
 	local ok_sync, err_sync = pcall(main.sync_tick, _G, s)
 	if not ok_sync then logger.info("sync failed: " .. main.error_text(err_sync):sub(1, 240)) end
+	local ok_fix, err_fix = pcall(main.sync_send_fix, _G, state, s)
+	if not ok_fix then logger.info("sync correction failed: " .. main.error_text(err_fix):sub(1, 240)) end
 	if s.updates % main.SNAPSHOT_EVERY == 0 then
 		local snap = probe.snapshot(_G)
 		if s.snapshot_errors_logged ~= main.PROBE_VERSION then
@@ -647,6 +666,9 @@ function main.sync_tick(env, s)
 		if k ~= ss.own_k then
 			local values, failed = sync.values(env, gt)
 			values.ck = k
+			-- Money this game booked to follow the host (the simulated host in tools\fake-partner.ps1
+			-- needs it to keep its own difference).
+			if role == "client" then values.adj = ss.adj or 0 end
 			ss.own, ss.own_k = sync.keep(ss.own, k, values), k
 			if #failed > 0 and ss.failed_logged ~= table.concat(failed, ",") then
 				ss.failed_logged = table.concat(failed, ",")
@@ -682,7 +704,7 @@ function main.sync_compare(env, ss, role, gt)
 					#fields == 0 and "same" or ("differs in " .. table.concat(fields, ", "))))
 				for _, note in ipairs(out.notes) do logger.info("sync: " .. note) end
 				for _, warning in ipairs(out.warnings) do logger.info("sync WARNING: the games differ: " .. warning) end
-				main.sync_correct(env, out.fix, gt)
+				main.sync_correct(ss, out.fix, gt)
 			elseif ss.own_k and ss.own_k > p.k then
 				-- This game has no checkpoint with that number (loaded later); it is skipped.
 				ss.compared_k = p.k
@@ -691,26 +713,87 @@ function main.sync_compare(env, ss, role, gt)
 	end
 end
 
---- Client: takes over the host's loan, money and date.
-function main.sync_correct(env, fix, gt)
-	local function done(what)
-		return function(_, success) logger.info("sync: " .. what .. ", success=" .. tostring(success)) end
+--- Client: takes over the host's loan, money and date. Run 25: in update() the game refuses commands
+-- with a result callback ("Callbacks are currently disallowed"), so the corrections wait in
+-- ss.pending_fix; main.sync_send_fix sends them as a script event and handleEvent books them
+-- (main.sync_apply), like a replayed build.
+function main.sync_correct(ss, fix, gt)
+	if not (fix.loan or fix.money or fix.date) then return end
+	if fix.loan then logger.info("sync: loan differs by " .. fix.loan .. " from the host's, booking it") end
+	if fix.money then logger.info("sync: money differs by " .. fix.money .. " from the host's, booking it") end
+	if fix.date then logger.info("sync: date differs by " .. fix.date .. " day(s) from the host's, moving it") end
+	ss.pending_fix = { loan = fix.loan, money = fix.money, date = fix.date, gt = gt }
+end
+
+--- Stops correcting a field after a correction that could not be made.
+function main.sync_give_up(ss, field)
+	ss.off = ss.off or {}
+	ss.off[field] = true
+	if ss.fixes then ss.fixes[field] = nil end
+end
+
+--- update(): sends the waiting corrections to handleEvent.
+function main.sync_send_fix(env, state, s)
+	local ss = s.sync
+	local fix = type(ss) == "table" and ss.pending_fix
+	if not fix then return end
+	ss.pending_fix = nil
+	-- Stored before dispatching: the game can handle the event right away and note the result.
+	state:set(s)
+	-- Flat, only numbers and a flag, like the other event parameters that are known to arrive.
+	local sent = main.send_replay_event(env, { sync_fix = true, fix_loan = fix.loan, fix_money = fix.money,
+		fix_date = fix.date, fix_gt = fix.gt })
+	local live = state:get() or s
+	if type(live.sync) == "table" then
+		s.sync = live.sync
+		ss = live.sync
 	end
-	if fix.loan then
-		local ok, sent, notes = pcall(sync.book, env, fix.loan, "LOAN", done("loan corrected by " .. fix.loan))
-		logger.info("sync: loan differs by " .. fix.loan .. " from the host's, booking it (" ..
-			(ok and tostring(notes) or main.error_text(sent)) .. ")" .. ((ok and not sent) and " NOT BOOKED" or ""))
+	if not sent then
+		for _, field in ipairs({ "loan", "money", "date" }) do
+			if fix[field] then
+				main.sync_give_up(ss, field)
+				logger.info("sync: the " .. field .. " correction could not be sent; " .. field .. " is no longer corrected")
+			end
+		end
 	end
-	if fix.money then
-		local ok, sent, notes = pcall(sync.book, env, fix.money, "OTHER", done("money corrected by " .. fix.money))
-		logger.info("sync: money differs by " .. fix.money .. " from the host's, booking it (" ..
-			(ok and tostring(notes) or main.error_text(sent)) .. ")" .. ((ok and not sent) and " NOT BOOKED" or ""))
+end
+
+--- handleEvent: makes the corrections. Commands may report their result here.
+-- @param fix table the event parameter: fix_loan, fix_money, fix_date (days), fix_gt
+function main.sync_apply(env, state, fix)
+	local function settle(field, amount, success)
+		local live = state:get() or {}
+		local ss = live.sync
+		if type(ss) ~= "table" then return end
+		if success == false then
+			main.sync_give_up(ss, field)
+		elseif field == "money" then
+			ss.adj = (ss.adj or 0) + amount
+		end
+		state:set(live)
 	end
-	if fix.date then
-		local ok, text = pcall(sync.shift_date, env, gt, fix.date, done("date moved by " .. fix.date .. " day(s)"))
-		logger.info("sync: date differs by " .. fix.date .. " day(s) from the host's: " ..
-			(ok and tostring(text) or ("failed " .. main.error_text(text))))
+	local function correct(field, label, send)
+		local amount = tonumber(fix["fix_" .. field])
+		if not amount then return end
+		local ok, sent, notes = pcall(send, amount, function(_, success)
+			logger.info("sync: " .. label .. " " .. amount .. ", success=" .. tostring(success) ..
+				(success == false and ("; " .. field .. " is no longer corrected") or ""))
+			local ok_s, err_s = pcall(settle, field, amount, success)
+			if not ok_s then logger.info("sync: noting the " .. field .. " correction failed: " .. main.error_text(err_s):sub(1, 200)) end
+		end)
+		if ok and sent then
+			logger.info("sync: " .. field .. " correction sent (" .. tostring(notes) .. ")")
+		else
+			logger.info("sync: " .. field .. " NOT corrected (" .. (ok and tostring(notes) or main.error_text(sent)):sub(1, 200) ..
+				"); " .. field .. " is no longer corrected")
+			pcall(settle, field, amount, false)
+		end
 	end
+	correct("loan", "loan corrected by", function(amount, cb) return sync.book(env, amount, "LOAN", cb) end)
+	correct("money", "money corrected by", function(amount, cb) return sync.book(env, amount, "OTHER", cb) end)
+	correct("date", "date moved by", function(days, cb)
+		return true, sync.shift_date(env, main.game_time(env) or tonumber(fix.fix_gt) or 0, days, cb)
+	end)
 end
 
 --- Without a GUI script the simulation keeps the shared speed (it stops while paused).
@@ -733,9 +816,8 @@ function main.sync_speed_fallback(env, ss, role, gt, getenv)
 	for _, line in ipairs(out.logs) do logger.info("sync " .. line) end
 	if out.command then
 		local target = out.command
-		sync.set_speed(env, target, function(_, success)
-			if success == false then logger.info("sync speed " .. sync.speed_name(target) .. " rejected by the game") end
-		end)
+		-- No result callback: update() may not have one (run 25).
+		sync.set_speed(env, target)
 	end
 	if out.publish then logger.info(main.STATE_MARKER .. "gui " .. out.publish) end
 end
@@ -918,6 +1000,11 @@ end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
 	if main.is_replay_event(src, id, name) then
+		if type(param) == "table" and param.sync_fix then
+			local ok, err = pcall(main.sync_apply, _G, state, param)
+			if not ok then logger.info("sync correction failed: " .. main.error_text(err):sub(1, 240)) end
+			return
+		end
 		if type(param) == "table" and param.action_work then
 			local s = state:get() or {}
 			s.action_work_requested = false

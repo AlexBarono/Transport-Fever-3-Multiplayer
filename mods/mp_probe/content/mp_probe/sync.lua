@@ -501,9 +501,14 @@ function sync.shift_date(env, gt, days, callback)
 	return sync.date_text(now) .. " -> " .. sync.date_text(target)
 end
 
+--- Without callback the command goes out alone: the simulation's update() may not pass one (run 25).
 function sync.set_speed(env, speed, callback)
 	local cmd = env.api.cmd
-	cmd.sendCommand(cmd.makeGameSetSpeedCmd(speed), callback)
+	if callback then
+		cmd.sendCommand(cmd.makeGameSetSpeedCmd(speed), callback)
+	else
+		cmd.sendCommand(cmd.makeGameSetSpeedCmd(speed))
+	end
 end
 
 return sync

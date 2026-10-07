@@ -1,6 +1,8 @@
--- Offline tests for keeping two games in step (sync.lua, gui.lua, main.sync_tick), probe v24.
+-- Offline tests for keeping two games in step (sync.lua, gui.lua, main.sync_tick), probes v24 and v25.
 -- Two mock games are linked by a fake DLL: a "net state <key> <text>" line one game logs lands in
 -- its own TF3MP_OWN_<KEY> and in the other game's TF3MP_PEER_<KEY> at once.
+-- As in TF3 (run 25), a command with a result callback fails in the simulation's update(); script
+-- events reach handleEvent after the update (or right away, with events_now), where callbacks work.
 -- Run from the repository root: python3 tools/run_lua.py tests/run_sync.lua
 local MOD_ROOT = "mods/mp_probe/content"
 local real_require = require
@@ -58,11 +60,21 @@ local function date_of(days)
 	return { year = y, month = m, day = d }
 end
 
+local function copy(v)
+	if type(v) ~= "table" then return v end
+	local t = {}
+	for k, x in pairs(v) do t[k] = copy(x) end
+	return t
+end
+
 local function game(role)
 	-- The one-time journal test has its own test below.
 	local g = { role = role, logs = {}, sent = {}, vars = { TF3MP_ROLE = role }, s = { journal_test = main.PROBE_VERSION },
 		speed = 1, gt = 0, clock = 0, balance = 1000000, loan = 0, lines = 3, veh = 5, st = 4, con = 2,
-		date_base = sync.days(2026, 1, 1), ms_per_day = 600000, date_shift = 0, book_works = true }
+		date_base = sync.days(2026, 1, 1), ms_per_day = 600000, date_shift = 0, book_works = true,
+		events = {}, events_sent = 0 }
+	-- The script state hands out copies, like the game's state:get().
+	g.state = { get = function() return copy(g.s) end, set = function(_, v) g.s = copy(v) end }
 	local ct = {}
 	for _, k in ipairs({ "GAME_SPEED", "GAME_TIME", "ACCOUNT", "TRANSPORT_VEHICLE", "STATION", "CONSTRUCTION",
 		"PLAYER_OWNED" }) do ct[k] = k end
@@ -92,7 +104,14 @@ local function game(role)
 	function cmd.makeJournalBookAssetCmd(player, entry) return { name = "book", player = player, entry = entry } end
 	function cmd.makeGameSetDateCmd(date) return { name = "date", date = date } end
 	function cmd.makeGameSetSpeedCmd(speed) return { name = "speed", speed = speed } end
+	function cmd.makeScriptingSendEventCmd(a, b, c, d) return { name = "event", args = { a, b, c, d } } end
 	function cmd.sendCommand(c, callback)
+		if callback and g.context == "update" then error("Callbacks are currently disallowed") end
+		if c.name == "event" then
+			g.events_sent = g.events_sent + 1
+			if g.events_now then g.handle(c.args) else g.events[#g.events + 1] = c.args end
+			return
+		end
 		g.sent[#g.sent + 1] = c
 		if c.name == "book" and g.book_works then
 			local kind = c.entry.category.type
@@ -103,7 +122,7 @@ local function game(role)
 		elseif c.name == "speed" and not g.speed_broken then
 			g.speed = c.speed
 		end
-		if callback then callback({}, true) end
+		if callback then callback({}, not (c.name == "book" and g.book_rejects)) end
 	end
 	g.api = { engine = engine, cmd = cmd,
 		type = { ComponentType = ct, JournalEntry = JE,
@@ -127,10 +146,25 @@ local function game(role)
 		api, os, current = old_api, old_os, old_current
 		assert(ok, err)
 	end
-	--- One simulation update.
+	--- One script event in handleEvent.
+	function g.handle(args)
+		local before = g.context
+		g.context = "event"
+		main.handleEvent(nil, g.state, args[1], args[2], args[3], args[4])
+		g.context = before
+	end
+	--- One simulation update (the sync part of main.update), then the events it sent.
 	function g.tick()
 		g.gt = g.gt + 200
-		g.run(function() main.sync_tick(_G, g.s) end)
+		g.run(function()
+			g.context = "update"
+			local s = g.state:get()
+			main.sync_tick(_G, s)
+			main.sync_send_fix(_G, g.state, s)
+			g.state:set(s)
+			g.context = nil
+			while #g.events > 0 do g.handle(table.remove(g.events, 1)) end
+		end)
 	end
 	--- One GUI step (gui.update keeps its memory in g.env).
 	function g.gui(dt)
@@ -369,7 +403,8 @@ test("both games record a checkpoint each minute and find each other the same", 
 	run(host, client, 305)
 	assert(has(host.logs, "net state sim ") and has(client.logs, "sync: this game is the client"))
 	local check = has(client.logs, "sync check 1 (2026-01-01): same")
-	assert(has(client.logs, "net state sim ck=1 con=2 date=2026-01-01 gt=60000 lines=3 loan=0 money=1000000 st=4 veh=5"))
+	assert(has(client.logs, "net state sim adj=0 ck=1 con=2 date=2026-01-01 gt=60000 lines=3 loan=0 money=1000000 st=4 veh=5"))
+	assert(has(host.logs, "net state sim ck=1 con=2 date=2026-01-01 gt=60000 lines=3 loan=0 money=1000000 st=4 veh=5"))
 	assert(check, "no comparison")
 	assert(has(host.logs, "sync check 1 (2026-01-01): same"))
 	assert(not has(client.logs, "WARNING"))
@@ -395,6 +430,48 @@ test("lasting money difference: the client books it once, the host never", funct
 	run(host, client, 600)
 	assert(has(client.logs, "the money correction by 50000 worked"))
 	assert(#client.sent == 1)
+end)
+
+test("the booking goes to handleEvent as a script event and is counted in the next checkpoint", function()
+	for _, now in ipairs({ false, true }) do
+		local host, client = pair()
+		client.events_now = now
+		run(host, client, 299)
+		client.balance = host.balance - 50000
+		run(host, client, 600)
+		assert(client.events_sent == 1 and client.balance == host.balance, tostring(now))
+		assert(has(client.logs, "sync: money differs by 50000 from the host's, booking it"))
+		assert(has(client.logs, "sync: money correction sent (amount 50000, other CHEAT, type OTHER)"))
+		assert(has(client.logs, "sync: money corrected by 50000, success=true"))
+		-- What handleEvent noted survives the update that sent the event.
+		assert(client.s.sync.adj == 50000 and client.s.sync.fixes.money, tostring(now))
+		run(host, client, 300)
+		assert(has(client.logs, "net state sim adj=50000 ck=3 "), tostring(now))
+		assert(has(client.logs, "the money correction by 50000 worked") and client.s.sync.fixes.money == nil)
+	end
+end)
+
+test("a booking the game rejects turns the money correction off at once", function()
+	local host, client = pair()
+	client.book_rejects = true
+	run(host, client, 299)
+	client.balance = host.balance - 50000
+	run(host, client, 1500)
+	local books = 0
+	for _, c in ipairs(client.sent) do if c.name == "book" then books = books + 1 end end
+	assert(books == 1, books)
+	assert(has(client.logs, "money corrected by 50000, success=false; money is no longer corrected"))
+	assert(client.s.sync.off.money and not client.s.sync.adj and not has(client.logs, "correction by 50000 worked"))
+end)
+
+test("a correction that cannot be sent is given up, and nothing is booked in update()", function()
+	local host, client = pair()
+	client.api.cmd.makeScriptingSendEventCmd = function() error("no events here") end
+	run(host, client, 299)
+	client.balance = host.balance - 50000
+	run(host, client, 1500)
+	assert(#client.sent == 0 and has(client.logs, "the money correction could not be sent; money is no longer corrected"))
+	assert(count(client.logs, "booking it") == 1)
 end)
 
 test("a money difference that is gone at the next checkpoint is not booked", function()

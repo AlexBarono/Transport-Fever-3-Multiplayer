@@ -415,6 +415,10 @@ function actions.next_line(s)
 	if s.actions and #s.actions.queue > 0 then return table.remove(s.actions.queue, 1) end
 end
 
+function actions.next_line_waiting(s)
+	return s.actions ~= nil and type(s.actions.queue) == "table" and #s.actions.queue > 0
+end
+
 local function near(a, b, offset)
 	return math.abs(a.x - b.x) < 0.05 and math.abs(a.y - b.y - offset) < 0.05
 		and math.abs(a.z - b.z) < 0.05

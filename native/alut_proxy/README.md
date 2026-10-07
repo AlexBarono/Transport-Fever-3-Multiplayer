@@ -7,6 +7,7 @@ TF3 lädt `alut.dll` aus dem Spielordner. Dieser Proxy ersetzt sie (siehe `docs/
 - Ab v3: optionale UDP-Verbindung zwischen zwei Spielen (`net.c`, Phase 1, Schritt 2). Ohne `alut_proxy.ini` ist sie aus.
 - Ab v7: überträgt gebaute Straßen zwischen den Spielen (Phase 1, Schritt 4, siehe unten).
 - Ab v8: Zustandstexte für den Abgleich von Geschwindigkeit, Spielzeit, Geld und Datum (siehe unten und `docs/phase3-sync.md`).
+- Ab v9: Warteschlangen für 128 statt 8 Bau-Zeilen je Richtung (vorher ging die neunte verloren, wenn das andere Spiel noch nicht da war), und eine empfangene Zeile steht sofort in `TF3MP_IN`, nicht erst beim nächsten Bridge-Tick. Der Mod (ab v25) schaut alle 10 Updates nach.
 
 ## Netzwerk-Test (v3)
 

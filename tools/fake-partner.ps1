@@ -7,8 +7,9 @@
 #    60  der Gastgeber pausiert             -> das Spiel muss pausieren
 #    80  der Gastgeber läuft wieder mit 1x  -> das Spiel muss weiterlaufen
 #   100  der Gastgeber ist 90 s Spielzeit voraus -> das Spiel muss mit 2x aufholen
-#   danach: Geld des Gastgebers an zwei Prüfpunkten 5000 höher -> das Spiel bucht 5000 nach;
-#           zwei Prüfpunkte später ein Fahrzeug mehr -> das Spiel meldet eine Abweichung
+#   danach: der Gastgeber hat 5000 mehr Geld, bis das Spiel sie nachgebucht hat (das Spiel meldet
+#           seine Buchungen als adj= im Prüfpunkt) -> das Spiel bucht 5000 nach;
+#           ab dem vierten Prüfpunkt ein Fahrzeug mehr -> das Spiel meldet eine Abweichung
 # Bau-Zeilen des Spiels werden bestätigt (GOT), aber nicht nachgebaut.
 #
 # Aufruf: powershell -ExecutionPolicy Bypass -File tools\fake-partner.ps1 [-Port 47800] [-Minutes 12] [-LogFile <pfad>]
@@ -130,18 +131,22 @@ while ((Now) -lt $deadline) {
 			if (-not $hostSim -or $hostSim['ck'] -ne $ck) {
 				$answer = @{}
 				foreach ($k in $s.Keys) { $answer[$k] = $s[$k] }
-				$note = 'same values'
+				$notes = @()
 				if ($t0 -and -not $firstCk -and (Now) - $t0 -ge 20) { $firstCk = $ck }
-				if ($firstCk -and ($ck -eq $firstCk + 1 -or $ck -eq $firstCk + 2)) {
-					$answer['money'] = [double]$s['money'] + 5000
-					$note = 'money 5000 higher'
+				# Like a real host the fake one keeps its 5000 more; only what the game booked (adj) evens it out.
+				if ($firstCk -and $ck -ge $firstCk + 1) {
+					$adj = 0.0
+					if ($s.ContainsKey('adj')) { $adj = [double]$s['adj'] }
+					$answer['money'] = [double]$s['money'] + 5000 - $adj
+					if (5000 - $adj -ne 0) { $notes += "money $(5000 - $adj) higher" }
 				}
 				if ($firstCk -and ($ck -eq $firstCk + 4 -or $ck -eq $firstCk + 5)) {
 					$answer['veh'] = [double]$s['veh'] + 1
-					$note = 'one vehicle more'
+					$notes += 'one vehicle more'
 				}
+				$note = if ($notes.Count -gt 0) { $notes -join ', ' } else { 'same values' }
 				$hostSim = $answer
-				Log "checkpoint $ck of the game: money=$($s['money']) veh=$($s['veh']) date=$($s['date']); host answers with $note"
+				Log "checkpoint $ck of the game: money=$($s['money']) adj=$($s['adj']) veh=$($s['veh']) date=$($s['date']); host answers with $note"
 			}
 		}
 	}

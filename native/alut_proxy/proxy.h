@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <stdarg.h>
 
-#define PROXY_VERSION "8"
+#define PROXY_VERSION "9"
 
 /* Longest build line the DLL passes between the games, in characters. */
 #define NET_LINE_MAX 16384
@@ -36,6 +36,8 @@ void net_send_line(const char *text);
 int net_inbox_value(char *out, int size);
 /* Drops the oldest received line if it has this token; 1 if it did. */
 int net_inbox_ack(const char *token);
+/* Number of received lines the mod has not confirmed yet (v9). */
+int net_inbox_count(void);
 /* Keeps text as this game's latest state under key for the peer; 0 if there is no room for the key. */
 int net_set_state(const char *key, const char *text);
 /* Takes the next peer state that changed since the last call: key and text ("" once the peer went

@@ -21,6 +21,8 @@
  *                               is also put into TF3MP_OWN_<KEY>
  * The peer's states go into TF3MP_PEER_<KEY> (empty once the peer went
  * silent), and TF3MP_ROLE holds the mode from alut_proxy.ini.
+ * v9: a line that arrives while TF3MP_IN holds none is offered at once
+ * (checked every TAIL_INTERVAL_MS), not only on the next bridge tick.
  * Results go to alut_proxy.log. Built without the C runtime (see build.bat),
  * so only kernel32 functions and hand-written string helpers are used.
  */
@@ -45,6 +47,9 @@ static char env_value[NET_LINE_MAX + 64];
 static char state_key[NET_STATE_KEY_MAX];
 static char state_text[NET_STATE_MAX];
 static char own_logged[NET_STATE_KEYS][NET_STATE_KEY_MAX];
+/* Whether TF3MP_IN holds a received line, and the last bridge tick number (v9). */
+static int offering;
+static unsigned long last_seq;
 
 /* Without the "[mp_probe]" tag, in case debugPrint separates its arguments. */
 static const char MARKER[] = "bridge out seq=";
@@ -139,8 +144,11 @@ static void refresh_peer_states(void)
 /* Offers the oldest received line to the mod, or acknowledges the tick. */
 static void refresh_env(unsigned long seq)
 {
-	if (!net_inbox_value(env_value, sizeof(env_value)))
-		wsprintfA(env_value, "ack %lu", seq);
+	if (seq)
+		last_seq = seq;
+	offering = net_inbox_value(env_value, sizeof(env_value));
+	if (!offering)
+		wsprintfA(env_value, "ack %lu", last_seq);
 	set_env(env_value);
 }
 
@@ -265,6 +273,10 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	while (!stopping) {
 		Sleep(TAIL_INTERVAL_MS);
 		refresh_peer_states();
+		/* v9: a line that arrived while none was offered goes to the mod right away; the mod looks
+		 * every 10 updates, no longer only on the bridge tick every 50. */
+		if (!offering && net_inbox_count() > 0)
+			refresh_env(0);
 		file = CreateFileA(stdout_path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 			NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (file == INVALID_HANDLE_VALUE)

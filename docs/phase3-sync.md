@@ -35,10 +35,11 @@ Logzeilen: `gui script running: …` (was das GUI-Skript kann), `gui speed comma
 - Jede Minute Spielzeit (im ersten Update, in dem die Spielzeit eine volle Minute erreicht) schreibt die Simulation einen Prüfpunkt: `net state sim ck=<nr> con=… date=… gt=… lines=… loan=… money=… st=… veh=…`. Beide Spiele laden denselben Spielstand und haben deshalb dieselben Spielzeiten; Prüfpunkt `ck` gehört in beiden Spielen zur selben Spielzeit.
 - Liegen von beiden Spielen Prüfpunkte mit derselben Nummer vor, werden sie verglichen: `sync check 52 (1900-03-14): same` oder `… differs in money, veh`. Die Reihenfolge ist egal (wer zurückliegt, vergleicht später).
 - Eine Abweichung zählt erst, wenn sie an zwei aufeinanderfolgenden Prüfpunkten besteht (Geld, Kredit, Datum mit gleichem Vorzeichen). Ein Bau, der beim anderen Spiel ein paar Sekunden später ankommt, löst so nichts aus. Dann: `sync WARNING: the games differ: veh here 14, in the other game 15` in beiden Spielen, für denselben Unterschied erst nach 10 Prüfpunkten wieder.
-- Nur der Mitspieler korrigiert:
+- Nur der Mitspieler korrigiert. Lauf 25 zeigte: In `update()` lehnt das Spiel jeden Befehl mit Rückmeldung ab (`Callbacks are currently disallowed`). Ab v25 gehen die Korrekturen deshalb wie ein Nachbau als Skript-Ereignis an `handleEvent` (`main.sync_send_fix`, `main.sync_apply`), wo Rückmeldungen erlaubt sind:
   - Kredit: Buchung `JournalEntry.Type.LOAN` über die Differenz. Geld wartet in diesem Schritt, weil die Kreditbuchung das Geld mitbewegt.
   - Geld (Abweichung über 1000): Buchung `JournalEntry.Type.OTHER` (Unterart `CHEAT`, sonst `OTHER`/`MISC`, falls vorhanden) über `makeJournalBookAssetCmd`.
   - Datum: `makeGameSetDateCmd` mit dem heutigen Datum plus der Differenz in Tagen.
+- Lehnt das Spiel eine Korrektur ab (`success=false`) oder lässt sich das Ereignis nicht schicken, wird das Feld sofort nicht mehr korrigiert. Gebuchtes Geld zählt der Mitspieler in `adj=` seines Prüfpunkts mit.
 - Jede Korrektur wird am nächsten eigenen Prüfpunkt nachgeprüft: `the money correction by 5000 worked`, oder `… had no effect …; money is no longer corrected`. So kann eine falsch verstandene Buchung (Vorzeichen, Art) höchstens einmal passieren.
 - Ein Eintrag, dessen Art sich nicht setzen lässt, wird nicht gebucht (er könnte sonst als Kredit oder Baukosten landen).
 - Einmal pro Spielstand (v24) schreibt die Simulation, wie `JournalEntry` aussieht (`journal: Type: …; Other: …; amount=…`). Gebucht wird dafür nichts: Lehnt die Engine eine Buchung mit einer Assertion ab und beendet das Spiel, liefe der Test nach jedem Laden wieder, weil der Spielstand die Markierung nie speichern konnte. Ob Buchungen das Geld richtig bewegen, zeigt der Test mit dem simulierten Gastgeber.
@@ -58,8 +59,8 @@ Eine nachgebaute Linie wurde einmal als Änderung zurückgeschickt: Nachdem ein 
 | 60 | pausiert | Spiel pausiert, `speed from the other game: paused` |
 | 80 | läuft mit 1x | Spiel läuft, `speed from the other game: 1x` |
 | 100 | 90 s Spielzeit voraus | Spiel läuft mit 2x, `behind, catching up`, später `caught up` |
-| danach | Geld an zwei Prüfpunkten 5000 höher | `WARNING … money`, `booking it`, dann `the money correction by 5000 worked` |
-| zwei Prüfpunkte später | ein Fahrzeug mehr | `WARNING: the games differ: veh …` |
+| danach | 5000 mehr Geld, bis das Spiel sie gebucht hat (`adj=` im Prüfpunkt) | `WARNING … money`, `booking it`, `money corrected by 5000, success=true`, dann `the money correction by 5000 worked` |
+| ab dem vierten Prüfpunkt, zweimal | ein Fahrzeug mehr | `WARNING: the games differ: veh …` |
 
 Im Launcher: "Test mit simuliertem Gastgeber" wählen und "Installieren / Speichern" klicken. Der Launcher stellt das Spiel als Mitspieler auf 127.0.0.1 ein und startet das Werkzeug in einem verkleinerten PowerShell-Fenster (2 Stunden); "Spiel starten" startet es wieder, falls das Fenster zu ist. Danach einen Spielstand laden, mit 1x etwa 8 Minuten laufen lassen und ohne Speichern beenden (das Spiel bucht 5000 Geld nach).
 
@@ -67,13 +68,17 @@ Pausiert der Spieler selbst, steht im Log des Werkzeugs `the game changed the sp
 
 Offline wurde das Werkzeug gegen eine Nachbildung des Mitspielers geprüft (Mod-Code in Lua, DLL-Verhalten in Python).
 
+## Lauf 25 (v24, simulierter Gastgeber)
+
+Pause, Weiterlaufen und Aufholen (89 s Rückstand, nach 84 s aufgeholt) kamen im Spiel an; die GUI-Skripte laufen und dürfen `api.engine`, `sendCommand`, `os.getenv` und `os.clock` benutzen. Geld- und Fahrzeugunterschiede wurden erkannt. Die Geldbuchung selbst schlug fehl (`Callbacks are currently disallowed` in `update()`); `the money correction by 5000 worked` war falsch, weil der simulierte Gastgeber seinen Vorsprung nach zwei Prüfpunkten von selbst aufgab. Beides ist in v25 behoben (siehe oben). Logs: `logs/run25-*`.
+
 ## Offline-Prüfung
 
-`python3 tools/run_lua.py tests/run_sync.lua` (29 Tests: Zustandstexte, Kalender, Prüfpunkte, Geschwindigkeitsregister mit Pause, gleichzeitigen Änderungen, verlorenen Befehlen, Aufholen, Warten, Gedächtnisverlust; zwei Spiele über eine nachgebildete DLL: Geld, Kredit, Datum, Abweichungen, Neuladen, Journal-Beschreibung, Ersatz ohne GUI-Skript). Dazu `tests/run_tests.lua` (77) und `tests/run_actions.lua` (40), unter Lua 5.2 und 5.4.
+`python3 tools/run_lua.py tests/run_sync.lua` (32 Tests, die Befehle mit Rückmeldung in `update()` wie das Spiel ablehnen: Zustandstexte, Kalender, Prüfpunkte, Geschwindigkeitsregister mit Pause, gleichzeitigen Änderungen, verlorenen Befehlen, Aufholen, Warten, Gedächtnisverlust; zwei Spiele über eine nachgebildete DLL: Geld, Kredit, Datum, Abweichungen, Neuladen, Journal-Beschreibung, Ersatz ohne GUI-Skript). Dazu `tests/run_tests.lua` (78) und `tests/run_actions.lua` (40), unter Lua 5.2 und 5.4.
 
 ## Offen
 
 - Ob TF3 das GUI-Skript aufruft und was dort erlaubt ist (`api.engine`, `api.cmd.sendCommand`, `os.getenv`, `os.clock`), zeigt erst der erste Lauf (`gui script running: …`).
-- Ob `makeJournalBookAssetCmd` mit `JournalEntry.Type.OTHER` das Geld bewegt, zeigt der Test mit dem simulierten Gastgeber (`the money correction by 5000 worked`).
+- Ob `makeJournalBookAssetCmd` mit `JournalEntry.Type.OTHER` das Geld bewegt, zeigt der nächste Test mit dem simulierten Gastgeber (`money corrected by 5000, success=true`, dann `worked`).
 - Ob das Abreißen einer Straße übertragen wird, ist seit Lauf 21 nicht mehr geprüft: In Lauf 24 kam kein Abriss im Log an (frühere Läufe haben Abrisse erfasst).
 - Fahrzeugpositionen werden nicht verglichen (`getPosition` liefert in TF3 nil, siehe Phase 0).

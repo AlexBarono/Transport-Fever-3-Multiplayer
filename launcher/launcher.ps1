@@ -14,6 +14,8 @@ $ModSource = Join-Path $Root 'mods\mp_probe'
 $ModName = 'mp_probe'
 # Gleiche-Stelle-Test: Aufnahme aus stdout.txt lesen und an die DLL schicken.
 . (Join-Path $Root 'tools\same-spot.ps1')
+# Spielstand vom Gastgeber zum Mitspieler übertragen.
+. (Join-Path $Root 'tools\save-transfer.ps1')
 
 function Get-SteamRoot {
 	foreach ($key in 'HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam') {
@@ -170,7 +172,7 @@ function Get-SyncStatus($steam) {
 $steam = Get-SteamRoot
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Transport Fever 3 Multiplayer (Test)'
-$form.Size = New-Object System.Drawing.Size(560, 675)
+$form.Size = New-Object System.Drawing.Size(560, 717)
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -222,7 +224,7 @@ $form.Controls.Add($portBox)
 
 $myIp = Add-Label ("Deine IP-Adresse(n) im Heimnetz: " + (Get-LocalIPs)) 15 261 515 20
 $hint = Add-Label ("Gastgeber: diese IP dem Mitspieler schicken. Windows fragt beim ersten Spielstart evtl. nach einer Firewall-Freigabe - erlauben.`r`n" +
-	"Übers Internet geht das nur mit Portfreigabe (UDP) am Router oder einem gemeinsamen VPN wie Tailscale oder ZeroTier.") 15 281 515 64
+	"Übers Internet geht das nur mit Portfreigabe (UDP und TCP) am Router oder einem gemeinsamen VPN wie Tailscale oder ZeroTier.") 15 281 515 64
 $hint.ForeColor = [System.Drawing.Color]::DimGray
 
 $install = New-Object System.Windows.Forms.Button
@@ -239,10 +241,15 @@ $replay.Text = 'Am selben Ort nachbauen'; $replay.Location = New-Object System.D
 $form.Controls.Add($replay)
 $replayHint = Add-Label 'Nur für "Gleiche Stelle testen": nach dem Neuladen des Spielstands klicken.' 210 393 320 34
 $replayHint.ForeColor = [System.Drawing.Color]::DimGray
+$transfer = New-Object System.Windows.Forms.Button
+$transfer.Text = 'Spielstand übertragen'; $transfer.Location = New-Object System.Drawing.Point(15, 435); $transfer.Size = New-Object System.Drawing.Size(185, 32)
+$form.Controls.Add($transfer)
+$transferHint = Add-Label 'Gastgeber: Spielstand auswählen und schicken. Mitspieler: danach hier klicken und ihn holen.' 210 435 320 34
+$transferHint.ForeColor = [System.Drawing.Color]::DimGray
 
 $out = New-Object System.Windows.Forms.TextBox
 $out.Multiline = $true; $out.ReadOnly = $true; $out.ScrollBars = 'Vertical'
-$out.Location = New-Object System.Drawing.Point(15, 437); $out.Size = New-Object System.Drawing.Size(515, 185)
+$out.Location = New-Object System.Drawing.Point(15, 479); $out.Size = New-Object System.Drawing.Size(515, 185)
 $out.Font = New-Object System.Drawing.Font('Consolas', 8.5)
 $form.Controls.Add($out)
 
@@ -316,6 +323,58 @@ $startGame.Add_Click({
 
 $check.Add_Click({
 	try { $out.Text = (Get-ConnectionStatus $gameBox.Text.Trim()) + (Get-SyncStatus $steam) } catch { Show-Error $_.Exception.Message }
+})
+
+$script:transferBusy = $false
+$script:transferCancel = $false
+$transfer.Add_Click({
+	# Ein zweiter Klick während der Übertragung bricht sie ab.
+	if ($script:transferBusy) { $script:transferCancel = $true; return }
+	$others = @($install, $startGame, $check, $remove, $replay)
+	try {
+		$port = $portBox.Text.Trim()
+		if ($port -notmatch '^\d+$' -or [int]$port -lt 1024 -or [int]$port -gt 65535) { throw 'Der Port muss eine Zahl zwischen 1024 und 65535 sein (Standard 47800).' }
+		$saveDir = Get-SaveFolder $steam
+		if (-not $saveDir) { throw "Kein Spielstand-Ordner unter $steam\userdata gefunden.`nBitte TF3 einmal starten und einen Spielstand speichern." }
+		$tick = {
+			param($text, $done, $total)
+			$mb = if ($total -gt 0) { " ($([Math]::Round($done / 1MB, 1)) von $([Math]::Round($total / 1MB, 1)) MB)" } else { '' }
+			$out.Text = "$text$mb`r`n`r`nAbbrechen: noch einmal auf den Knopf klicken."
+			[System.Windows.Forms.Application]::DoEvents()
+			return $script:transferCancel
+		}
+		if ($hostRadio.Checked) {
+			$dialog = New-Object System.Windows.Forms.OpenFileDialog
+			$dialog.InitialDirectory = $saveDir
+			$dialog.Filter = 'Spielstände (*.sav)|*.sav'
+			$dialog.Title = 'Welchen Spielstand soll der Mitspieler bekommen?'
+			if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
+			$script:transferBusy = $true; $script:transferCancel = $false
+			$transfer.Text = 'Abbrechen'
+			foreach ($b in $others) { $b.Enabled = $false }
+			$text = Send-Savegame $dialog.FileName ([int]$port) $tick
+			$out.Text = "Fertig: $text`r`n`r`nJetzt laden beide diesen Spielstand ('Spiel starten', dann im Spiel 'Laden'). " +
+				"Wer früher fertig ist, wartet im Spiel automatisch auf den anderen."
+		}
+		elseif ($clientRadio.Checked) {
+			$ip = $ipBox.Text.Trim()
+			$parsed = $null
+			if (-not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) { throw 'Bitte die IP-Adresse des Gastgebers eingeben, z. B. 192.168.1.10.' }
+			$script:transferBusy = $true; $script:transferCancel = $false
+			$transfer.Text = 'Abbrechen'
+			foreach ($b in $others) { $b.Enabled = $false }
+			$confirm = { param($question) [System.Windows.Forms.MessageBox]::Show($question, 'Spielstand ersetzen?', 'YesNo', 'Question') -eq 'Yes' }
+			$text = Receive-Savegame $ip ([int]$port) $saveDir $tick $confirm
+			$out.Text = "Fertig: $text`r`n`r`nJetzt 'Spiel starten' und im Spiel unter 'Laden' diesen Spielstand wählen."
+		}
+		else { throw "Bitte oben 'Gastgeber' oder 'Mitspieler' wählen. Der Gastgeber schickt, der Mitspieler holt." }
+	} catch { Show-Error $_.Exception.Message }
+	finally {
+		$script:transferBusy = $false
+		$transfer.Text = 'Spielstand übertragen'
+		foreach ($b in $others) { $b.Enabled = $true }
+		Update-Fields
+	}
 })
 
 $replay.Add_Click({
