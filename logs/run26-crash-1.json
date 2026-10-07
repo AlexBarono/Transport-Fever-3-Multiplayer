@@ -1,0 +1,132 @@
+﻿{
+    "appInfo": {
+        "language": "de",
+        "resolution": [
+            3840,
+            2160
+        ],
+        "screenMode": "borderless",
+        "userId": "312632597"
+    },
+    "buildInfo": {
+        "buildType": "release",
+        "commit": "c55a97f1",
+        "platform": "Windows",
+        "product": "transportfever3",
+        "variant": "steam",
+        "version": 40408
+    },
+    "errorInfo": {
+        "count": 1,
+        "details": {
+            "detailMessage": "getCurrentModId() = mp_probe_1, key = mp_probe_gui"
+        },
+        "dumpFile": "",
+        "file": "base/content/base.zip/base/init.lua",
+        "firstInApp": true,
+        "firstInGame": true,
+        "firstInSession": true,
+        "function": "__newindex",
+        "line": 246,
+        "logFile": "b970c507-c1c6-4401-ad17-d7b9a27153be_0.txt",
+        "message": "Global variable in mod",
+        "minidumpId": "",
+        "recentQuitRequest": false,
+        "stackTrace": [
+            "base/content/base.zip/base/init.lua(246): __newindex",
+            "mp_probe_1::/mp_probe/gui.lua(23): ?",
+            "=[C](-1): pcall",
+            "mp_probe_1::/mp_probe/gui.lua(23): memory",
+            "mp_probe_1::/mp_probe/gui.lua(57): update",
+            "C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/staging_area/mp_probe/content/mp_probe/main.script.lua(838): ?"
+        ],
+        "timestamp": "2026-10-07 20:43:20Z",
+        "type": "error",
+        "uploadIndex": 2
+    },
+    "gameInfo": {
+        "configDict": [
+            [
+                "climate",
+                "::/climates/temperate/temperate.clima"
+            ],
+            [
+                "economy",
+                "::/economy/temperate.eco"
+            ],
+            [
+                "nameList",
+                "::/names/europe/europe.names"
+            ]
+        ],
+        "gameLoaded": true,
+        "inGame": true,
+        "initVersion": 604,
+        "missionName": "",
+        "modParams": {
+            "": {
+                "advancedOptions.cargoIncome": 5.0,
+                "advancedOptions.inflationFactor": 2.0,
+                "advancedOptions.infrastructureMaintenanceScale": 1.0,
+                "advancedOptions.infrastructurePurchaseCostScale": 1.0,
+                "advancedOptions.landmarkResources": 2.0,
+                "advancedOptions.passengerIncome": 5.0,
+                "advancedOptions.reforestation": 2.0,
+                "advancedOptions.subventionMode": 4.0,
+                "advancedOptions.subventionRisk": 1.0,
+                "advancedOptions.trafficSpeedSensitivityScale": 5.0,
+                "advancedOptions.vehicleMaintenanceEffectScale": 2.0,
+                "advancedOptions.vehicleMaintenanceScale": 1.0,
+                "advancedOptions.vehiclePurchaseCostScale": 1.0,
+                "economy.industryDevelopment.closureProbability": 1.0,
+                "economy.townDevelopment.cargoNeedsPerTown": 2.0,
+                "gameTimeConfig.timeOfDayMode": 1.0,
+                "guideSystemConfig.tutorial": 1.0,
+                "isMapEditor": false,
+                "locations.industry.industryProductivity": 4.0,
+                "locations.industry.initialIndustryDensity": 3.0,
+                "locations.industry.targetIndustryDensity": 5.0,
+                "locations.towns.frequency": 3.0,
+                "locations.towns.populationDensity": 3.0,
+                "map.format": 1.0,
+                "map.size": 3.0,
+                "townConfig.sensitivityCargoDelivery": 3.0,
+                "townConfig.sensitivityNoise": 3.0,
+                "townConfig.sensitivityPeopleHappiness": 3.0,
+                "townConfig.sensitivityPollution": 3.0,
+                "townConfig.sensitivityTrafficCongestion": 3.0,
+                "townConfig.sensitivityUrbanCare": 2.0,
+                "weatherConfig.dynamicWeather": 1.0
+            },
+            "mp_probe_1": null
+        },
+        "mods": [
+            {
+                "name": "mp_probe_1"
+            }
+        ],
+        "savegameName": "Det",
+        "savegameVersion": 604
+    },
+    "memoryInfo": null,
+    "rendererInfo": {
+        "apiVersion": "1.4.351",
+        "backend": "vulkan",
+        "combinedVersion": "1.4.351 616.92.0.0",
+        "deviceName": "NVIDIA GeForce RTX 5080",
+        "driverVersion": "616.92.0.0",
+        "shadingLanguageVersion": "",
+        "vendor": "Nvidia",
+        "videoMemory": -1
+    },
+    "sessionInfo": {
+        "started": "2026-10-07 20:42:58Z",
+        "uid": "b970c507-c1c6-4401-ad17-d7b9a27153be"
+    },
+    "systemInfo": {
+        "cpuModel": "AMD Ryzen 9 9900X3D 12-Core Processor",
+        "hardwareConcurrency": 24,
+        "osVersion": "Windows 11 Pro 26H2 (Build 26300)",
+        "ramMax": 62884
+    }
+}
