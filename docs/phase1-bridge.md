@@ -439,3 +439,9 @@ Probe v23:
 - Ein Nachbau entfernt im selben Vorschlag die Knotenkonfigurationen bestehender Knoten, die ein entferntes Segment nennen oder ein neues Segment bekommen (`streetProposal.nodeConfigsToRemove`, Log `replay: N old node configuration(s) cleared in the build (nodes …)`). Knoten, die der Bau entfernt, und Knoten an der Zufahrt eines Gebäudes (nur neue Segmente) bleiben unberührt. Danach setzt `nodecfg.lua` die mitgeschickten Konfigurationen.
 - `nodecfg.lua` lässt Knoten aus, die zu einem Gebäude gehören oder an denen ein Segment eines Gebäudes endet (`node configs left to the game at a construction: …`); die setzt das Spiel selbst beim Bau oder Refresh.
 - Im Schritt-Nachbau entfällt der letzte Durchgang der Knotenkonfigurationen (`replay: node configurations at the entrance are left to the game`).
+
+### Lauf 23 (v23, gleiche Stelle)
+
+- Logs: `logs/run23-*`. Keine einzige Assertion in der ganzen Sitzung, kein Absturz, auch nicht beim Anklicken von Straße und Depot. Der Nutzer: „es hat alles geklappt“.
+- Straße: 6/6 Knotenkonfigurationen. Depot in Schritten: `2 old node configuration(s) cleared in the build`, Straßenschritt gebaut (Kosten 1408), Konfigurationen 3/4 (die Teilungsstelle zunächst nur mit 2 von 6 Verbindungen, die Zufahrt gab es noch nicht; das Tor nicht gefunden). Gebäude allein gebaut, Zufahrt endete 3 m vor der Straße, der Refresh legte sie an den Teilungsknoten (`nodeConfigsToAdd #2 {-1:0 lanes,41763:6 lanes}`), also bekam die Kreuzung dabei alle 6 Verbindungen vom Spiel. `weld result road_depot.con: WELDED (after refresh)`.
+- Damit ist ein Depot an einer Straße am selben Ort vollständig übertragbar.
