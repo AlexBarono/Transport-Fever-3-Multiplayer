@@ -302,7 +302,8 @@ $install.Add_Click({
 			"1. 'Spiel starten', einen Spielstand laden, Tempo 1x lassen.`r`n" +
 			"2. Etwa 5 Minuten zuschauen: nach gut 1 Minute pausiert das Spiel von selbst, 20 Sekunden später läuft es weiter,`r`n" +
 			"   kurz danach eine Weile doppelt so schnell.`r`n" +
-			"3. Dann bauen (z. B. Gleise, Bahnhöfe, Depot, Signal, Linie, Zug).`r`n" +
+			"3. Dann bauen: Gleise, zwei Bahnhöfe, Bahndepot, Signal, Linie, Zug. Danach einen Bahnhof`r`n" +
+			"   verlängern und die Linie umbenennen.`r`n" +
 			"4. OHNE Speichern ins Hauptmenü und denselben Spielstand neu laden. Nach etwa 20 Sekunden baut der`r`n" +
 			"   simulierte Gastgeber alles von selbst am selben Ort nach.`r`n" +
 			"5. Ohne Speichern beenden."
