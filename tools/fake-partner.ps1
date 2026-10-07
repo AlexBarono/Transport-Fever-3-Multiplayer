@@ -163,8 +163,8 @@ while ((Now) -lt $deadline) {
 		}
 		elseif ($phase -eq 'ahead') {
 			$hostGt = $catchup.gt + ($now - $catchup.start) * 1000 * $hostReg.speed
-			# The mod stops catching up below 5 s (sync.CATCHUP_STOP_MS).
-			if ((Client-Gt) -ge $hostGt - 6000) { $phase = 'done'; Log "the game caught up after $([int]($now - $catchup.start)) s" }
+			# The mod stops catching up below 5 s (sync.CATCHUP_STOP_MS); both estimates lag by up to a heartbeat.
+			if ((Client-Gt) -ge $hostGt - 8000) { $phase = 'done'; Log "the game caught up after $([int]($now - $catchup.start)) s" }
 			elseif ($now - $catchup.start -gt 200) { $phase = 'done'; Log "the game did NOT catch up within 200 s" }
 		}
 	}

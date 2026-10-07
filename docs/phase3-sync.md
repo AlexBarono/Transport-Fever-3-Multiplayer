@@ -61,6 +61,8 @@ Eine nachgebaute Linie wurde einmal als Änderung zurückgeschickt: Nachdem ein 
 | danach | Geld an zwei Prüfpunkten 5000 höher | `WARNING … money`, `booking it`, dann `the money correction by 5000 worked` |
 | zwei Prüfpunkte später | ein Fahrzeug mehr | `WARNING: the games differ: veh …` |
 
+Im Launcher: "Test mit simuliertem Gastgeber" wählen und "Installieren / Speichern" klicken. Der Launcher stellt das Spiel als Mitspieler auf 127.0.0.1 ein und startet das Werkzeug in einem verkleinerten PowerShell-Fenster (2 Stunden); "Spiel starten" startet es wieder, falls das Fenster zu ist. Danach einen Spielstand laden, mit 1x etwa 8 Minuten laufen lassen und ohne Speichern beenden (das Spiel bucht 5000 Geld nach).
+
 Pausiert der Spieler selbst, steht im Log des Werkzeugs `the game changed the speed: 0`. Bauzeilen des Spiels werden bestätigt, aber nicht nachgebaut. Das Werkzeug schreibt `tools/fake-partner.log`.
 
 Offline wurde das Werkzeug gegen eine Nachbildung des Mitspielers geprüft (Mod-Code in Lua, DLL-Verhalten in Python).
