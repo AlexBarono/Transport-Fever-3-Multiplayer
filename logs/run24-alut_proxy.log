@@ -1,0 +1,136 @@
+﻿2026-10-07 16:02:06 [13176] alut proxy v7 loaded
+2026-10-07 16:02:06 [13176] bridge: ucrtbase _putenv_s found
+2026-10-07 16:02:06 [13176] bridge: TF3MP_IN=hello (ok)
+2026-10-07 16:02:06 [13176] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-07 16:02:06 [13176] net: host listening on UDP port 47800
+2026-10-07 16:02:37 [13176] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-07 16:02:49 [13176] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-07 16:02:52 [13176] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-07 16:02:54 [13176] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-07 16:02:57 [13176] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-07 16:02:59 [13176] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-07 16:03:00 [13176] net: line 13176.1 (2163 characters) queued for the peer
+2026-10-07 16:03:02 [13176] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-07 16:03:04 [13176] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-07 16:03:07 [13176] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-07 16:03:07 [13176] net: line 13176.2 (1522 characters) queued for the peer
+2026-10-07 16:03:09 [13176] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-07 16:03:12 [13176] bridge: TF3MP_IN=ack 321 (ok)
+2026-10-07 16:03:14 [13176] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-07 16:03:17 [13176] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-07 16:03:20 [13176] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-07 16:03:22 [13176] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-07 16:03:25 [13176] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-07 16:03:27 [13176] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-07 16:03:30 [13176] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-07 16:03:32 [13176] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-07 16:03:35 [13176] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-07 16:03:37 [13176] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-07 16:03:40 [13176] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-07 16:03:42 [13176] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-07 16:03:45 [13176] bridge: TF3MP_IN=ack 334 (ok)
+2026-10-07 16:03:45 [13176] net: line 13176.3 (777 characters) queued for the peer
+2026-10-07 16:03:46 [13176] net: line 13176.4 (770 characters) queued for the peer
+2026-10-07 16:03:47 [13176] bridge: TF3MP_IN=ack 335 (ok)
+2026-10-07 16:03:50 [13176] bridge: TF3MP_IN=ack 336 (ok)
+2026-10-07 16:03:50 [13176] net: line 13176.5 (1693 characters) queued for the peer
+2026-10-07 16:03:52 [13176] bridge: TF3MP_IN=ack 337 (ok)
+2026-10-07 16:03:52 [13176] net: line 13176.6 (2833 characters) queued for the peer
+2026-10-07 16:03:55 [13176] bridge: TF3MP_IN=ack 338 (ok)
+2026-10-07 16:03:55 [13176] net: line 13176.7 (1385 characters) queued for the peer
+2026-10-07 16:03:57 [13176] bridge: TF3MP_IN=ack 339 (ok)
+2026-10-07 16:03:57 [13176] net: line 13176.8 (2833 characters) queued for the peer
+2026-10-07 16:04:00 [13176] bridge: TF3MP_IN=ack 340 (ok)
+2026-10-07 16:04:00 [13176] net: line 13176.9 (2695 characters) DROPPED, queue full
+2026-10-07 16:04:02 [13176] bridge: TF3MP_IN=ack 341 (ok)
+2026-10-07 16:04:04 [13176] bridge: TF3MP_IN=ack 342 (ok)
+2026-10-07 16:04:07 [13176] bridge: TF3MP_IN=ack 343 (ok)
+2026-10-07 16:04:09 [13176] bridge: TF3MP_IN=ack 344 (ok)
+2026-10-07 16:04:12 [13176] bridge: TF3MP_IN=ack 345 (ok)
+2026-10-07 16:04:14 [13176] bridge: TF3MP_IN=ack 346 (ok)
+2026-10-07 16:04:17 [13176] bridge: TF3MP_IN=ack 347 (ok)
+2026-10-07 16:04:19 [13176] bridge: TF3MP_IN=ack 348 (ok)
+2026-10-07 16:04:22 [13176] bridge: TF3MP_IN=ack 349 (ok)
+2026-10-07 16:04:24 [13176] bridge: TF3MP_IN=ack 350 (ok)
+2026-10-07 16:04:27 [13176] bridge: TF3MP_IN=ack 351 (ok)
+2026-10-07 16:04:29 [13176] bridge: TF3MP_IN=ack 352 (ok)
+2026-10-07 16:04:32 [13176] bridge: TF3MP_IN=ack 353 (ok)
+2026-10-07 16:04:34 [13176] bridge: TF3MP_IN=ack 354 (ok)
+2026-10-07 16:04:37 [13176] bridge: TF3MP_IN=ack 355 (ok)
+2026-10-07 16:04:39 [13176] bridge: TF3MP_IN=ack 356 (ok)
+2026-10-07 16:04:42 [13176] bridge: TF3MP_IN=ack 357 (ok)
+2026-10-07 16:04:44 [13176] bridge: TF3MP_IN=ack 358 (ok)
+2026-10-07 16:04:47 [13176] bridge: TF3MP_IN=ack 359 (ok)
+2026-10-07 16:04:49 [13176] bridge: TF3MP_IN=ack 360 (ok)
+2026-10-07 16:04:52 [13176] bridge: TF3MP_IN=ack 361 (ok)
+2026-10-07 16:04:54 [13176] bridge: TF3MP_IN=ack 362 (ok)
+2026-10-07 16:04:57 [13176] bridge: TF3MP_IN=ack 363 (ok)
+2026-10-07 16:04:59 [13176] bridge: TF3MP_IN=ack 364 (ok)
+2026-10-07 16:05:02 [13176] bridge: TF3MP_IN=ack 365 (ok)
+2026-10-07 16:05:04 [13176] bridge: TF3MP_IN=ack 366 (ok)
+2026-10-07 16:05:07 [13176] bridge: TF3MP_IN=ack 367 (ok)
+2026-10-07 16:05:09 [13176] bridge: TF3MP_IN=ack 368 (ok)
+2026-10-07 16:05:12 [13176] bridge: TF3MP_IN=ack 369 (ok)
+2026-10-07 16:05:15 [13176] bridge: TF3MP_IN=ack 370 (ok)
+2026-10-07 16:05:17 [13176] bridge: TF3MP_IN=ack 371 (ok)
+2026-10-07 16:05:20 [13176] bridge: TF3MP_IN=ack 372 (ok)
+2026-10-07 16:05:37 [13176] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-07 16:05:47 [13176] net: connected to 127.0.0.1:51166: TF3MP/1 LINE gs1791381947.1 B5 n-1;-3076.505,-3881.34,1.383 n-2;-2981.718,-3885.674,2.699 n-3;-2886.
+2026-10-07 16:05:47 [13176] net: line gs1791381947.1 received from the peer (2163 characters)
+2026-10-07 16:05:47 [13176] net: line 13176.1 sent to the peer (2184 bytes)
+2026-10-07 16:05:48 [13176] bridge: TF3MP_IN=line gs1791381947.1 net B5 n-1;-3076.505,-3881.34,1.383 n-2;-2981.718,-3885.674,... (ok)
+2026-10-07 16:05:49 [13176] net: line gs1791381947.2 received from the peer (1522 characters)
+2026-10-07 16:05:50 [13176] bridge: TF3MP_IN=line gs1791381947.1 net B5 n-1;-3076.505,-3881.34,1.383 n-2;-2981.718,-3885.674,... (ok)
+2026-10-07 16:05:50 [13176] bridge: the mod has line gs1791381947.1
+2026-10-07 16:05:50 [13176] bridge: TF3MP_IN=line gs1791381947.2 net B5 n-1;-2849.016,-3891.742,1.694 n-2;-2849.827,-3909.463... (ok)
+2026-10-07 16:05:51 [13176] net: line gs1791381947.3 received from the peer (777 characters)
+2026-10-07 16:05:53 [13176] bridge: TF3MP_IN=line gs1791381947.2 net B5 n-1;-2849.016,-3891.742,1.694 n-2;-2849.827,-3909.463... (ok)
+2026-10-07 16:05:53 [13176] bridge: the mod has line gs1791381947.2
+2026-10-07 16:05:53 [13176] bridge: TF3MP_IN=line gs1791381947.3 net B5 f1;-2792.144,-3894.343,0.957 f2;-2697.357,-3898.677,1... (ok)
+2026-10-07 16:05:53 [13176] net: line gs1791381947.4 received from the peer (770 characters)
+2026-10-07 16:05:55 [13176] net: line gs1791381947.5 received from the peer (1693 characters)
+2026-10-07 16:05:55 [13176] bridge: TF3MP_IN=line gs1791381947.3 net B5 f1;-2792.144,-3894.343,0.957 f2;-2697.357,-3898.677,1... (ok)
+2026-10-07 16:05:55 [13176] bridge: the mod has line gs1791381947.3
+2026-10-07 16:05:55 [13176] bridge: TF3MP_IN=line gs1791381947.4 net B5 f1;-2602.57,-3903.011,2.278 f2;-2507.783,-3907.345,1.... (ok)
+2026-10-07 16:05:57 [13176] net: line 13176.1 sent again (11 tries, no answer yet)
+2026-10-07 16:05:57 [13176] net: line gs1791381947.6 received from the peer (2833 characters)
+2026-10-07 16:05:58 [13176] bridge: TF3MP_IN=line gs1791381947.4 net B5 f1;-2602.57,-3903.011,2.278 f2;-2507.783,-3907.345,1.... (ok)
+2026-10-07 16:05:58 [13176] bridge: the mod has line gs1791381947.4
+2026-10-07 16:05:58 [13176] bridge: TF3MP_IN=line gs1791381947.5 net A1 t3:s4:6f70s22:6c696e655f637265617465s12:746172676574t... (ok)
+2026-10-07 16:05:59 [13176] net: line gs1791381947.7 received from the peer (1385 characters)
+2026-10-07 16:06:00 [13176] bridge: TF3MP_IN=line gs1791381947.5 net A1 t3:s4:6f70s22:6c696e655f637265617465s12:746172676574t... (ok)
+2026-10-07 16:06:00 [13176] bridge: the mod has line gs1791381947.5
+2026-10-07 16:06:00 [13176] bridge: TF3MP_IN=line gs1791381947.6 net A1 t3:s4:6f70s22:6c696e655f757064617465s12:746172676574t... (ok)
+2026-10-07 16:06:01 [13176] net: line gs1791381947.8 received from the peer (2833 characters)
+2026-10-07 16:06:03 [13176] bridge: TF3MP_IN=line gs1791381947.6 net A1 t3:s4:6f70s22:6c696e655f757064617465s12:746172676574t... (ok)
+2026-10-07 16:06:03 [13176] bridge: the mod has line gs1791381947.6
+2026-10-07 16:06:03 [13176] bridge: TF3MP_IN=line gs1791381947.7 net A1 t3:s4:6f70s28:76656869636c655f637265617465s12:7461726... (ok)
+2026-10-07 16:06:03 [13176] net: line gs1791381947.9 received from the peer (2695 characters)
+2026-10-07 16:06:05 [13176] bridge: TF3MP_IN=line gs1791381947.7 net A1 t3:s4:6f70s28:76656869636c655f637265617465s12:7461726... (ok)
+2026-10-07 16:06:05 [13176] bridge: the mod has line gs1791381947.7
+2026-10-07 16:06:05 [13176] bridge: TF3MP_IN=line gs1791381947.8 net A1 t3:s4:6f70s22:6c696e655f757064617465s12:746172676574t... (ok)
+2026-10-07 16:06:07 [13176] net: line 13176.1 sent again (21 tries, no answer yet)
+2026-10-07 16:06:08 [13176] bridge: TF3MP_IN=line gs1791381947.8 net A1 t3:s4:6f70s22:6c696e655f757064617465s12:746172676574t... (ok)
+2026-10-07 16:06:08 [13176] bridge: the mod has line gs1791381947.8
+2026-10-07 16:06:08 [13176] bridge: TF3MP_IN=line gs1791381947.9 net A1 t4:s4:6f70s28:76656869636c655f757064617465s16:7072657... (ok)
+2026-10-07 16:06:10 [13176] bridge: TF3MP_IN=line gs1791381947.9 net A1 t4:s4:6f70s28:76656869636c655f757064617465s16:7072657... (ok)
+2026-10-07 16:06:10 [13176] bridge: the mod has line gs1791381947.9
+2026-10-07 16:06:10 [13176] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-07 16:06:13 [13176] bridge: TF3MP_IN=ack 322 (ok)
+2026-10-07 16:06:13 [13176] net: line 13176.10 (2832 characters) DROPPED, queue full
+2026-10-07 16:06:13 [13176] net: peer silent for 10 s, waiting
+2026-10-07 16:06:15 [13176] bridge: TF3MP_IN=ack 323 (ok)
+2026-10-07 16:06:17 [13176] net: line 13176.1 sent again (31 tries, no answer yet)
+2026-10-07 16:06:18 [13176] bridge: TF3MP_IN=ack 324 (ok)
+2026-10-07 16:06:20 [13176] bridge: TF3MP_IN=ack 325 (ok)
+2026-10-07 16:06:23 [13176] bridge: TF3MP_IN=ack 326 (ok)
+2026-10-07 16:06:25 [13176] bridge: TF3MP_IN=ack 327 (ok)
+2026-10-07 16:06:27 [13176] net: line 13176.1 sent again (41 tries, no answer yet)
+2026-10-07 16:06:27 [13176] bridge: TF3MP_IN=ack 328 (ok)
+2026-10-07 16:06:30 [13176] bridge: TF3MP_IN=ack 329 (ok)
+2026-10-07 16:06:32 [13176] bridge: TF3MP_IN=ack 330 (ok)
+2026-10-07 16:06:35 [13176] bridge: TF3MP_IN=ack 331 (ok)
+2026-10-07 16:06:37 [13176] net: line 13176.1 sent again (51 tries, no answer yet)
+2026-10-07 16:06:37 [13176] bridge: TF3MP_IN=ack 332 (ok)
+2026-10-07 16:06:40 [13176] bridge: TF3MP_IN=ack 333 (ok)
+2026-10-07 16:06:45 [13176] alut proxy v7 unloaded
