@@ -693,6 +693,7 @@ local function mock_types(opts)
 					edgeObjectsToRemove = "list", nodeConfigsToRemove = "list" }, list_opts),
 				constructionsToAdd = "list",
 				constructionsToRemove = "list",
+				old2new = {},
 			})
 		end, ConstructionEntity = { new = function()
 			return struct("ConstructionEntity", { fileName = "", name = "", params = {}, playerEntity = -1,
@@ -1208,19 +1209,29 @@ end)
 
 --- Depot build of run 12 (logs/probe-log-12-mp_probe.txt, "player #3"): one construction, its
 -- entrance segment touches the frozen node (0-based index 1) and is left to the construction.
-local function depot_param()
+-- Run 12: a depot placed away from roads; its entrance street 50605 -> 45373 (gate, frozen) ends in
+-- a new node nothing else uses. With `at_road` the entrance meets an existing road end node 50605.
+local DEPOT_ROAD_NODE = { x = -2970.633, y = -3896.631, z = 3.18 }
+local function depot_param(at_road)
 	local transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -2970.633, -3889.26, 3.18, 1 }
 	local seg = run5_street().addedSegments[1]
+	seg.entity = 50524
 	seg.comp.node0, seg.comp.node1 = 50605, 45373
+	local nodes = {
+		{ entity = 50605, comp = { position = DEPOT_ROAD_NODE } },
+		{ entity = 45373, comp = { position = { x = -2970.633, y = -3881.891, z = 3.18 } } },
+	}
+	local frozen = { 1 }
+	if at_road then
+		table.remove(nodes, 1)
+		frozen = { 0 }
+	end
 	return {
 		{
 			proposal = {
-				addedNodes = {
-					{ entity = 50605, comp = { position = { x = -2970.633, y = -3896.631, z = 3.18 } } },
-					{ entity = 45373, comp = { position = { x = -2970.633, y = -3881.891, z = 3.18 } } },
-				},
+				addedNodes = nodes,
 				addedSegments = { seg },
-				frozenNodes = { 1 },
+				frozenNodes = frozen,
 			},
 			toAdd = { { fileName = "::/depots/road/road_depot/road_depot.con", name = "Rehna Strassendepot Süd",
 				params = { seed = 12, paramX = 0.5, modules = { [3] = "a b;c" }, flag = true }, transf = transf,
@@ -1231,26 +1242,50 @@ local function depot_param()
 	}
 end
 
+-- The engine of with_engine_api knows the road end node 50605 the depot's entrance meets.
+local function with_depot_road(t, m)
+	t.env.api.type.ComponentType.BASE_NODE = "BASE_NODE"
+	local get = t.env.api.engine.getComponent
+	t.env.api.engine.getComponent = function(id, ct)
+		if ct == "BASE_NODE" and id == 50605 then return { position = DEPOT_ROAD_NODE } end
+		return get(id, ct)
+	end
+	m.finder = function()
+		return {
+			find_node = function(p)
+				if math.abs(p.x - DEPOT_ROAD_NODE.x) < 0.01 and math.abs(p.y - DEPOT_ROAD_NODE.y) < 0.01 then return 50605 end
+			end,
+			find_edge = function() return nil end,
+			find_construction = function() return nil end,
+			edge_objects_of = function() return {} end,
+			edge_construction = function() return nil end,
+		}
+	end
+end
+
 test("a construction travels with file, name, transf, params and its entrance, which the copy leaves out (v21)", function()
 	with_engine_api({}, function(t)
 		local main = fresh_main()
+		with_depot_road(t, main)
 		logged = {}
 		local state = mock_state()
-		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", depot_param())
+		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", depot_param(true))
 		-- v20: the entrance street travels along, its gate node (frozen) marked "g".
-		assert(contains(logged, "capture player build nodes=2 segments=1 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"),
+		assert(contains(logged, "capture player build nodes=1 segments=1 foreign_nodes=1 removed_segments=0 removed_nodes=0 constructions=1"),
 			table.concat(logged, "\n"))
 		assert(contains(logged, "access_segments=1"), table.concat(logged, "\n"))
 		local line = state:get().last_build
 		assert(line and line:find(" c;%3A%3A%2Fdepots%2Froad%2Froad_depot%2Froad_depot.con;Rehna%20Strassendepot%20S%C3%BCd;1,0,0,0,0,1,0,0,0,0,1,0,-2970.633,-3889.26,3.18,1;{", 1, true), line)
-		assert(line:find(" g;-2 ", 1, true) and line:find(" a;1 ", 1, true), line)
+		assert(line:find(" g;-1 ", 1, true) and line:find(" a;1 ", 1, true), line)
 		local data = assert(build.deserialize(line))
-		assert(data.gates[-2] and data.access[-1], "gate and entrance parsed")
+		assert(data.gates[-1] and data.access[-1], "gate and entrance parsed")
 		local c = data.constructions[1]
 		assert(c.name == "Rehna Strassendepot Süd" and c.file == "::/depots/road/road_depot/road_depot.con")
 		assert(c.params.seed == 12 and c.params.paramX == 0.5 and c.params.flag == true and c.params.modules[3] == "a b;c")
 		logged = {}
-		fresh_main().replay_line(t.env, line, "c1", nil, 0)
+		local receiver = fresh_main()
+		with_depot_road(t, receiver)
+		receiver.replay_line(t.env, line, "c1", nil, 0)
 		assert(contains(logged, "replay proposal check SimpleProposal/table: complete") and contains(logged, "constructionsToAdd 1/1"),
 			table.concat(logged, "\n"))
 		local sent = t.sent[1].proposal.constructionsToAdd[1]
@@ -1265,6 +1300,82 @@ test("a construction travels with file, name, transf, params and its entrance, w
 		assert(contains(logged, "weld command before sending: command fields {"), table.concat(logged, "\n"))
 		assert(contains(logged, "weld: the copied road_depot.con near -2970.6,-3889.3 is not here"), table.concat(logged, "\n"))
 	end)
+end)
+
+test("a build line too long for the network is reported instead of sent (v26)", function()
+	with_engine_api({}, function()
+		local main = fresh_main()
+		main.MAX_LINE = 100
+		logged = {}
+		local state = mock_state()
+		main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+		local all = table.concat(logged, "\n")
+		assert(state:get().last_build, "kept for the local replay")
+		assert(contains(logged, "capture line TOO LONG for the network ("), all)
+		assert(contains(logged, "characters, at most 100): the other game does not get this build"), all)
+		for _, l in ipairs(logged) do assert(not l:find("net send ", 1, true), l) end
+	end)
+end)
+
+test("a depot away from roads travels without its entrance stub, the copy gets no weld repair (v26, run 12)", function()
+	with_engine_api({}, function(t)
+		logged = {}
+		local state = mock_state()
+		fresh_main().handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", depot_param())
+		local all = table.concat(logged, "\n")
+		assert(contains(logged, "capture player build nodes=0 segments=0 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=1"), all)
+		assert(contains(logged, "access_segments=0"), all)
+		assert(contains(logged, "capture leaves out segment 50524 (end stub of a construction)"), all)
+		local line = state:get().last_build
+		assert(line and not line:find(" g;", 1, true) and not line:find(" a;", 1, true), line)
+		logged = {}
+		fresh_main().replay_line(t.env, line, "c1", nil, 0)
+		all = table.concat(logged, "\n")
+		assert(contains(logged, "constructionsToAdd 1/1"), all)
+		assert(not contains(logged, "entrance segment(s) left out") and not contains(logged, "weld"), all)
+	end)
+end)
+
+--- Run 5: a modular station on a straight track, 25 nodes along y, all frozen but the free ends of
+-- the two stubs at the track ends (indexes 1 and 24).
+local function run5_station()
+	local function node(id, y) return { entity = id, comp = { position = { x = -2139.415, y = y, z = 1.209 } } } end
+	local nodes = { node(50154, -3717.232), node(50460, -3719.232) }
+	local y = -3717.232
+	for i = 3, 25 do
+		y = y + ((i % 2 == 1) and 16 or 2)
+		nodes[i] = node(51812 + i, y)
+	end
+	local frozen = {}
+	for i = 0, 24 do if i ~= 1 and i ~= 24 then frozen[#frozen + 1] = i end end
+	local track = run5_street().addedSegments[1]
+	local function seg(id, a, b)
+		local s = { entity = id, type = 1, comp = {} }
+		for k, v in pairs(track.comp) do s.comp[k] = v end
+		s.comp.node0, s.comp.node1, s.comp.roadType = a, b, 0
+		s.comp.roadTemplate = "::/trainstation___/infrastructure/track/simple/simple.street_template"
+		s.comp.roadStyle = "::/infrastructure/track/simple/simple.street"
+		return s
+	end
+	local segs = { seg(51838, 50154, 50460), seg(51839, 51815, 50154) }
+	for i = 3, 24 do segs[i] = seg(51837 + i, nodes[i + 1].entity, nodes[i].entity) end
+	return { addedNodes = nodes, addedSegments = segs, frozenNodes = frozen }
+end
+
+test("a modular station travels as its construction alone, without its track end stubs (v26, run 5)", function()
+	local line, info = build.serialize(run5_station(), {
+		to_add = { { fileName = "::/stations/rail/modular_station/modular_station.con", name = "Allensbach Station",
+			params = { length = 3, seed = 0, tracks = 1 }, transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -2139.415, -3650, 1.209, 1 } } },
+	})
+	assert(info.segments == 0 and info.nodes == 0 and info.access == 0 and info.gates == 0 and info.constructions == 1, line)
+	local stubs, inner = 0, 0
+	for _, what in ipairs(info.dropped) do
+		if what:find("(end stub of a construction)", 1, true) then stubs = stubs + 1 end
+		if what:find("(part of a construction)", 1, true) then inner = inner + 1 end
+	end
+	assert(stubs == 2 and inner == 22, stubs .. " stubs, " .. inner .. " inner")
+	local data = assert(build.deserialize(line))
+	assert(next(data.gates) == nil and next(data.access) == nil and #data.constructions == 1)
 end)
 
 test("a depot joined to a road travels as one line with entrance and gate (v20)", function()
@@ -1698,6 +1809,55 @@ test("demolishing a depot leaves its own segment to the game (run 15)", function
 	finder.find_edge = function() return 601 end
 	assert(build.resolve(data, finder))
 	assert(#data.removed_segments == 1)
+end)
+
+test("an extended station replaces its old construction with old2new, so lines keep their stops (v26)", function()
+	local file = "::/stations/rail/modular_station/modular_station.con"
+	local line = build.serialize(run5_station(), {
+		to_add = { { fileName = "::/depots/rail/rail_depot.con", name = "Depot", params = {},
+			transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 } },
+			{ fileName = file, name = "Allensbach Station", params = { length = 4 },
+			transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -2139.415, -3650, 1.209, 1 } } },
+		to_remove = { 900, 901 },
+		construction = function(id)
+			if id == 900 then return { file = "::/other.con", position = { x = 0, y = 0, z = 0 } } end
+			return { file = file, position = { x = -2139.415, y = -3650, z = 1.209 } }
+		end,
+	})
+	local data = assert(build.deserialize(line))
+	assert(#data.demolished == 2 and #data.constructions == 2, line)
+	local found = { ["::/other.con"] = 699, [file] = 700 }
+	assert(build.resolve(data, {
+		find_node = function() end, find_edge = function() end, edge_construction = function() end,
+		find_construction = function(f) return found[f] end,
+	}))
+	local env, sent = mock_build_api()
+	local logs = {}
+	local ok, message = build.replay(env, data, { player = 29125, log = function(l) logs[#logs + 1] = l end })
+	assert(ok, message)
+	local p = sent[1].proposal
+	assert(p.constructionsToRemove[1] == 699 and p.constructionsToRemove[2] == 700)
+	-- The station is the second construction added; the other demolished one has no successor.
+	assert(p.old2new[700] == 1 and p.old2new[699] == nil, table.concat(logs, "\n"))
+	assert(contains(logs, "old2new 1/1"), table.concat(logs, "\n"))
+	-- A game that refuses the field still gets the build.
+	data = assert(build.deserialize(line))
+	assert(build.resolve(data, {
+		find_node = function() end, find_edge = function() end, edge_construction = function() end,
+		find_construction = function(f) return found[f] end,
+	}))
+	local tries = 0
+	env, sent = mock_build_api()
+	local send = env.api.cmd.sendCommand
+	env.api.cmd.sendCommand = function(cmd, callback)
+		tries = tries + 1
+		if next(cmd.proposal.old2new) ~= nil then callback({}, false) return end
+		send(cmd, callback)
+	end
+	logs = {}
+	ok, message = build.replay(env, data, { player = 29125, log = function(l) logs[#logs + 1] = l end })
+	assert(ok and message:find("(without old2new)", 1, true), tostring(message) .. "\n" .. table.concat(logs, "\n"))
+	assert(contains(logs, "retrying without old2new"), table.concat(logs, "\n"))
 end)
 
 test("params literals survive a round trip and reject broken text", function()

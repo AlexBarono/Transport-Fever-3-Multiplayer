@@ -311,6 +311,69 @@ test("vehicle rename/start updates bind same vehicle despite different IDs", fun
 	source.poll(); dest.replay(source.drain()[1]); assert(dest.entities[90].NAME.name == "Express")
 	assert(dest.entities[90].TRANSPORT_VEHICLE.userStopped); dest.poll(); assert(#dest.drain() == 0)
 end)
+test("a vehicle update carries only what the receiver compares, and a new train set replaces the vehicle (v26)", function()
+	local source, dest = mock(), mock(); source.vehicle(30); dest.vehicle(90); dest.entities[90].NAME.name = "Bus 30"
+	source.poll(); dest.poll()
+	source.entities[30].TRANSPORT_VEHICLE.transportVehicleConfig.vehicles[1].part.reversed = false
+	source.poll(); local q = source.drain(); assert(#q == 1 and q[1].op == "vehicle_update")
+	local prev = q[1].previous
+	assert(prev.config == nil and prev.config_changed == true and prev.name == "Bus 30" and prev.autoDeparture == true)
+	dest.replay(q[1])
+	assert(dest.sent[1].name == "makeVehicleReplaceCmd" and dest.sent[1].args[1] == 90)
+	assert(dest.entities[90].TRANSPORT_VEHICLE.transportVehicleConfig.vehicles[1].part.reversed == false)
+	-- A start/stop alone replaces nothing.
+	source.entities[30].TRANSPORT_VEHICLE.userStopped = true; source.poll(); q = source.drain()
+	assert(#q == 1 and q[1].previous.config_changed == false)
+	local before = #dest.sent; dest.replay(q[1])
+	for i = before + 1, #dest.sent do assert(dest.sent[i].name ~= "makeVehicleReplaceCmd", "replaced") end
+	assert(dest.entities[90].TRANSPORT_VEHICLE.userStopped)
+	-- An update from before v26 still carries the whole previous record.
+	local old = copy(q[1]); old.previous = { name = "Bus 30", userStopped = false, autoDeparture = true,
+		config = copy(q[1].value.config) }
+	before = #dest.sent; dest.replay(old)
+	for i = before + 1, #dest.sent do assert(dest.sent[i].name ~= "makeVehicleReplaceCmd", "replaced (old format)") end
+end)
+test("renaming a line sends the line, not each of its vehicles again (v26)", function()
+	local m = mock(); m.line(20, "A"); m.vehicle(30, nil, 20); m.vehicle(31, nil, 20); m.poll()
+	m.entities[20].NAME.name = "Express"; m.poll()
+	local q = m.drain(); assert(#q == 1 and q[1].op == "line_update", #q .. " actions")
+	-- Moving a vehicle to another line is still sent.
+	m.line(21, "B"); m.poll(); m.drain()
+	m.entities[31].TRANSPORT_VEHICLE.line = 21; m.poll(); q = m.drain()
+	assert(#q == 1 and q[1].op == "vehicle_update" and q[1].value.line.key == "21")
+end)
+test("a vehicle that cannot travel is reported and left out; the others still go and nothing stalls (v26)", function()
+	local m = mock(); m.construction(10, 0, 0); m.poll()
+	-- Bought and gone from its depot before the poll saw it: the purchase cannot be copied.
+	m.vehicle(30); m.vehicle(31, 10010); m.poll()
+	local q = m.drain(); assert(#q == 1 and q[1].op == "vehicle_create" and q[1].value.ref.key == "31", #q .. " actions")
+	local reported = 0
+	for _, msg in ipairs(m.logs) do
+		if msg:find("action NOT sent, vehicle Bus 30: left its depot before it was seen", 1, true) then reported = reported + 1 end
+	end
+	assert(reported == 1, table.concat(m.logs, "\n"))
+	-- Reported once, not on every poll.
+	m.poll(); m.drain(); local again = 0
+	for _, msg in ipairs(m.logs) do if msg:find("action NOT sent, vehicle Bus 30", 1, true) then again = again + 1 end end
+	assert(again == 1, again .. " reports")
+	-- The snapshot moved on: the next change of either vehicle is sent.
+	m.entities[30].NAME.name = "Late"; m.entities[31].TRANSPORT_VEHICLE.userStopped = true; m.poll()
+	q = m.drain(); assert(#q == 2 and q[1].op == "vehicle_update" and q[2].op == "vehicle_update", #q .. " actions")
+	-- A record too long for the DLL is reported the same way. The mock reads and stores through its
+	-- own copy of wire.lua, which gets room for it; the game has no such limit there.
+	local limit = wire.MAX_BYTES
+	wire.MAX_BYTES = 1000000
+	m.entities[31].NAME.name = string.rep("x", limit); m.poll()
+	q = m.drain()
+	wire.MAX_BYTES = limit
+	assert(#q == 0, #q .. " actions")
+	assert(m.logs[#m.logs]:find("action NOT sent, vehicle", 1, true) and m.logs[#m.logs]:find("DLL line limit", 1, true), m.logs[#m.logs])
+	wire.MAX_BYTES = 1000000
+	m.entities[30].TRANSPORT_VEHICLE.userStopped = true; m.poll()
+	q = m.drain()
+	wire.MAX_BYTES = limit
+	assert(#q == 1 and q[1].value.ref.key == "30")
+end)
 test("ambiguous destructive targets send no command", function()
 	local m = mock(); m.line(10, "Duplicate"); m.line(11, "Duplicate"); m.poll()
 	assert(not pcall(m.replay, { op = "line_remove", targets = { { kind = "line", key = "99", name = "Duplicate" } } }))

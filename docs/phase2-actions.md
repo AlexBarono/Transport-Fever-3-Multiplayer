@@ -58,11 +58,11 @@ Besonders im echten Spiel zu prüfen: vollständige `params_native:asTable()`-Da
 
 ## Offene Grenzen
 
-- Polling erfasst Zustandsänderungen. Bauen und Abreißen zwischen zwei Abfragen bleibt unsichtbar. Ein neu gekauftes Fahrzeug, das das Depot vor der ersten Erfassung verlassen hat, wird mit Diagnose zurückgestellt; sein tatsächliches Kaufdepot wird nicht geraten.
+- Polling erfasst Zustandsänderungen. Bauen und Abreißen zwischen zwei Abfragen bleibt unsichtbar. Ein neu gekauftes Fahrzeug, das das Depot vor der ersten Erfassung verlassen hat, wird ausgelassen (`action NOT sent, vehicle …`, ab v26 ohne die übrigen Fahrzeuge aufzuhalten); sein tatsächliches Kaufdepot wird nicht geraten.
 - Reiner Abriss ist implementiert. Straßenumbau, Anschließen/Teilen, Abriss mit gleichzeitig neu entstandenen Kanten und Edge-Objekte brauchen eine vollständige Übertragung des gemischten Vorschlags. Solche gemischten Kantenänderungen werden übersprungen, damit nicht nur ihre zerstörende Hälfte beim Partner ankommt.
 - Die Loopback-Kopie kann wegen Gelände/Kollisionen abgelehnt werden. Fehlende oder mehrdeutige Referenzen brechen die betreffende Aktion ab; es gibt noch keinen automatischen Resync oder erneuten Versuch nach einem Spiel-Fehler.
 - Die DLL bestätigt wie bisher Empfang, nicht erfolgreiche Ausführung. Ihre Queue fasst weiterhin acht Zeilen. Der gedrosselte A1-Versand ersetzt noch keine Rückstaukontrolle bei langer Trennung oder vielen B3-Bauten.
-- Eine Zeile bleibt auf 16383 Zeichen beschränkt. Sehr große modulare Konstruktionen oder Linien werden mit Fehler abgewiesen. Fragmentierung ist nicht implementiert.
+- Eine Zeile bleibt auf 16383 Zeichen beschränkt. Sehr große modulare Konstruktionen oder Linien werden mit Hinweis im Log ausgelassen (Aktionen: `action NOT sent`, Bauzeilen: `capture line TOO LONG`). Fragmentierung ist nicht implementiert.
 - Kosten, tickgenaue Synchronisierung, Depot-Rückruf/Umkehren als einzelne Fahrzeugbefehle, getrennte Firmen und Netzwerkabsicherung gehören zu späteren Erweiterungen. Fahrzeugersatz überträgt die Baukonfiguration; Alter/Wartungszustand werden nicht synchronisiert.
 
 ## Offline-Prüfung

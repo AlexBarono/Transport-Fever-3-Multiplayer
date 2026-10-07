@@ -17,7 +17,7 @@ local gui = require("/mp_probe/gui.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 25
+main.PROBE_VERSION = 26
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -91,6 +91,9 @@ main.WELD_ORIGINAL_DUMPS = 2
 -- kind "net" came from the other PC and is built in place; kind "loop" is the one-PC test and is
 -- built REPLAY_SIDE_OFFSET metres beside the original.
 main.SEND_MARKER = "net send "
+--- Longest build line the DLL sends (NET_LINE_MAX 16384 with its end byte; the received line goes
+-- to the game with a token in front, in a buffer 64 bytes larger).
+main.MAX_LINE = 16000
 main.RECEIVED_MARKER = "net received token="
 
 --- v24: keeping the two games in step (sync.lua). The simulation records a checkpoint every
@@ -942,7 +945,13 @@ function main.capture_build(state, s, param, label)
 		s.last_build = line
 		state:set(s)
 		logger.info("capture stored for replay (" .. #line .. " characters)")
-		logger.info(main.SEND_MARKER .. line)
+		if #line > main.MAX_LINE then
+			-- v26: the DLL drops such a line with a note in its own log only.
+			logger.info(string.format("capture line TOO LONG for the network (%d characters, at most %d): " ..
+				"the other game does not get this build", #line, main.MAX_LINE))
+		else
+			logger.info(main.SEND_MARKER .. line)
+		end
 	end
 	if info.access > 0 and info.constructions > 0 then
 		local ok_w, err = pcall(main.describe_original_entrance, env, s, param)

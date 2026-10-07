@@ -303,12 +303,28 @@ function build.serialize(proposal, opts)
 	-- and 19: built after the construction the game refuses it or finds no node to weld to, so it
 	-- travels in the same line, marked "a", with its gate node marked "g". The receiver builds it
 	-- together with the construction and then checks and repairs the weld (weld.lua).
+	--
+	-- v26: a segment from a frozen node to a new node that no other segment of the build touches
+	-- leads nowhere. A modular station has one at each track end (run 5: 50154 frozen -> 50460 new),
+	-- a depot placed away from roads one at its gate (run 12); the construction lays them itself.
+	-- Sent as an entrance they made the copy look unwelded and the receiver refresh or rebuild it.
+	local added_ids, touches = {}, {}
+	for _, node in ipairs(nodes) do added_ids[node.entity] = true end
+	local added_segments = list_items(proposal.addedSegments)
+	for _, seg in ipairs(added_segments) do
+		local comp = seg.comp
+		touches[comp.node0] = (touches[comp.node0] or 0) + 1
+		touches[comp.node1] = (touches[comp.node1] or 0) + 1
+	end
 	local segments, used, access, gates = {}, {}, {}, {}
-	for _, seg in ipairs(list_items(proposal.addedSegments)) do
+	for _, seg in ipairs(added_segments) do
 		local comp = seg.comp
 		local f0, f1 = frozen_ids[comp.node0] == true, frozen_ids[comp.node1] == true
+		local free = (f0 and not f1 and comp.node1) or (f1 and not f0 and comp.node0) or nil
 		if f0 and f1 then
 			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (part of a construction)"
+		elseif free and added_ids[free] and touches[free] == 1 then
+			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (end stub of a construction)"
 		else
 			segments[#segments + 1] = seg
 			used[comp.node0], used[comp.node1] = true, true
@@ -1107,6 +1123,9 @@ build.LAYOUTS = {
 			if extra.constructions_to_remove and #extra.constructions_to_remove > 0 then
 				try_set(p, "constructionsToRemove", extra.constructions_to_remove, errors, "constructionsToRemove")
 			end
+			if extra.old2new and next(extra.old2new) ~= nil then
+				try_set(p, "old2new", extra.old2new, errors, "old2new")
+			end
 		end,
 		read = function(p)
 			local sp = p.streetProposal
@@ -1359,6 +1378,7 @@ function build.make_proposal(env, data, layout, player, list_kind)
 	for _, d in ipairs(data.demolished or {}) do
 		extra.constructions_to_remove[#extra.constructions_to_remove + 1] = d.entity
 	end
+	extra.old2new = build.old2new(data)
 	local proposal = layout.new(api.type)
 	layout.fill(proposal, nodes, edges, errors, extra)
 	-- The same field fails for every segment and lane; report each message once with a count.
@@ -1404,6 +1424,17 @@ function build.make_proposal(env, data, layout, player, list_kind)
 			check.text = check.text .. ", " .. r[1] .. " " .. n .. "/" .. r[2]
 			if n ~= r[2] then check.complete = false end
 		end
+	end
+	-- Only reported: a proposal without old2new still builds (the station then counts as new).
+	local want_pairs = 0
+	for _ in pairs(extra.old2new) do want_pairs = want_pairs + 1 end
+	if want_pairs > 0 then
+		local ok, n = pcall(function()
+			local total = 0
+			for _ in pairs(proposal.old2new) do total = total + 1 end
+			return total
+		end)
+		check.text = check.text .. ", old2new " .. (ok and tostring(n) or "?") .. "/" .. want_pairs
 	end
 	return proposal, check, unique
 end
@@ -1657,6 +1688,27 @@ local function replay_once(env, data, opts)
 	return false, failure or "no layout could be filled and sent"
 end
 
+--- v26: which demolished construction a new one replaces, as SimpleProposal.old2new wants it
+-- ({[old entity] = 0-based index into constructionsToAdd}, like the engine's own refresh proposal,
+-- runs 20-22). Extending or changing a station demolishes it and adds one of the same file; without
+-- old2new the copy was a new station and the lines lost their stops there. Pairs by file, in order.
+function build.old2new(data)
+	local map, taken = {}, {}
+	if data.no_old2new then return map end
+	for _, d in ipairs(data.demolished or {}) do
+		if d.entity then
+			for i, c in ipairs(data.constructions or {}) do
+				if not taken[i] and c.file == d.file then
+					taken[i] = true
+					map[d.entity] = i - 1
+					break
+				end
+			end
+		end
+	end
+	return map
+end
+
 --- Removes the segments that join a construction to the network, and nodes only they used.
 function build.drop_access(data)
 	local segments, used = {}, {}
@@ -1713,6 +1765,13 @@ function build.replay(env, data, opts)
 			build.drop_access(data)
 			ok, message = replay_once(env, data, opts)
 			if ok then message = message .. " (without access segments)" end
+		end
+		-- v26: old2new is new in copied builds; a game that refuses it still gets the build.
+		if not ok and next(build.old2new(data)) ~= nil then
+			log("retrying without old2new: " .. tostring(message))
+			data.no_old2new = true
+			ok, message = replay_once(env, data, opts)
+			if ok then message = message .. " (without old2new)" end
 		end
 		-- Run 16: a removal was rejected once ("map_util Get"); the street graph cleanup removes
 		-- loose nodes by itself, so it is tried again without naming them.

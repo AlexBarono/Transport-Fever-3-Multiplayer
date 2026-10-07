@@ -296,7 +296,19 @@ function actions.decode(line)
 	return a
 end
 
-local function same(a, b) return wire.encode(a) == wire.encode(b) end
+--- Deep comparison of plain records. v26: no longer through wire.encode, whose size limit made a
+-- long line record fail the comparison and with it the whole poll of its kind.
+local function same(a, b)
+	if a == b then return true end
+	if type(a) ~= "table" or type(b) ~= "table" then return false end
+	for k, v in pairs(a) do
+		if not same(v, b[k]) then return false end
+	end
+	for k in pairs(b) do
+		if a[k] == nil then return false end
+	end
+	return true
+end
 
 --- A line record without the transport modes, which the game derives from the vehicles on the line.
 local function line_without_modes(r)
@@ -307,11 +319,15 @@ local function line_without_modes(r)
 	return { ref = r.ref, data = data, name = r.name, color = r.color }
 end
 
+--- The vehicle's line by its key: the line ref also carries the line's name, and v26 must not
+-- send every vehicle of a line again when only the line was renamed.
+local function line_key(r) return r and r.line and r.line.key or nil end
+
 local function changed(kind, r, old)
 	if kind == "vehicle" then
 		-- Depot presence and stopIndex change during ordinary travel, not just UI actions.
 		return r.name ~= old.name or r.userStopped ~= old.userStopped or r.autoDeparture ~= old.autoDeparture
-			or not same(r.config, old.config) or not same(r.line or {}, old.line or {})
+			or not same(r.config, old.config) or line_key(r) ~= line_key(old)
 	end
 	if kind == "line" then
 		-- Run 24: once a bus was put on the copied line, the game filled in its transport modes and
@@ -319,6 +335,14 @@ local function changed(kind, r, old)
 		return not same(line_without_modes(r), line_without_modes(old))
 	end
 	return not same(r, old)
+end
+
+--- What a vehicle update carries of the vehicle's previous record: only what the receiver
+-- compares, so the line stays well below the DLL's limit (v26; before, the whole old record went
+-- along, configuration included).
+function actions.vehicle_previous(r, old)
+	return { name = old.name, line = old.line, userStopped = old.userStopped, autoDeparture = old.autoDeparture,
+		config_changed = not same(r.config, old.config) }
 end
 
 --- Diffs each category independently. A failed read never masquerades as demolition/sale.
@@ -341,7 +365,7 @@ function actions.poll(env, s, log, kinds)
 		if ok then
 			local previous = a.snapshots[kind]
 			if previous then
-				local staged = {}
+				local staged, skipped = {}, {}
 				local success, err = pcall(function()
 					local replaced = {}
 					local edge_additions = false
@@ -364,12 +388,25 @@ function actions.poll(env, s, log, kinds)
 							if #matches == 1 then old = previous[matches[1]]; replaced[matches[1]] = true end
 						end
 						if kind ~= "edge" and (not old or changed(kind, r, old)) then
-							local op = kind .. (old and "_update" or "_create")
-							if kind == "vehicle" and not old then
-								assert(r.depot, "new vehicle left depot before capture; buy cannot be reconstructed")
+							-- v26: one record that cannot travel (a vehicle that left its depot before it
+							-- was seen, a record too long for the DLL) is reported and left out; it must not
+							-- keep the whole kind from taking the new snapshot, or nothing of it is sent again.
+							local ok_one, line = pcall(function()
+								local op = kind .. (old and "_update" or "_create")
+								if kind == "vehicle" and not old and not r.depot then
+									error("left its depot before it was seen; the purchase cannot be copied", 0)
+								end
+								return actions.encode({ op = op, target = old and old.ref or r.ref, value = r,
+									previous = kind == "vehicle" and old and actions.vehicle_previous(r, old) or nil })
+							end)
+							if ok_one then
+								staged[#staged + 1] = line
+							else
+								local ref = r.ref or {}
+								local label = tostring(ref.name or ref.key or key)
+								if #label > 40 then label = label:sub(1, 37) .. "..." end
+								skipped[#skipped + 1] = kind .. " " .. label .. ": " .. tostring(line)
 							end
-							staged[#staged + 1] = actions.encode({ op = op, target = old and old.ref or r.ref, value = r,
-								previous = kind == "vehicle" and old or nil })
 						end
 					end
 					local removed = {}
@@ -389,6 +426,18 @@ function actions.poll(env, s, log, kinds)
 				end)
 				if success then
 					for _, line in ipairs(staged) do pending[#pending + 1] = line end
+					-- The same record failing poll after poll is reported once.
+					a.skipped = a.skipped or {}
+					local now = {}
+					for _, text in ipairs(skipped) do
+						text = text:sub(1, 220)
+						now[text] = true
+						if log and not a.skipped[text] then log("action NOT sent, " .. text) end
+					end
+					for text in pairs(a.skipped) do
+						if not now[text] and text:sub(1, #kind + 1) == kind .. " " then a.skipped[text] = nil end
+					end
+					for text in pairs(now) do a.skipped[text] = true end
 				else
 					ok, current = false, err
 				end
@@ -709,7 +758,7 @@ function actions.replay(env, action, state, peer, offset, log)
 			work[#work + 1] = { command = command, value = value, id = id, kind = "vehicle", peer = peer, ref = r.ref }
 		end
 		if not old or r.name ~= old.name then add("name", r.name) end
-		if not old or not same(r.line or {}, old.line or {}) then
+		if not old or line_key(r) ~= line_key(old) then
 			local line = r.line and resolve(env, r.line, state:get() or {}, peer, offset) or -1
 			-- Run 19: SetLine with -1 raised "Unknown exception" for a bus bought without a line.
 			if line >= 0 then
@@ -772,7 +821,9 @@ function actions.replay(env, action, state, peer, offset, log)
 	elseif op == "vehicle_update" then
 		local id = resolve(env, action.target, s, peer, offset)
 		if value.line then resolve(env, value.line, s, peer, offset) end
-		if not same(value.config, action.previous.config) then
+		local config_changed = action.previous.config_changed
+		if config_changed == nil then config_changed = not same(value.config, action.previous.config) end
+		if config_changed then
 			send(cmd.makeVehicleReplaceCmd(id, make_vehicle(env, value.config)), function()
 				updated("vehicle", id, value.ref)
 				vehicle_settings(id, value, action.previous)
