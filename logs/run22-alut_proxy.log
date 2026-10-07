@@ -1,0 +1,39 @@
+﻿2026-10-07 15:44:12 [25156] alut proxy v7 loaded
+2026-10-07 15:44:12 [25156] bridge: ucrtbase _putenv_s found
+2026-10-07 15:44:12 [25156] bridge: TF3MP_IN=hello (ok)
+2026-10-07 15:44:12 [25156] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-07 15:44:12 [25156] net: host listening on UDP port 47800
+2026-10-07 15:44:37 [25156] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-07 15:44:47 [25156] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-07 15:44:50 [25156] net: line 25156.1 (1092 characters) queued for the peer
+2026-10-07 15:44:50 [25156] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-07 15:44:52 [25156] bridge: TF3MP_IN=ack 314 (ok)
+2026-10-07 15:44:55 [25156] bridge: TF3MP_IN=ack 315 (ok)
+2026-10-07 15:44:57 [25156] bridge: TF3MP_IN=ack 316 (ok)
+2026-10-07 15:44:58 [25156] net: line 25156.2 (1447 characters) queued for the peer
+2026-10-07 15:45:00 [25156] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-07 15:45:02 [25156] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-07 15:45:05 [25156] bridge: TF3MP_IN=ack 319 (ok)
+2026-10-07 15:45:07 [25156] bridge: TF3MP_IN=ack 320 (ok)
+2026-10-07 15:45:16 [25156] bridge: TF3MP_IN=ack 311 (ok)
+2026-10-07 15:45:24 [25156] bridge: TF3MP_IN=ack 312 (ok)
+2026-10-07 15:45:26 [25156] bridge: TF3MP_IN=ack 313 (ok)
+2026-10-07 15:45:26 [25156] net: connected to 127.0.0.1:50295: TF3MP/1 LINE gs1791380727.1 B5 n-1;-2983.599,-3804.371,1.211 n-2;-2885.277,-3811.372,1.964 n-3;-2786
+2026-10-07 15:45:26 [25156] net: line gs1791380727.1 received from the peer (1092 characters)
+2026-10-07 15:45:26 [25156] net: line 25156.1 sent to the peer (1113 bytes)
+2026-10-07 15:45:28 [25156] net: line gs1791380727.2 received from the peer (1447 characters)
+2026-10-07 15:45:29 [25156] bridge: TF3MP_IN=line gs1791380727.1 net B5 n-1;-2983.599,-3804.371,1.211 n-2;-2885.277,-3811.372... (ok)
+2026-10-07 15:45:31 [25156] bridge: TF3MP_IN=line gs1791380727.1 net B5 n-1;-2983.599,-3804.371,1.211 n-2;-2885.277,-3811.372... (ok)
+2026-10-07 15:45:31 [25156] bridge: the mod has line gs1791380727.1
+2026-10-07 15:45:31 [25156] bridge: TF3MP_IN=line gs1791380727.2 net B5 n-1;-2931.956,-3808.048,1.719 n-2;-2933.216,-3825.743... (ok)
+2026-10-07 15:45:34 [25156] bridge: TF3MP_IN=line gs1791380727.2 net B5 n-1;-2931.956,-3808.048,1.719 n-2;-2933.216,-3825.743... (ok)
+2026-10-07 15:45:34 [25156] bridge: the mod has line gs1791380727.2
+2026-10-07 15:45:34 [25156] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-07 15:45:36 [25156] net: line 25156.1 sent again (11 tries, no answer yet)
+2026-10-07 15:45:37 [25156] bridge: TF3MP_IN=ack 317 (ok)
+2026-10-07 15:45:38 [25156] net: peer silent for 10 s, waiting
+2026-10-07 15:45:39 [25156] bridge: TF3MP_IN=ack 318 (ok)
+2026-10-07 15:45:46 [25156] net: line 25156.1 sent again (21 tries, no answer yet)
+2026-10-07 15:45:56 [25156] net: line 25156.1 sent again (31 tries, no answer yet)
+2026-10-07 15:46:06 [25156] net: line 25156.1 sent again (41 tries, no answer yet)
+2026-10-07 15:46:08 [25156] alut proxy v7 unloaded

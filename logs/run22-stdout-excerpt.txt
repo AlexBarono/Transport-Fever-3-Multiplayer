@@ -1,0 +1,179 @@
+== key lines
+2725 13:44:50 MESSAGE [Simulation Threa - Main           ] [mp_probe]capture player build nodes=5 segments=4 foreign_nodes=0 removed_segments=0 removed_nodes=0 constructions=0 demolished=0 edge_objects=0 access_segments=0 node_configs=5 config_removes=0
+2728 13:44:50 MESSAGE [Simulation Threa - Main           ] [mp_probe]net send B5 n-1;-2983.599,-3804.371,1.211 n-2;-2885.277,-3811.372,1.964 n-3;-2786.956,-3818.374,1 n-4;-2688.635,-3825.375,1.319 n-5;-2590.313,-3832.376,1.55 t1;::/infrastructure/street/town/town_old_small.street_template;::/infrastructure/street/town/town_old.street;11.11,3,0.15,0,3,0.15|11.11,5,0,0,28,-0.5|11.11,5,0,1,28,0.5|11.11,3,0.15,1,3,-0.15 s-1;0;-1;-2;98.321,-7.001,0.753;98.321,-7.001,-0.106;-1;1;0;1;2,2;2,2 s-2;0;-2;-3;98.321,-7.001,-0.106;98.321,-7.001,-0.323;-1;1;0;1;2,2;2,2 s-3;0;-3;-4;98.321,-7.001,-0.323;98.321,-7.001,0.275;-1;1;0;1;2,2;2,2 s-4;0;-4;-5;98.321,-7.001,0.275;98.321,-7.001,0.231;-1;1;0;1;2,2;2,2 
+2942 13:44:58 MESSAGE [Simulation Threa - Main           ] [mp_probe]capture player build nodes=2 segments=3 foreign_nodes=2 removed_segments=1 removed_nodes=0 constructions=1 demolished=0 edge_objects=0 access_segments=1 node_configs=4 config_removes=2
+2945 13:44:58 MESSAGE [Simulation Threa - Main           ] [mp_probe]net send B5 n-1;-2931.956,-3808.048,1.719 n-2;-2933.216,-3825.743,1.719 g;-2 t1;::/infrastructure/street/constructions/entrance_new.street_template;::/infrastructure/street/town/town_new.street;13.89,3,0.15,0,3,0.5|13.89,5,0,0,28,0|13.89,5,0,1,28,0|13.89,3,0.15,1,3,-0.5 s-1;0;-1;-2;-1.26,-17.695,0;-1.26,-17.695,0;-1;1;0;1;2,2;2,2 f1;-2983.599,-3804.371,1.211 t2;::/infrastructure/street/town/town_old_small.street_template;::/infrastructure/street/town/town_old.street;11.11,3,0.15,0,3,0.15|11.11,5,0,0,28,-0.5|11.11,5,0,1,28,0.5|11.11,3,0.15,1,3,-0.15 s-2;0;f1;-1;51.643,-3.677,0.395;51.643,-3.677,0.496;-1;1;0;2;2,2;2,2 f2;-288
+2946 13:44:58 MESSAGE [Simulation Threa - Main           ] [mp_probe]weld check (original): construction 48363: gate 44205 at -2933.2,-3825.7 (0 outside, 1 inner, road at node 50601 with 2 segments) -> WELDED
+2948 13:44:58 MESSAGE [Simulation Threa - Main           ] [mp_probe]weld refresh proposal (original, not sent): toAdd #1 {road_depot.con frozen{0} player 29125} | toRemove #1 {48363} | old2new {48363=0} | addedNodes #1 {-1@-2933.2,-3825.7} | addedSegments #1 {-2:50601>-1 entrance_new.street_template} | removedSegments #1 {50630:50601>44205 entrance_new.street_template} | removedNodes #1 {44205} | frozenNodes #1 {0} | nodeConfigsToAdd #2 {50601:6 lanes,-1:0 lanes} | nodeConfigsToRemove #1 {50601}
+5833 13:45:31 MESSAGE [Sim Pool 1       - Main           ] [mp_probe]net received token=gs1791380727.1 kind=net (1092 characters)
+5835 13:45:31 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay event received (src=mp_probe id=mp_probe_replay, line 1092 characters)
+5836 13:45:31 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay #gs1791380727.1: 5 nodes, 4 segments, 0 existing nodes, 0 removed segments, 0 constructions, 0 demolished, 5 node configs, moved by 0.0,0.0, player 29125
+5838 13:45:31 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay proposal check SimpleProposal/table: complete, nodes 5/5, edges 4/4, node[1] -5 at -2983.6,-3804.4,1.2, edge[1] -1 type 0 nodes -5->-6 tangent0 98.3,-7.0,0.8 template town_old_small.street_template owner 29125, lanes 4/4 lane[1] width 3 modes 3
+5901 13:45:31 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay result (SimpleProposal/table): BUILT, success=true, costs 17398, new entities 0, critical false
+5902 13:45:31 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay: sent, SimpleProposal/table: sent with signature 1
+5903 13:45:31 MESSAGE [Simulation Threa - Main           ] [mp_probe]node configs all 5: sent (sent with signature 1), success=true, critical false; 5/5 nodes have one now (0 replaced; connections as LaneConnection.new 5)
+5904 13:45:31 MESSAGE [Simulation Threa - Main           ] [mp_probe]node configs result: 5/5 placed, 0 not found here
+5916 13:45:33 MESSAGE [Sim Pool 10      - Main           ] [mp_probe]net received token=gs1791380727.2 kind=net (1447 characters)
+5918 13:45:33 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay event received (src=mp_probe id=mp_probe_replay, line 1447 characters)
+5919 13:45:33 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay #gs1791380727.2: 2 nodes, 3 segments, 2 existing nodes, 1 removed segments, 1 constructions, 0 demolished, 4 node configs, moved by 0.0,0.0, player 29125
+5920 13:45:33 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay: 1 entrance segment(s) left out, the construction lays its own
+5921 13:45:33 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay in steps: streets first (1 nodes, 2 segments, 1 removed segments, 0 removed nodes), then 1 construction(s)
+5923 13:45:33 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay proposal check SimpleProposal/table: complete, nodes 1/1, edges 2/2, node[1] -3 at -2932.0,-3808.0,1.7, edge[1] -1 type 0 nodes 44530->-3 tangent0 51.6,-3.7,0.4 template town_old_small.street_template owner 29125, lanes 4/4 lane[1] width 3 modes 3, edgesToRemove 1/1
+6005 13:45:33 WARNING [Sim Pool 7       - Main           ] C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\framework\src\framework/core/map_util.h:22: Get:  Assertion 'it != map.end()' failed
+6033 13:45:33 WARNING [Sim Pool 1       - Main           ] C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\framework\src\framework/core/map_util.h:22: Get:  Assertion 'it != map.end()' failed
+6041 13:45:34 MESSAGE [Simulation Threa - Main           ] + [mp_probe]replay SimpleProposal/table signature 1: [string "mp_probe_1::/mp_probe/build.lua"]:1499: Unknown exception
+6047 13:45:34 MESSAGE [Simulation Threa - Main           ] + [mp_probe]replay streets: failed, SimpleProposal/table: the game rejected the proposal ([string "mp_probe_1::/mp_probe/build.lua"]:1499: Unknown exception
+6050 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay proposal check SimpleProposal/table: complete, nodes 0/0, edges 0/0, constructionsToAdd 1/1
+6051 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]weld command before sending: command fields {}
+6052 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay result (SimpleProposal/table): BUILT, success=true, costs 98350, new entities 1, critical false
+6053 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay construction: sent, SimpleProposal/table: sent with signature 1
+6054 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]weld check after build: construction 49568: gate 50823 at -2933.2,-3825.7 (0 outside, 1 inner, no road reached, entrance ends at node 50673 at -2932.2,-3811.0) -> NOT WELDED
+6056 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]weld refresh proposal: toAdd #1 {road_depot.con frozen{1} player 29125} | toRemove #1 {49568} | old2new {49568=0} | addedNodes #2 {-1@-2932.0,-3808.0; -2@-2933.2,-3825.7} | addedSegments #3 {-3:-1>-2 entrance_new.street_template; -4:44530>-1 town_old_small.street_template; -5:-1>49614 town_old_small.street_template} | removedSegments #2 {50824:50673>50823 entrance_new.street_template; 49902:44530>49614 town_old_small.street_template} | removedNodes #2 {50673,50823} | frozenNodes #1 {1} | nodeConfigsToAdd #4 {-1:6 lanes,-2:0 lanes,44530:0 lanes,49614:2 lanes} | nodeConfigsToRemove #2 {44530,49614}
+6209 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]replay result (weld refresh): BUILT, success=true, costs 1045, new entities 1, critical false
+6210 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]weld refresh: sent, sent with signature 1
+6211 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]weld check after refresh: construction 49568: gate 50830 at -2933.2,-3825.7 (0 outside, 1 inner, road at node 50829 with 2 segments) -> WELDED
+6212 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]weld result road_depot.con: WELDED (after refresh)
+6213 13:45:34 WARNING [Simulation Threa - Main           ] C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Game\ecs\TransportNetworkSystem.cpp:635: ecs::TransportNetworkSystem::EntityToBeRemoved:  Assertion 'AreAllNodesEmpty(tpNetData, entity, (int)tn.nodes.size())' failed
+6221 13:45:34 MESSAGE [Simulation Threa - Main           ] + [mp_probe]node configs all 4 signature 1: [string "mp_probe_1::/mp_probe/build.lua"]:1505: Unknown exception
+6227 13:45:34 MESSAGE [Simulation Threa - Main           ] + [mp_probe]node configs all 4: not sent (the game rejected the proposal ([string "mp_probe_1::/mp_probe/build.lua"]:1505: Unknown exception
+6231 13:45:34 MESSAGE [Simulation Threa - Main           ] [mp_probe]node configs result: 4/4 placed, 0 not found here
+6232 13:45:35 MESSAGE [Sim Pool 14      - Main           ] [mp_probe]weld check later: construction 49568: gate 50830 at -2933.2,-3825.7 (0 outside, 1 inner, road at node 50829 with 2 segments) -> WELDED
+6241 13:45:41 WARNING [Main Thread      - Main           ] C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib/ecs/Engine.h:323: ecs::Engine::GetComponentDataIndex:  Assertion 'it != components.end()' failed
+6245:    | Entity: 50833
+6246:    | Notified Entity: 50833
+6259:    |  Additional info for entity 50833: 
+6278:    | Entity: 50833
+6279:    | Notified Entity: 50833
+== fatal block (from line 6161)
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.tangent0.z = number 0.44836691021919
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.tangent1 = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.tangent1.x = number 46.678234100342
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.tangent1.y = number -3.3237488269806
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.tangent1.z = number -0.050323862582445
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.typeIndex = number -1
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.objects = table (#0)
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.roadTemplate = string ::/infrastructure/street/town/town_old_small.street_template
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.roadStyle = string ::/infrastructure/street/town/town_old.street
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.roadType = number 1
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.distance = number 0
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.position0 = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.position0.x = number -2931.9555664062
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.position0.y = number -3808.0483398438
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.position0.z = number 1.7190197706223
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.position1 = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.position1.x = number -2885.2770996094
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.position1.y = number -3811.3720703125
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.position1.z = number 1.9639999866486
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.laneConfigs = table (#4)
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.laneConfigs[1] = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.laneConfigs[2] = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.laneConfigs[3] = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.roadDevelopmentLocked = boolean false
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].comp.edgeDecorations = table (#0)
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].streetEdge = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].streetEdge.precedenceNode0 = number 2
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].streetEdge.precedenceNode1 = number 2
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].playerOwned = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.addedSegments[3].playerOwned.player = number 29125
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments = table (#2)
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1] = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].params = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].params.precedenceNode0 = number 2
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].params.precedenceNode1 = number 2
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].entity = number 50824
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].type = number 0
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.type = number 0
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.node0 = number 50673
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.node1 = number 50823
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.tangent0 = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.tangent0.x = number -1.0469821691513
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.tangent0.y = number -14.702766418457
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.tangent0.z = number 0
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.tangent1 = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[1].comp.tangent1.x = number -1.0469821691513
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]p.proposal.removedSegments[2] = userdata
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]replay result (weld refresh): BUILT, success=true, costs 1045, new entities 1, critical false
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]weld refresh: sent, sent with signature 1
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]weld check after refresh: construction 49568: gate 50830 at -2933.2,-3825.7 (0 outside, 1 inner, road at node 50829 with 2 segments) -> WELDED
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]weld result road_depot.con: WELDED (after refresh)
+[2026-10-07 13:45:34Z - WARNING  - Simulation Threa - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Game\ecs\TransportNetworkSystem.cpp:635: ecs::TransportNetworkSystem::EntityToBeRemoved:  Assertion 'AreAllNodesEmpty(tpNetData, entity, (int)tn.nodes.size())' failed
+[2026-10-07 13:45:34Z - VERBOSE  - Simulation Threa - Main           ]+ Exception type: Fatal error
+    | Details:
+    | Assertion Failure: Assertion `AreAllNodesEmpty(tpNetData, entity, (int)tn.nodes.size())' failed.
+    | In file: train_fever/src/Game/ecs/TransportNetworkSystem.cpp:635
+    + In function: ecs::TransportNetworkSystem::EntityToBeRemoved
+[2026-10-07 13:45:34Z - WARNING  - Simulation Threa - Main           ]+ ThrowUncheckedImpl
+    + Location: train_fever/src/Game/ecs/TransportNetworkSystem.cpp(635): ecs::TransportNetworkSystem::EntityToBeRemoved
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]+ [mp_probe]node configs all 4 signature 1: [string "mp_probe_1::/mp_probe/build.lua"]:1505: Unknown exception
+    | stack traceback:
+    |     =[C](-1): sendCommand
+    |     mp_probe_1::/mp_probe/build.lua(1505): ?
+    |     =[C](-1): pcall
+    +     mp_probe_1::/mp_probe
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]+ [mp_probe]node configs all 4: not sent (the game rejected the proposal ([string "mp_probe_1::/mp_probe/build.lua"]:1505: Unknown exception
+    | stack traceback:
+    |     =[C](-1): sendCommand
+    +     mp_pro)), no result; 4/4 nodes have one now (4 replaced; connections as LaneConnection.new 4)
+[2026-10-07 13:45:34Z - MESSAGE  - Simulation Threa - Main           ]  [mp_probe]node configs result: 4/4 placed, 0 not found here
+[2026-10-07 13:45:35Z - MESSAGE  - Sim Pool 14      - Main           ]  [mp_probe]weld check later: construction 49568: gate 50830 at -2933.2,-3825.7 (0 outside, 1 inner, road at node 50829 with 2 segments) -> WELDED
+[2026-10-07 13:45:36Z - MESSAGE  - Sim Pool 11      - Main           ]  [mp_probe]bridge out seq=317
+[2026-10-07 13:45:36Z - MESSAGE  - Sim Pool 11      - Main           ]  [mp_probe]bridge in TF3MP_IN=ack 0
+[2026-10-07 13:45:39Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]bridge out seq=318
+[2026-10-07 13:45:39Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]bridge in TF3MP_IN=ack 317
+[2026-10-07 13:45:39Z - MESSAGE  - Sim Pool 2       - Main           ]  [mp_probe]snapshot update=15900 game_time=3180000 money=7393537 n_construction=623 n_line=3 n_sim_person=957 n_station=20 n_town=10 n_transport_vehicle=15 vehicle_stop_sum=6 vehicle_pos_sum=ERR
+[2026-10-07 13:45:21Z - VERBOSE  - Main Thread      - Main           ]  Writing shader cache to C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/shader_cache/cache.lua
+[2026-10-07 13:45:21Z - VERBOSE  - Main Thread      - Main           ]  Saved pipeline cache to C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/shader_cache/pipelines.cache
+[2026-10-07 13:45:22Z - VERBOSE  - Main Thread      - Main           ]  Entity does not create view 2
+[2026-10-07 13:45:41Z - WARNING  - Main Thread      - Main           ]  C:\Gitlab-Runner\builds\t1_DiFR8G\0\ug\urban_games\train_fever\src\Lib/ecs/Engine.h:323: ecs::Engine::GetComponentDataIndex:  Assertion 'it != components.end()' failed
+[2026-10-07 13:45:41Z - VERBOSE  - Main Thread      - Main           ]+ Exception type: Fatal error
+    | Details:
+    | Assertion Failure: Assertion `it != components.end()' failed.
+    | Entity: 50833
+    | Notified Entity: 50833
+    | Component Type Index: 3
+    | In file: train_fever/src/Lib/ecs/Engine.h:323
+    + In function: ecs::Engine::GetComponentDataIndex
+[2026-10-07 13:45:41Z - WARNING  - Main Thread      - Main           ]+ ThrowUncheckedImpl
+    + Location: train_fever/src/Lib/ecs/Engine.h(323): ecs::Engine::GetComponentDataIndex
+[2026-10-07 13:45:41Z - MESSAGE  - Main Thread      - Main           ]  Application: Calling HandleCrash
+[2026-10-07 13:45:41Z - WARNING  - Main Thread      - Main           ]  Attempting to write crash save to crash_Det_2026-10-07_15-45-41
+[2026-10-07 13:45:41Z - MESSAGE  - Main Thread      - Saving         ]  Available disk space: 205256 MB
+[2026-10-07 13:45:41Z - MESSAGE  - Main Thread      - Saving         ]  Saving to file C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/save/crash_Det_2026-10-07_15-45-41.sav
+[2026-10-07 13:45:41Z - MESSAGE  - Main Thread      - Main           ]+ Additional info extracted from the previous state:
+    |  Additional info for Component Type Index 3: 
+    |  component type is struct ecs::component::TransportNetwork
+    |  Additional info for entity 50833: 
+    |  revision: 1 / 12 / 0
+    |   components: 
+    |    struct ecs::component::BaseEdge
+    |    struct ecs::component::BaseEdgeStreet
+    |    struct ecs::component::TickEpoch
+    |    struct ecs::component::PlayerOwned
+    |    struct ecs::component::LogBook
+    |    struct ecs::component::ShapeList
+    |    struct ecs::component::BoundingVolume
+    |    struct ecs::component::computed::OctreeSystemNode
+    |    struct ecs::component::TerrainAlignmentList
+    +    struct ecs::component::LotList
+[2026-10-07 13:45:41Z - WARNING  - Main Thread      - Main           ]  Uncaught exception while in class UI::CSelector
+[2026-10-07 13:45:43Z - MESSAGE  - Main Thread      - Main           ]  Shutting down PDX SDK
+[2026-10-07 13:45:44Z - VERBOSE  - Main Thread      - Main           ]+ Exception type: Fatal error
+    | Details:
+    | Assertion Failure: Assertion `it != components.end()' failed.
+    | Minidump: C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/crash_dump/772d8299-c816-436a-be37-5c173aeb6c73.dmp
+    | Entity: 50833
+    | Notified Entity: 50833
+    | Component Type Index: 3
+    | Revision: 1 / 12 / 0
+    | UI Component Hierarchy: 
+    |  type: class UI::CRendererComponent, id = "mainView", name = "RendererComponentInternal", styleClasses = {"font-scale-body", "action-none", "tool-EntityDetailsTool"}
+    |  type: class UI::CGameUI, id = "", name = "CGameUI", styleClasses = {}
+    |  type: class UI::CMenuUI, id = "", name = "MenuUI", styleClasses = {}
+    |  type: class UI::CComponent, id = "", name = "NavWrap", styleClasses = {}
+    |  type: class UI::CComponent, id = "", name = "IAProxy", styleClasses = {"platform-desktop", "input-mouse", "font-small", "gamepad-type-xbox"}
+    | In file: train_fever/src/Lib/ecs/Engine.h:323
+    + In function: ecs::Engine::GetComponentDataIndex
+[2026-10-07 13:45:44Z - ERROR    - Main Thread      - Main           ]+ Ungraceful exit
+    + Location: train_fever/src/Game/Application.cpp(1111): operator ()
+[2026-10-07 13:45:44Z - MESSAGE  - Main Thread      - Main           ]  Uploaded d3f427e4-d311-4cde-8715-4c4a5b9e3433_3.json
