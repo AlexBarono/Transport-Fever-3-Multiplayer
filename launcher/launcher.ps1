@@ -209,7 +209,7 @@ $loopRadio.Text = 'Allein testen (eigene Bauten werden 100 m daneben nachgebaut)
 $spotRadio = New-Object System.Windows.Forms.RadioButton
 $spotRadio.Text = 'Gleiche Stelle testen (bauen, Spielstand neu laden, am selben Ort nachbauen)'; $spotRadio.Location = New-Object System.Drawing.Point(12, 95); $spotRadio.Size = New-Object System.Drawing.Size(490, 22)
 $fakeRadio = New-Object System.Windows.Forms.RadioButton
-$fakeRadio.Text = 'Test mit simuliertem Gastgeber (Pause, Tempo, Geld; ein PC)'; $fakeRadio.Location = New-Object System.Drawing.Point(12, 120); $fakeRadio.Size = New-Object System.Drawing.Size(490, 22)
+$fakeRadio.Text = 'Test mit simuliertem Gastgeber (Pause, Tempo, Geld, Nachbau; ein PC)'; $fakeRadio.Location = New-Object System.Drawing.Point(12, 120); $fakeRadio.Size = New-Object System.Drawing.Size(490, 22)
 $roleBox.Controls.AddRange(@($hostRadio, $clientRadio, $loopRadio, $spotRadio, $fakeRadio))
 $form.Controls.Add($roleBox)
 
@@ -300,9 +300,12 @@ $install.Add_Click({
 		$next = if ($test -eq 'fakehost') {
 			"Der simulierte Gastgeber läuft in einem kleinen PowerShell-Fenster (offen lassen).`r`n" +
 			"1. 'Spiel starten', einen Spielstand laden, Tempo 1x lassen.`r`n" +
-			"2. Etwa 8 Minuten laufen lassen. Nach gut 1 Minute pausiert das Spiel von selbst, 20 Sekunden später läuft es weiter,`r`n" +
+			"2. Etwa 5 Minuten zuschauen: nach gut 1 Minute pausiert das Spiel von selbst, 20 Sekunden später läuft es weiter,`r`n" +
 			"   kurz danach eine Weile doppelt so schnell.`r`n" +
-			"3. Ohne Speichern beenden."
+			"3. Dann bauen (z. B. Gleise, Bahnhöfe, Depot, Signal, Linie, Zug).`r`n" +
+			"4. OHNE Speichern ins Hauptmenü und denselben Spielstand neu laden. Nach etwa 20 Sekunden baut der`r`n" +
+			"   simulierte Gastgeber alles von selbst am selben Ort nach.`r`n" +
+			"5. Ohne Speichern beenden."
 		} elseif ($test) {
 			"1. 'Spiel starten' und einen Spielstand laden.`r`n2. Bauen (z. B. Straße und Depot).`r`n" +
 			"3. OHNE Speichern ins Hauptmenü und denselben Spielstand neu laden (Spiel nicht beenden).`r`n" +

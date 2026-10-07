@@ -64,7 +64,7 @@ Eine nachgebaute Linie wurde einmal als Änderung zurückgeschickt: Nachdem ein 
 
 Im Launcher: "Test mit simuliertem Gastgeber" wählen und "Installieren / Speichern" klicken. Der Launcher stellt das Spiel als Mitspieler auf 127.0.0.1 ein und startet das Werkzeug in einem verkleinerten PowerShell-Fenster (2 Stunden); "Spiel starten" startet es wieder, falls das Fenster zu ist. Danach einen Spielstand laden, mit 1x etwa 8 Minuten laufen lassen und ohne Speichern beenden (das Spiel bucht 5000 Geld nach).
 
-Pausiert der Spieler selbst, steht im Log des Werkzeugs `the game changed the speed: 0`. Bauzeilen des Spiels werden bestätigt, aber nicht nachgebaut. Das Werkzeug schreibt `tools/fake-partner.log`.
+Pausiert der Spieler selbst, steht im Log des Werkzeugs `the game changed the speed: 0`. Bauzeilen des Spiels werden bestätigt und aufgehoben. Lädt das Spiel den Spielstand neu (seine Spielzeit springt um mehr als 30 s zurück), schickt das Werkzeug sie zurück, sobald das Spiel wieder 20 s läuft, eine nach der anderen mit neuen Tokens (`fh<pid>-<runde>.<n>`): das Spiel baut sie an derselben Stelle nach, wie bei "Gleiche Stelle testen", nur ohne Knopf. Das Werkzeug schreibt `tools/fake-partner.log`.
 
 Offline wurde das Werkzeug gegen eine Nachbildung des Mitspielers geprüft (Mod-Code in Lua, DLL-Verhalten in Python).
 

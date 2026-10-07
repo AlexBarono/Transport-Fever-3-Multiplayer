@@ -10,7 +10,10 @@
 #   danach: der Gastgeber hat 5000 mehr Geld, bis das Spiel sie nachgebucht hat (das Spiel meldet
 #           seine Buchungen als adj= im Prüfpunkt) -> das Spiel bucht 5000 nach;
 #           ab dem vierten Prüfpunkt ein Fahrzeug mehr -> das Spiel meldet eine Abweichung
-# Bau-Zeilen des Spiels werden bestätigt (GOT), aber nicht nachgebaut.
+# Bau-Zeilen des Spiels werden bestätigt (GOT) und aufgehoben. Lädt das Spiel den Spielstand neu
+# (seine Spielzeit springt zurück), schickt der Gastgeber sie, sobald das Spiel wieder 20 s läuft,
+# eine nach der anderen zurück: das Spiel baut sie an derselben Stelle nach (wie "Gleiche Stelle
+# testen", nur ohne Knopf).
 #
 # Aufruf: powershell -ExecutionPolicy Bypass -File tools\fake-partner.ps1 [-Port 47800] [-Minutes 12] [-LogFile <pfad>]
 param(
@@ -74,6 +77,16 @@ $catchup = $null       # @{ start; gt } while the fake host is ahead
 $phase = 'follow'
 $deadline = $Minutes * 60
 $lines = 0
+$lastLineToken = $null
+$sessionLines = New-Object System.Collections.ArrayList   # build lines since the last load
+$replay = New-Object System.Collections.ArrayList         # lines to send back after a reload
+$replayAfterGt = $null
+$replayToken = $null                                      # line in flight
+$replaySentAt = -10
+$replayTries = 0
+$replayCount = 0
+$replayDone = 0
+$replayRound = 0
 
 function Client-Gt {
 	if (-not $client) { return 0 }
@@ -108,12 +121,40 @@ while ((Now) -lt $deadline) {
 		if ($packet.StartsWith('TF3MP/1 LINE ')) {
 			$rest = $packet.Substring(13)
 			$token = $rest.Split(' ')[0]
+			$text = $rest.Substring($token.Length).TrimStart(' ')
 			Send-Text "TF3MP/1 GOT $token"
-			$lines++
-			Log "build line $token from the game ($($rest.Length) characters), confirmed, not built"
+			# The game sends a line again until it sees GOT; it is kept once.
+			if ($token -ne $lastLineToken) {
+				$lastLineToken = $token
+				$lines++
+				[void]$sessionLines.Add($text)
+				Log "build line $token from the game ($($text.Substring(0, [Math]::Min(2, $text.Length))), $($text.Length) characters), kept for the replay after a reload"
+			}
+		}
+		elseif ($packet.StartsWith('TF3MP/1 GOT ')) {
+			$token = $packet.Substring(12).Trim()
+			if ($replayToken -and $token -eq $replayToken) {
+				$replayDone++
+				Log "the game took line $replayDone of $replayCount ($token)"
+				$replayToken = $null
+				$replay.RemoveAt(0)
+				if ($replay.Count -eq 0) { Log "all $replayCount line(s) sent back; the game builds them at the same spot" }
+			}
 		}
 		elseif ($packet.StartsWith('TF3MP/1 STATE gui ')) {
 			$s = Parse-State $packet.Substring(18)
+			# The savegame was loaded again: its game time went back.
+			if ($client -and [double]$s['gt'] -lt [double]$client['gt'] - 30000) {
+				Log "the game loaded a savegame again (game time $([int64]$client['gt']) -> $([int64]$s['gt']))"
+				if ($sessionLines.Count -gt 0) {
+					foreach ($l in $sessionLines) { [void]$replay.Add($l) }
+					$replayRound++
+					$replayCount = $replay.Count; $replayDone = 0; $replayToken = $null
+					$replayAfterGt = [double]$s['gt'] + 20000
+					Log "$($sessionLines.Count) build line(s) of the session before go back to the game once it ran 20 s"
+					$sessionLines.Clear()
+				}
+			}
 			if (-not $client -or $s['hb'] -ne $client['hb']) { $clientAt = Now }
 			if (-not $client -or $s['speed'] -ne $client['speed'] -or $s['ver'] -ne $client['ver'] -or $s['run'] -ne $client['run']) {
 				Log "game speed state: $($packet.Substring(18))"
@@ -173,6 +214,21 @@ while ((Now) -lt $deadline) {
 			elseif ($now - $catchup.start -gt 200) { $phase = 'done'; Log "the game did NOT catch up within 200 s" }
 		}
 	}
+	# Replay after a reload: one line at a time, again every second until the game confirms it.
+	if ($peer -and $replay.Count -gt 0 -and $client -and [double]$client['gt'] -ge $replayAfterGt) {
+		if (-not $replayToken) {
+			$replayToken = "fh$PID-$replayRound.$($replayDone + 1)"
+			$replaySentAt = -10
+			$replayTries = 0
+		}
+		if ($now - $replaySentAt -ge 1) {
+			$replaySentAt = $now
+			$replayTries++
+			Send-Text "TF3MP/1 LINE $replayToken $($replay[0])"
+			if ($replayTries -eq 1) { Log "sending line $($replayDone + 1) of $replayCount back ($replayToken)" }
+			elseif ($replayTries % 30 -eq 0) { Log "line $($replayDone + 1) not confirmed after $replayTries tries" }
+		}
+	}
 	if ($peer -and $now - $lastHello -ge 2) {
 		$lastHello = $now
 		Send-Text "TF3MP/1 HELLO host pid=$PID seq=$hb"
@@ -189,4 +245,4 @@ while ((Now) -lt $deadline) {
 	}
 }
 $udp.Close()
-Log "fake host stopped ($lines build line(s) confirmed, last phase '$phase')"
+Log "fake host stopped ($lines build line(s) received, $replayDone sent back, last phase '$phase')"
