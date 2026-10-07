@@ -690,7 +690,7 @@ local function mock_types(opts)
 			return struct("SimpleProposal", {
 				streetProposal = struct("SimpleStreetProposal", { nodesToAdd = "list", edgesToAdd = "list",
 					edgesToRemove = "list", nodesToRemove = "list", edgeObjectsToAdd = "list",
-					edgeObjectsToRemove = "list" }, list_opts),
+					edgeObjectsToRemove = "list", nodeConfigsToRemove = "list" }, list_opts),
 				constructionsToAdd = "list",
 				constructionsToRemove = "list",
 			})
@@ -1280,7 +1280,7 @@ test("a depot joined to a road travels as one line with entrance and gate (v20)"
 	assert(not build.deserialize("B5 n-1;0,0,0 g;-3"), "a gate on an unknown node is refused")
 end)
 
-test("a depot that splits a road is copied in steps: streets, then the depot, then the node configs (v22, run 21)", function()
+test("a depot that splits a road is copied in steps: streets with their node configs, then the depot (v22/v23, runs 21 and 22)", function()
 	-- The run 18 capture again, with a node configuration on the split node.
 	local road = run5_street().addedSegments[1]
 	local function seg(entity, a, b, template)
@@ -1314,6 +1314,15 @@ test("a depot that splits a road is copied in steps: streets, then the depot, th
 	line = line .. " k;-2861.231,-3962.21,2.673;-;2;-1;-;-;-"
 	with_engine_api({}, function(t)
 		local m = fresh_main()
+		-- Run 22: both ends of the road have node configurations (set when the road was copied).
+		t.env.api.type.ComponentType.BASE_EDGE = "BASE_EDGE"
+		t.env.api.type.ComponentType.BASE_NODE_CONFIG = "BASE_NODE_CONFIG"
+		local get = t.env.api.engine.getComponent
+		t.env.api.engine.getComponent = function(id, ct)
+			if ct == "BASE_EDGE" and id == 300 then return { node0 = 11, node1 = 12 } end
+			if ct == "BASE_NODE_CONFIG" and (id == 11 or id == 12) then return { laneConnections = {} } end
+			return get(id, ct)
+		end
 		-- The road the depot splits exists here: nodes 11 and 12 joined by segment 300.
 		m.finder = function()
 			return {
@@ -1343,6 +1352,11 @@ test("a depot that splits a road is copied in steps: streets, then the depot, th
 		local first = t.sent[1].proposal
 		local nodes, edges = sent_lists(first)
 		assert(#nodes == 1 and #edges == 2 and first.streetProposal.edgesToRemove[1] == 300, all)
+		-- Run 22: the old configurations of the road's ends named segment 300; they go in the same build.
+		local cleared = first.streetProposal.nodeConfigsToRemove
+		assert(#cleared == 2 and cleared[1] == 11 and cleared[2] == 12, all)
+		assert(contains(logged, "replay: 2 old node configuration(s) cleared in the build (nodes 11,12)"), all)
+		assert(contains(logged, "nodeConfigsToRemove 2/2"), all)
 		assert(#(first.constructionsToAdd or {}) == 0, "no construction with the streets")
 		assert(contains(logged, "replay streets: sent, SimpleProposal/table: sent with signature 1"), all)
 		-- Then the depot alone.
@@ -1352,9 +1366,10 @@ test("a depot that splits a road is copied in steps: streets, then the depot, th
 		assert(#(second.streetProposal.edgesToRemove or {}) == 0, "the road is not removed twice")
 		assert(contains(logged, "replay construction: sent, SimpleProposal/table: sent with signature 1"), all)
 		assert(contains(logged, "weld: the copied road_depot.con near -2872.5,-3998.5 is not here"), all)
-		-- Node configurations after the streets (what can be placed) and once more after the depot.
-		assert(#applied == 2 and applied[1].sent == 1 and applied[2].sent == 2, all)
-		assert(#applied[1].data.configs == 1 and #applied[2].data.configs == 1, all)
+		-- Node configurations after the streets only; at the entrance the game sets them (run 22).
+		assert(#applied == 1 and applied[1].sent == 1 and #applied[1].data.configs == 1, all)
+		assert(#(t.sent[2].proposal.streetProposal.nodeConfigsToRemove or {}) == 0, all)
+		assert(contains(logged, "replay: node configurations at the entrance are left to the game"), all)
 	end)
 end)
 
@@ -1824,6 +1839,24 @@ test("node configurations the game refuses together are sent one node at a time"
 	assert(all:find("success=false, critical true, message: Bau nicht möglich", 1, true), all)
 	assert(all:find("node configs node 1 (2): sent", 1, true), all)
 	assert(#w.comps[2].BASE_NODE_CONFIG.laneConnections == 2, all)
+end)
+
+test("a node at a construction's entrance keeps the configuration the game gave it (v23, run 22)", function()
+	local nodecfg = require("/mp_probe/nodecfg.lua")
+	local w = config_world()
+	-- Segment 12 is a depot's entrance: node 2 is where it meets the road.
+	w.env.api.engine.system.streetConnectorSystem = {
+		getConstructionEntityForEdge = function(e) return e == 12 and 77 or -1 end,
+		getConstructionEntityForNode = function() return -1 end,
+	}
+	local logs = {}
+	local placed, total = nodecfg.apply(w.env, w.data, { log = function(text) logs[#logs + 1] = text end })
+	local all = table.concat(logs, "\n")
+	assert(placed == 1 and total == 3 and #w.sent == 1, all)
+	assert(#w.sent[1].proposal.streetProposal.nodeConfigsToAdd == 1, all)
+	assert(w.comps[2].BASE_NODE_CONFIG == nil, "node 2 is left alone")
+	assert(all:find("node configs left to the game at a construction: node 2 (construction 77)", 1, true), all)
+	assert(all:find("node configs result: 1/3 placed, 1 left to a construction, 1 not found here", 1, true), all)
 end)
 
 test("a segment that cannot be found keeps its node configuration back", function()

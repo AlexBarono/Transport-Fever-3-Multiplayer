@@ -15,7 +15,7 @@ local nodecfg = require("/mp_probe/nodecfg.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 22
+main.PROBE_VERSION = 23
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -355,6 +355,15 @@ function main.replay_line(env, line, number, state, distance)
 		logger.info("replay SKIPPED: the build " .. tostring(missing))
 		return
 	end
+	local ok_k, cleared = pcall(main.configs_to_clear, env, data)
+	data.configs_to_remove = ok_k and cleared or {}
+	if not ok_k then logger.info("replay: node configurations to clear unreadable (" .. tostring(cleared):sub(1, 120) .. ")") end
+	if #data.configs_to_remove > 0 then
+		local ids = {}
+		for i, id in ipairs(data.configs_to_remove) do ids[i] = tostring(id) end
+		logger.info(string.format("replay: %d old node configuration(s) cleared in the build (nodes %s)",
+			#data.configs_to_remove, table.concat(ids, ",")))
+	end
 	local street_work = #data.segments + #data.removed_segments + #data.removed_nodes
 	if has_gates and street_work > 0 and #data.demolished == 0 then
 		main.replay_in_steps(env, data, state, player)
@@ -406,7 +415,48 @@ function main.replay_in_steps(env, data, state, player)
 	local ok_c, message_c = build.replay(env, constructions, main.replay_options(player, true))
 	logger.info("replay construction: " .. (ok_c and "sent, " or "failed, ") .. message_c)
 	if ok_c then main.weld_copy(env, constructions, state, player) end
-	if ok_c then main.apply_node_configs(env, data, player) end
+	-- Run 22: setting the configurations once more after the refresh made the game assert
+	-- (TransportNetworkSystem EntityToBeRemoved) and left a street without its transport network,
+	-- which crashed the game a few seconds later. The refresh sets the junction's and the gate's
+	-- configurations itself, the others were set after the streets.
+	if ok_c then logger.info("replay: node configurations at the entrance are left to the game") end
+end
+
+--- v23 (run 22): existing nodes whose configuration the build makes wrong: ends of removed
+-- segments and existing ends of new segments (not at a construction's entrance) that have a
+-- configuration, unless the build removes the node. Run 22: removing a segment that the configuration of its end node still named made the
+-- game assert (map_util Get); the player's own build clears such configurations in the same proposal.
+function main.configs_to_clear(env, data)
+	local candidates, order = {}, {}
+	local function add(node, dangling)
+		if type(node) == "number" and node >= 0 and not candidates[node] then
+			-- A node at a construction's entrance keeps its configuration unless it would name a
+			-- removed segment (run 22: the game manages those itself).
+			if not dangling and world.node_construction(env, node) then return end
+			candidates[node] = true
+			order[#order + 1] = node
+		end
+	end
+	for _, r in ipairs(data.removed_segments or {}) do
+		if r.entity then
+			local a, b = world.edge_nodes(env, r.entity)
+			add(a, true)
+			add(b, true)
+		end
+	end
+	for _, seg in ipairs(data.segments or {}) do
+		add(seg.node0, false)
+		add(seg.node1, false)
+	end
+	local removed = {}
+	for _, n in ipairs(data.removed_nodes or {}) do
+		if n.entity then removed[n.entity] = true end
+	end
+	local out = {}
+	for _, node in ipairs(order) do
+		if not removed[node] and world.has_node_config(env, node) then out[#out + 1] = node end
+	end
+	return out
 end
 
 --- v21: gives the copy's nodes the lane connections the original got (nodecfg.lua).

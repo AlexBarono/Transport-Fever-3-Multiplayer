@@ -306,10 +306,25 @@ function nodecfg.apply(env, data, opts)
 	local total = #(data.configs or {})
 	if total == 0 then return 0, 0 end
 	local index = world.node_index(env)
-	local resolved, notes = nodecfg.resolve(env, data, index)
+	local found, notes = nodecfg.resolve(env, data, index)
 	for _, note in ipairs(notes) do opts.log("node configs: " .. note) end
+	-- v23 (run 22): a configuration set again on the node a depot's entrance meets made the game
+	-- assert (TransportNetworkSystem EntityToBeRemoved) and left a street without its transport
+	-- network, which crashed the game when it was looked at. The game sets those itself when it
+	-- builds or refreshes the construction.
+	local resolved, kept = {}, {}
+	for _, r in ipairs(found) do
+		local c = world.node_construction(env, r.node)
+		if c then
+			kept[#kept + 1] = tostring(r.node) .. " (construction " .. tostring(c) .. ")"
+		else
+			resolved[#resolved + 1] = r
+		end
+	end
+	if #kept > 0 then opts.log("node configs left to the game at a construction: node " .. table.concat(kept, ", ")) end
+	local left = #kept > 0 and string.format(", %d left to a construction", #kept) or ""
 	if #resolved == 0 then
-		opts.log("node configs: none of " .. total .. " could be placed")
+		opts.log("node configs: none of " .. total .. " could be placed" .. left)
 		return 0, total
 	end
 	local ok_t, template = pcall(nodecfg.template, env, index, data)
@@ -326,7 +341,8 @@ function nodecfg.apply(env, data, opts)
 			end
 		end
 	end
-	opts.log(string.format("node configs result: %d/%d placed, %d not found here", have, total, total - #resolved))
+	opts.log(string.format("node configs result: %d/%d placed%s, %d not found here", have, total, left,
+		total - #found))
 	return have, total
 end
 

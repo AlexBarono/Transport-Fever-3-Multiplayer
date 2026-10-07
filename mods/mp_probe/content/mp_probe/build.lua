@@ -1097,6 +1097,9 @@ build.LAYOUTS = {
 				if extra.objects_to_remove and #extra.objects_to_remove > 0 then
 					try_set(sp, "edgeObjectsToRemove", extra.objects_to_remove, errors, "streetProposal.edgeObjectsToRemove")
 				end
+				if extra.configs_to_remove and #extra.configs_to_remove > 0 then
+					try_set(sp, "nodeConfigsToRemove", extra.configs_to_remove, errors, "streetProposal.nodeConfigsToRemove")
+				end
 			end, errors, "streetProposal")
 			if extra.constructions and #extra.constructions > 0 then
 				try_set(p, "constructionsToAdd", extra.constructions, errors, "constructionsToAdd")
@@ -1338,8 +1341,11 @@ function build.make_proposal(env, data, layout, player, list_kind)
 		nodes = build.to_vector(api, "Vector_NodeAndEntity", nodes)
 		edges = build.to_vector(api, "Vector_SegmentAndEntity", edges)
 	end
+	-- v23 (run 22): existing nodes whose configuration names a segment this build removes or that get
+	-- a new segment lose it in the same proposal; nodecfg.lua sets the sent one after the build.
 	local extra = { edges_to_remove = {}, nodes_to_remove = {}, constructions = {}, constructions_to_remove = {},
-		objects_to_add = {}, objects_to_remove = data.objects_to_remove or {} }
+		objects_to_add = {}, objects_to_remove = data.objects_to_remove or {},
+		configs_to_remove = data.configs_to_remove or {} }
 	for i, o in ipairs(added_objects) do
 		extra.objects_to_add[i] = build.make_edge_object(api, o, player, errors, "edgeObject[" .. i .. "]")
 	end
@@ -1377,6 +1383,7 @@ function build.make_proposal(env, data, layout, player, list_kind)
 		{ "constructionsToRemove", #extra.constructions_to_remove, function() return proposal.constructionsToRemove end },
 		{ "edgeObjectsToAdd", #extra.objects_to_add, function() return proposal.streetProposal.edgeObjectsToAdd end },
 		{ "edgeObjectsToRemove", #extra.objects_to_remove, function() return proposal.streetProposal.edgeObjectsToRemove end },
+		{ "nodeConfigsToRemove", #extra.configs_to_remove, function() return proposal.streetProposal.nodeConfigsToRemove end },
 	}
 	local want_objects = 0
 	for _, o in ipairs(data.objects or {}) do if o.proposal_id then want_objects = want_objects + 1 end end
@@ -1684,7 +1691,7 @@ function build.split_constructions(data)
 	for k, v in pairs(data) do streets[k] = v end
 	streets.constructions, streets.demolished = {}, {}
 	local constructions = {
-		version = data.version, nodes = {}, foreign = {}, segments = {}, removed_segments = {},
+		version = data.version, nodes = {}, foreign = {}, segments = {}, removed_segments = {}, configs_to_remove = {},
 		removed_nodes = {}, objects = {}, objects_to_remove = {}, access = {}, gates = {}, configs = {},
 		config_segments = {}, positions_of = {}, constructions = data.constructions, demolished = data.demolished,
 		gate_positions = data.gate_positions,

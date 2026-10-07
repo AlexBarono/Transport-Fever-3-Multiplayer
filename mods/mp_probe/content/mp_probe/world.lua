@@ -320,6 +320,20 @@ function world.edge_construction(env, edge)
 	return nil
 end
 
+--- The construction a node belongs to (a frozen node) or joins (an end of one of its own
+-- segments, like the road node a depot's entrance meets), or nil.
+function world.node_construction(env, node)
+	local ok, id = pcall(function()
+		return env.api.engine.system.streetConnectorSystem.getConstructionEntityForNode(node)
+	end)
+	if ok and type(id) == "number" and id >= 0 then return id end
+	for _, e in ipairs(world.node_segments(env, node)) do
+		local c = world.edge_construction(env, e)
+		if c then return c end
+	end
+	return nil
+end
+
 --- Stops/signals on an edge of this game: {{id, side, position}}.
 function world.edge_objects_of(env, edge)
 	local out = {}

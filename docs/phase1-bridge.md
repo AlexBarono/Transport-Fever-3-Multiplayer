@@ -427,3 +427,15 @@ Probe v21 (Zeilenformat B5):
 Probe v22:
 - Ein Bau mit Gebäude und Zufahrt, der zugleich Straßen baut, teilt oder entfernt (und kein Gebäude abreißt), wird in Schritten nachgebaut (`main.replay_in_steps`): erst die Straßen allein, dann ihre Knotenkonfigurationen (an der Teilungsstelle nur die Verbindungen entlang der Straße, die Zufahrt gibt es noch nicht), dann das Gebäude allein, dann die Prüfung der Zufahrt mit Refresh und Ersetzen wie bisher, zuletzt alle Knotenkonfigurationen noch einmal. Log: `replay in steps: …`, `replay streets: …`, `replay construction: …`.
 - Ein Depot ohne Straßenänderung (nur Zufahrt) geht wie in v21 in einem Vorschlag.
+
+### Lauf 22 (v22, gleiche Stelle) und Probe v23
+
+- Logs: `logs/run22-*` (Notizen in `logs/run22-notes.md`, Absturzbericht `run22-…_3.json`). Straße mit 5/5 Knotenkonfigurationen nachgebaut.
+- Depot: Der Straßenschritt scheiterte wieder (`map_util.h:22: Get`, `Unknown exception`), obwohl er diesmal kein Gebäude enthielt. Ursache: Die Endknoten der zu teilenden Straße hatten jetzt Knotenkonfigurationen (vom Nachbau der Straße), die das entfernte Segment noch nannten. In Lauf 20b hatten sie keine, deshalb ging es dort. Der Bauvorschlag des Spielers und der Refresh der Engine entfernen solche Konfigurationen im selben Vorschlag (`nodeConfigsToRemove`).
+- Das Gebäude allein wurde gebaut, der Refresh der Engine teilte die Straße dann selbst und schloss die Zufahrt an: `weld result road_depot.con: WELDED (after refresh)`. Der Nutzer sah das Depot verbunden.
+- Danach setzte der Mod die Knotenkonfigurationen noch einmal. Das Spiel brach dabei ab (`TransportNetworkSystem.cpp:635: EntityToBeRemoved: Assertion 'AreAllNodesEmpty(…)'`, `Unknown exception`) und ließ ein Straßenstück (50833) ohne `TransportNetwork`-Komponente zurück. Sieben Sekunden später griff die Oberfläche darauf zu, ohne dass der Nutzer etwas angeklickt hatte, und das Spiel stürzte ab (`Engine.h:323 GetComponentDataIndex`, Component Type Index 3 = `ecs::component::TransportNetwork`). Das Spiel legte selbst einen Notfall-Spielstand `crash_Det_…` an.
+
+Probe v23:
+- Ein Nachbau entfernt im selben Vorschlag die Knotenkonfigurationen bestehender Knoten, die ein entferntes Segment nennen oder ein neues Segment bekommen (`streetProposal.nodeConfigsToRemove`, Log `replay: N old node configuration(s) cleared in the build (nodes …)`). Knoten, die der Bau entfernt, und Knoten an der Zufahrt eines Gebäudes (nur neue Segmente) bleiben unberührt. Danach setzt `nodecfg.lua` die mitgeschickten Konfigurationen.
+- `nodecfg.lua` lässt Knoten aus, die zu einem Gebäude gehören oder an denen ein Segment eines Gebäudes endet (`node configs left to the game at a construction: …`); die setzt das Spiel selbst beim Bau oder Refresh.
+- Im Schritt-Nachbau entfällt der letzte Durchgang der Knotenkonfigurationen (`replay: node configurations at the entrance are left to the game`).
