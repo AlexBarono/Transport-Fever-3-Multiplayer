@@ -298,11 +298,25 @@ end
 
 local function same(a, b) return wire.encode(a) == wire.encode(b) end
 
+--- A line record without the transport modes, which the game derives from the vehicles on the line.
+local function line_without_modes(r)
+	local data = {}
+	for k, v in pairs(r.data or {}) do
+		if k ~= "vehicleInfo" then data[k] = v end
+	end
+	return { ref = r.ref, data = data, name = r.name, color = r.color }
+end
+
 local function changed(kind, r, old)
 	if kind == "vehicle" then
 		-- Depot presence and stopIndex change during ordinary travel, not just UI actions.
 		return r.name ~= old.name or r.userStopped ~= old.userStopped or r.autoDeparture ~= old.autoDeparture
 			or not same(r.config, old.config) or not same(r.line or {}, old.line or {})
+	end
+	if kind == "line" then
+		-- Run 24: once a bus was put on the copied line, the game filled in its transport modes and
+		-- the copy was sent back as a line change. The modes still travel with every line.
+		return not same(line_without_modes(r), line_without_modes(old))
 	end
 	return not same(r, old)
 end

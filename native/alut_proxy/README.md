@@ -6,6 +6,7 @@ TF3 lädt `alut.dll` aus dem Spielordner. Dieser Proxy ersetzt sie (siehe `docs/
 - Log: `alut_proxy.log` neben der DLL im Spielordner. Im Spielprozess fehlt `LOCALAPPDATA`, deshalb kein Log dort.
 - Ab v3: optionale UDP-Verbindung zwischen zwei Spielen (`net.c`, Phase 1, Schritt 2). Ohne `alut_proxy.ini` ist sie aus.
 - Ab v7: überträgt gebaute Straßen zwischen den Spielen (Phase 1, Schritt 4, siehe unten).
+- Ab v8: Zustandstexte für den Abgleich von Geschwindigkeit, Spielzeit, Geld und Datum (siehe unten und `docs/phase3-sync.md`).
 
 ## Netzwerk-Test (v3)
 
@@ -86,3 +87,14 @@ mode=loopback
 Im `alut_proxy.log` stehen dann `net: line <token> ... queued for this game (loopback)` und `bridge: the mod has line <token>`; bei zwei PCs `sent to the peer`, `delivered to the peer` und `received from the peer`. Beide Spiele müssen denselben Spielstand geladen haben. Eine Zeile darf höchstens 16383 Zeichen lang sein.
 
 Die DLL findet `stdout.txt` über den Steam-Ordner aus der Registry (`HKCU\Software\Valve\Steam\SteamPath`), auch wenn das Spiel in einer anderen Steam-Bibliothek liegt.
+
+## Zustandstexte (v8)
+
+Schreibt der Mod `net state <schlüssel> <text>` ins Spiel-Log (Schlüssel: 1 bis 8 Kleinbuchstaben, Text bis 511 Zeichen), merkt sich die DLL den Text als neuesten Stand dieses Schlüssels:
+
+- Sie setzt `TF3MP_OWN_<SCHLÜSSEL>` auf den Text (der Mod kann so nachlesen, was er zuletzt gesagt hat).
+- Bei `mode=host` oder `mode=client` schickt sie ihn als `TF3MP/1 STATE <schlüssel> <text>` an das andere Spiel, sofort bei einer Änderung und sonst jede Sekunde wieder. Es gibt keine Warteschlange und kein `GOT`; es zählt nur der neueste Stand. Höchstens 4 Schlüssel.
+- Vom anderen Spiel empfangene Texte setzt sie in `TF3MP_PEER_<SCHLÜSSEL>`. Schweigt das andere Spiel 10 Sekunden, leert sie diese Variablen.
+- `TF3MP_ROLE` enthält beim Start `host`, `client`, `loopback` oder `off`.
+
+Im `alut_proxy.log` stehen `bridge: TF3MP_ROLE=…`, `bridge: first state gui of the mod: …` und `net: state gui from the peer (1 so far): …`.

@@ -1,0 +1,187 @@
+﻿# Test auf einem PC: spielt den Gastgeber für ein Spiel, das als Mitspieler auf 127.0.0.1 eingestellt ist
+# (alut_proxy.ini: mode=client, host=127.0.0.1, port=47800). So lässt sich der Abgleich von Pause,
+# Geschwindigkeit, Spielzeit, Geld und Zählern prüfen, ohne dass ein zweiter PC mitspielt.
+#
+# Ablauf (Sekunden ab dem ersten Lebenszeichen des Spiels, also wenn der Spielstand geladen ist):
+#     0  der Gastgeber folgt dem Spiel (gleiche Geschwindigkeit, gleiche Spielzeit)
+#    60  der Gastgeber pausiert             -> das Spiel muss pausieren
+#    80  der Gastgeber läuft wieder mit 1x  -> das Spiel muss weiterlaufen
+#   100  der Gastgeber ist 90 s Spielzeit voraus -> das Spiel muss mit 2x aufholen
+#   danach: Geld des Gastgebers an zwei Prüfpunkten 5000 höher -> das Spiel bucht 5000 nach;
+#           zwei Prüfpunkte später ein Fahrzeug mehr -> das Spiel meldet eine Abweichung
+# Bau-Zeilen des Spiels werden bestätigt (GOT), aber nicht nachgebaut.
+#
+# Aufruf: powershell -ExecutionPolicy Bypass -File tools\fake-partner.ps1 [-Port 47800] [-Minutes 12] [-LogFile <pfad>]
+param(
+	[int]$Port = 47800,
+	[double]$Minutes = 12,
+	[string]$LogFile = ''
+)
+$ErrorActionPreference = 'Stop'
+if (-not $LogFile) { $LogFile = Join-Path $PSScriptRoot 'fake-partner.log' }
+Set-Content -Path $LogFile -Value @() -Encoding UTF8
+
+$script:start = [DateTime]::UtcNow
+function Now { return ([DateTime]::UtcNow - $script:start).TotalSeconds }
+function Log($text) {
+	$line = ('{0,7:N1} {1}' -f (Now), $text)
+	Add-Content -Path $LogFile -Value $line -Encoding UTF8
+	Write-Host $line
+}
+
+function Parse-State($text) {
+	$t = @{}
+	foreach ($pair in ($text -split ' ')) {
+		$i = $pair.IndexOf('=')
+		if ($i -gt 0) {
+			$v = $pair.Substring($i + 1)
+			$n = 0.0
+			if ([double]::TryParse($v, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$n)) { $t[$pair.Substring(0, $i)] = $n }
+			else { $t[$pair.Substring(0, $i)] = $v }
+		}
+	}
+	return $t
+}
+
+function Format-State($t) {
+	$parts = foreach ($k in ($t.Keys | Sort-Object)) {
+		$v = $t[$k]
+		if ($v -is [double] -or $v -is [int] -or $v -is [int64]) { $v = ([int64][Math]::Round([double]$v)).ToString([System.Globalization.CultureInfo]::InvariantCulture) }
+		"$k=$v"
+	}
+	return ($parts -join ' ')
+}
+
+# Nur auf 127.0.0.1, damit Windows nicht nach einer Firewall-Freigabe fragt.
+$udp = New-Object System.Net.Sockets.UdpClient((New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Loopback, $Port)))
+$udp.Client.ReceiveTimeout = 200
+# Ohne das meldet Windows ein ICMP "Port nicht erreichbar" beim nächsten Empfang als Fehler.
+try { [void]$udp.Client.IOControl(-1744830452, [byte[]](0, 0, 0, 0), $null) } catch {}
+Log "fake host listening on UDP port $Port for $Minutes minutes"
+
+$peer = $null
+$client = $null        # last gui state of the game
+$clientAt = 0          # when it changed (hb)
+$hostReg = $null       # speed register of the fake host
+$hb = 0
+$lastSend = -10
+$lastHello = -10
+$t0 = $null            # first gui state of the game
+$hostSim = $null       # checkpoint answered last
+$firstCk = $null
+$catchup = $null       # @{ start; gt } while the fake host is ahead
+$phase = 'follow'
+$deadline = $Minutes * 60
+$lines = 0
+
+function Client-Gt {
+	if (-not $client) { return 0 }
+	$run = [double]$client['run']
+	return [double]$client['gt'] + ((Now) - $clientAt) * 1000 * $run
+}
+
+function Set-HostSpeed($speed, $why) {
+	$script:hostReg.ver = [Math]::Max($script:hostReg.ver, [double]$script:client['ver']) + 1
+	$script:hostReg.speed = $speed
+	$script:hostReg.by = 'host'
+	Log "HOST sets speed $speed (version $($script:hostReg.ver)): $why"
+}
+
+function Send-Text($text) {
+	if (-not $script:peer) { return }
+	$bytes = [System.Text.Encoding]::UTF8.GetBytes($text)
+	[void]$script:udp.Send($bytes, $bytes.Length, $script:peer)
+}
+
+while ((Now) -lt $deadline) {
+	$packet = $null
+	try {
+		$from = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+		$packet = [System.Text.Encoding]::UTF8.GetString($udp.Receive([ref]$from))
+	} catch {
+		# Zeitüberschreitung beim Empfang: weiter.
+	}
+	if ($packet) {
+		if (-not $peer) { Log "game connected from $from" }
+		$peer = $from
+		if ($packet.StartsWith('TF3MP/1 LINE ')) {
+			$rest = $packet.Substring(13)
+			$token = $rest.Split(' ')[0]
+			Send-Text "TF3MP/1 GOT $token"
+			$lines++
+			Log "build line $token from the game ($($rest.Length) characters), confirmed, not built"
+		}
+		elseif ($packet.StartsWith('TF3MP/1 STATE gui ')) {
+			$s = Parse-State $packet.Substring(18)
+			if (-not $client -or $s['hb'] -ne $client['hb']) { $clientAt = Now }
+			if (-not $client -or $s['speed'] -ne $client['speed'] -or $s['ver'] -ne $client['ver'] -or $s['run'] -ne $client['run']) {
+				Log "game speed state: $($packet.Substring(18))"
+			}
+			$client = $s
+			if (-not $t0) {
+				$t0 = Now
+				$hostReg = @{ speed = [double]$client['speed']; ver = [double]$client['ver']; by = 'host' }
+				Log "game is running (src=$($client['src'])); scenario starts"
+			}
+		}
+		elseif ($packet.StartsWith('TF3MP/1 STATE sim ')) {
+			$s = Parse-State $packet.Substring(18)
+			$ck = [int]$s['ck']
+			if (-not $hostSim -or $hostSim['ck'] -ne $ck) {
+				$answer = @{}
+				foreach ($k in $s.Keys) { $answer[$k] = $s[$k] }
+				$note = 'same values'
+				if ($t0 -and -not $firstCk -and (Now) - $t0 -ge 20) { $firstCk = $ck }
+				if ($firstCk -and ($ck -eq $firstCk + 1 -or $ck -eq $firstCk + 2)) {
+					$answer['money'] = [double]$s['money'] + 5000
+					$note = 'money 5000 higher'
+				}
+				if ($firstCk -and ($ck -eq $firstCk + 4 -or $ck -eq $firstCk + 5)) {
+					$answer['veh'] = [double]$s['veh'] + 1
+					$note = 'one vehicle more'
+				}
+				$hostSim = $answer
+				Log "checkpoint $ck of the game: money=$($s['money']) veh=$($s['veh']) date=$($s['date']); host answers with $note"
+			}
+		}
+	}
+
+	$now = Now
+	if ($client -and $hostReg) {
+		# Changes of the game's player win when they are newer.
+		if ([double]$client['ver'] -gt $hostReg.ver) {
+			$hostReg.ver = [double]$client['ver']; $hostReg.speed = [double]$client['speed']; $hostReg.by = "$($client['by'])"
+			Log "the game changed the speed: $($hostReg.speed) (version $($hostReg.ver))"
+		}
+		$since = $now - $t0
+		if ($phase -eq 'follow' -and $since -ge 60) { $phase = 'paused'; Set-HostSpeed 0 'pause test' }
+		elseif ($phase -eq 'paused' -and $since -ge 80) { $phase = 'resumed'; Set-HostSpeed 1 'pause test over' }
+		elseif ($phase -eq 'resumed' -and $since -ge 100) {
+			$phase = 'ahead'
+			$catchup = @{ start = $now; gt = (Client-Gt) + 90000 }
+			Log "HOST is now 90 s of game time ahead (game time $([int64]$catchup.gt))"
+		}
+		elseif ($phase -eq 'ahead') {
+			$hostGt = $catchup.gt + ($now - $catchup.start) * 1000 * $hostReg.speed
+			# The mod stops catching up below 5 s (sync.CATCHUP_STOP_MS).
+			if ((Client-Gt) -ge $hostGt - 6000) { $phase = 'done'; Log "the game caught up after $([int]($now - $catchup.start)) s" }
+			elseif ($now - $catchup.start -gt 200) { $phase = 'done'; Log "the game did NOT catch up within 200 s" }
+		}
+	}
+	if ($peer -and $now - $lastHello -ge 2) {
+		$lastHello = $now
+		Send-Text "TF3MP/1 HELLO host pid=$PID seq=$hb"
+	}
+	if ($peer -and $hostReg -and $now - $lastSend -ge 1) {
+		$lastSend = $now
+		$hb++
+		$run = $hostReg.speed
+		$gt = Client-Gt
+		if ($phase -eq 'ahead') { $gt = $catchup.gt + ($now - $catchup.start) * 1000 * $hostReg.speed }
+		$state = @{ speed = $hostReg.speed; ver = $hostReg.ver; by = $hostReg.by; run = $run; tg = $run; src = 'gui'; hb = $hb; gt = $gt }
+		Send-Text ("TF3MP/1 STATE gui " + (Format-State $state))
+		if ($hostSim) { Send-Text ("TF3MP/1 STATE sim " + (Format-State $hostSim)) }
+	}
+}
+$udp.Close()
+Log "fake host stopped ($lines build line(s) confirmed, last phase '$phase')"

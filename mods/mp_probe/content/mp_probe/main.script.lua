@@ -11,11 +11,13 @@ local world = require("/mp_probe/world.lua")
 local actions = require("/mp_probe/actions.lua")
 local weld = require("/mp_probe/weld.lua")
 local nodecfg = require("/mp_probe/nodecfg.lua")
+local sync = require("/mp_probe/sync.lua")
+local gui = require("/mp_probe/gui.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 23
+main.PROBE_VERSION = 24
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -85,6 +87,16 @@ main.WELD_ORIGINAL_DUMPS = 2
 -- built REPLAY_SIDE_OFFSET metres beside the original.
 main.SEND_MARKER = "net send "
 main.RECEIVED_MARKER = "net received token="
+
+--- v24: keeping the two games in step (sync.lua). The simulation records a checkpoint every
+-- sync.CHECK_MS of game time and reads the other game's every SYNC_READ_EVERY updates. Without a
+-- GUI script (no TF3MP_OWN_GUI from it after SYNC_FALLBACK_AFTER updates) the simulation keeps the
+-- shared speed itself, which cannot lift a pause.
+main.STATE_MARKER = "net state "
+main.SYNC_READ_EVERY = 5
+main.SYNC_FALLBACK_AFTER = 100
+--- Updates after loading before the one-time description of the game's journal entries.
+main.JOURNAL_TEST_AFTER = 25
 
 --- Engine tables listed one by one, each with its own line budget (probe.MAX_LINES).
 main.LISTED_ROOTS = {
@@ -586,6 +598,8 @@ function main.update(_user_params, state, _dt)
 		-- A replay handled right away also leaves its quiet time and weld checks there (v20).
 		s.quiet_until, s.quiet_segments, s.weld_checks = live.quiet_until, live.quiet_segments, live.weld_checks
 	end
+	local ok_sync, err_sync = pcall(main.sync_tick, _G, s)
+	if not ok_sync then logger.info("sync failed: " .. main.error_text(err_sync):sub(1, 240)) end
 	if s.updates % main.SNAPSHOT_EVERY == 0 then
 		local snap = probe.snapshot(_G)
 		if s.snapshot_errors_logged ~= main.PROBE_VERSION then
@@ -605,6 +619,138 @@ function main.update(_user_params, state, _dt)
 			logger.info("action continuation: simulation event unavailable; work remains queued")
 		end
 	end
+end
+
+--- The simulation side of keeping the games in step (sync.lua), once per update.
+function main.sync_tick(env, s)
+	local getenv = env.os and env.os.getenv
+	if not getenv then return end
+	local role = sync.role(getenv)
+	if not role then return end
+	local gt = main.game_time(env)
+	if not gt then return end
+	local ss = s.sync
+	-- A savegame loaded again in the same game goes back in time; its checkpoints start over.
+	if type(ss) ~= "table" or ss.version ~= main.PROBE_VERSION or (ss.gt and gt < ss.gt) then
+		ss = { version = main.PROBE_VERSION, ticks = 0 }
+		s.sync = ss
+		logger.info("sync: this game is the " .. role .. (role == "host" and ", its money and date count" or ""))
+	end
+	ss.gt, ss.ticks = gt, ss.ticks + 1
+	if s.journal_test ~= main.PROBE_VERSION and ss.ticks >= main.JOURNAL_TEST_AFTER then
+		s.journal_test = main.PROBE_VERSION
+		main.journal_test(env)
+	end
+	if role ~= "host" and role ~= "client" then return end
+	if sync.at_checkpoint(gt) then
+		local k = sync.checkpoint_of(gt)
+		if k ~= ss.own_k then
+			local values, failed = sync.values(env, gt)
+			values.ck = k
+			ss.own, ss.own_k = sync.keep(ss.own, k, values), k
+			if #failed > 0 and ss.failed_logged ~= table.concat(failed, ",") then
+				ss.failed_logged = table.concat(failed, ",")
+				logger.info("sync: checkpoint values unreadable: " .. ss.failed_logged)
+			end
+			logger.info(main.STATE_MARKER .. "sim " .. sync.encode(values))
+		end
+	end
+	if ss.ticks % main.SYNC_READ_EVERY == 0 then
+		local raw = getenv("TF3MP_PEER_SIM") or ""
+		if raw ~= ss.peer_raw then
+			ss.peer_raw = raw
+			local v = sync.decode(raw)
+			if v and tonumber(v.ck) then ss.peer = sync.keep(ss.peer, tonumber(v.ck), v) end
+		end
+		main.sync_compare(env, ss, role, gt)
+	end
+	main.sync_speed_fallback(env, ss, role, gt, getenv)
+end
+
+--- Compares every checkpoint both games have and that was not compared yet.
+function main.sync_compare(env, ss, role, gt)
+	for _, p in ipairs(ss.peer or {}) do
+		if p.k > (ss.compared_k or -1) then
+			local own = sync.find(ss.own, p.k)
+			if own then
+				ss.compared_k = p.k
+				local out = sync.compare(ss, p.k, own, p.v, role, ss.own_k)
+				local fields = {}
+				for field in pairs(out.diffs) do fields[#fields + 1] = field end
+				table.sort(fields)
+				logger.info(string.format("sync check %d (%s): %s", p.k, tostring(own.date),
+					#fields == 0 and "same" or ("differs in " .. table.concat(fields, ", "))))
+				for _, note in ipairs(out.notes) do logger.info("sync: " .. note) end
+				for _, warning in ipairs(out.warnings) do logger.info("sync WARNING: the games differ: " .. warning) end
+				main.sync_correct(env, out.fix, gt)
+			elseif ss.own_k and ss.own_k > p.k then
+				-- This game has no checkpoint with that number (loaded later); it is skipped.
+				ss.compared_k = p.k
+			end
+		end
+	end
+end
+
+--- Client: takes over the host's loan, money and date.
+function main.sync_correct(env, fix, gt)
+	local function done(what)
+		return function(_, success) logger.info("sync: " .. what .. ", success=" .. tostring(success)) end
+	end
+	if fix.loan then
+		local ok, sent, notes = pcall(sync.book, env, fix.loan, "LOAN", done("loan corrected by " .. fix.loan))
+		logger.info("sync: loan differs by " .. fix.loan .. " from the host's, booking it (" ..
+			(ok and tostring(notes) or main.error_text(sent)) .. ")" .. ((ok and not sent) and " NOT BOOKED" or ""))
+	end
+	if fix.money then
+		local ok, sent, notes = pcall(sync.book, env, fix.money, "OTHER", done("money corrected by " .. fix.money))
+		logger.info("sync: money differs by " .. fix.money .. " from the host's, booking it (" ..
+			(ok and tostring(notes) or main.error_text(sent)) .. ")" .. ((ok and not sent) and " NOT BOOKED" or ""))
+	end
+	if fix.date then
+		local ok, text = pcall(sync.shift_date, env, gt, fix.date, done("date moved by " .. fix.date .. " day(s)"))
+		logger.info("sync: date differs by " .. fix.date .. " day(s) from the host's: " ..
+			(ok and tostring(text) or ("failed " .. main.error_text(text))))
+	end
+end
+
+--- Without a GUI script the simulation keeps the shared speed (it stops while paused).
+function main.sync_speed_fallback(env, ss, role, gt, getenv)
+	local own_gui = sync.decode(getenv("TF3MP_OWN_GUI"))
+	if own_gui and own_gui.src == "gui" then ss.gui_seen = true end
+	if ss.gui_seen or ss.ticks < main.SYNC_FALLBACK_AFTER then return end
+	local clock = env.os and env.os.clock
+	if not clock then return end
+	if not ss.fallback_logged then
+		ss.fallback_logged = true
+		logger.info("sync: the GUI script does not run here; the simulation keeps the speed " ..
+			"(a pause of the other game cannot be lifted from here)")
+	end
+	ss.speed_mem = ss.speed_mem or {}
+	local out = sync.speed_step(ss.speed_mem, {
+		own = sync.read_speed(env), own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")),
+		now = clock(), hold = false, src = "sim",
+	})
+	for _, line in ipairs(out.logs) do logger.info("sync " .. line) end
+	if out.command then
+		local target = out.command
+		sync.set_speed(env, target, function(_, success)
+			if success == false then logger.info("sync speed " .. sync.speed_name(target) .. " rejected by the game") end
+		end)
+	end
+	if out.publish then logger.info(main.STATE_MARKER .. "gui " .. out.publish) end
+end
+
+--- Once per savegame and version: how the game's journal entries look (read only). Nothing is
+-- booked here: a booking the engine rejects with an assertion could end the game, and this test
+-- would then run again on every load, because the savegame never got to keep the mark.
+function main.journal_test(env)
+	local ok, text = pcall(sync.describe_journal, env)
+	logger.info("journal: " .. (ok and text or ("unreadable " .. main.error_text(text))))
+end
+
+--- GUI script (main.gs.lua): runs on every frame, also while the game is paused.
+function main.guiUpdate()
+	gui.update(_G)
 end
 
 --- True for a build proposal the player made (new road or track segments, or a construction owned
@@ -799,6 +945,8 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 		-- Observe the loaded save anew; don't execute persisted, stale UI operations.
 		s.actions, s.action_inbox, s.action_work = nil, nil, nil
 		s.action_busy, s.action_work_requested = false, false
+		-- The other game's checkpoints and corrections belong to the session before.
+		s.sync = nil
 	end
 	-- Event counts live in the savegame; start over for each probe version so a new version dumps again.
 	if s.seen_events_version ~= main.PROBE_VERSION then

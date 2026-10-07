@@ -375,6 +375,19 @@ test("line edits and renames apply through separate simulation commands without 
 	assert(dest.entities[90].LINE.reservationPriority == 7 and dest.entities[90].NAME.name == "B")
 	assert(dest.entities[90].COLOR.color.x == 0.2); dest.poll(); assert(#dest.drain() == 0)
 end)
+test("transport modes the game fills in after a bus joins the copied line are not sent back (run 24)", function()
+	local source, dest = mock(), mock(); dest.poll(); source.poll()
+	source.line(20, "A")
+	source.poll(); dest.replay(source.drain()[1])
+	local id = dest.state:get().action_entities["sender:line:20"]
+	assert(id and dest.entities[id], "line copy missing")
+	dest.entities[id].LINE.vehicleInfo.transportModes = { [0] = true, [1] = true }
+	dest.poll(); assert(#dest.drain() == 0, "line echoed")
+	-- A real edit is still sent, and it carries the modes.
+	dest.entities[id].LINE.reservationPriority = 9
+	dest.poll(); local q = dest.drain()
+	assert(#q == 1 and q[1].op == "line_update" and q[1].value.data.vehicleInfo.transportModes[1] == true)
+end)
 test("waypoints on streets use destination edge IDs", function()
 	local source, dest = mock(), mock(); source.construction(10, 0, 0); dest.construction(91, 0, 0)
 	source.edge(40, 0, 0); dest.edge(92, 0, 0); source.poll(); dest.poll()

@@ -16,6 +16,11 @@
  *   "bridge out seq=<n>"        a bridge tick; TF3MP_IN is refreshed with
  *                               "line <token> <kind> <line>" for the oldest
  *                               received line, or "ack <n>" if there is none
+ *   "net state <key> <text>"    v8: this game's latest state under key (a
+ *                               short word in lower case), for the peer; it
+ *                               is also put into TF3MP_OWN_<KEY>
+ * The peer's states go into TF3MP_PEER_<KEY> (empty once the peer went
+ * silent), and TF3MP_ROLE holds the mode from alut_proxy.ini.
  * Results go to alut_proxy.log. Built without the C runtime (see build.bat),
  * so only kernel32 functions and hand-written string helpers are used.
  */
@@ -37,11 +42,15 @@ static char line_buf[LINE_MAX_LEN];
 static int line_len;
 static int line_cut;
 static char env_value[NET_LINE_MAX + 64];
+static char state_key[NET_STATE_KEY_MAX];
+static char state_text[NET_STATE_MAX];
+static char own_logged[NET_STATE_KEYS][NET_STATE_KEY_MAX];
 
 /* Without the "[mp_probe]" tag, in case debugPrint separates its arguments. */
 static const char MARKER[] = "bridge out seq=";
 static const char SEND_MARKER[] = "net send ";
 static const char RECEIVED_MARKER[] = "net received token=";
+static const char STATE_MARKER[] = "net state ";
 
 static const char *find(const char *hay, const char *needle)
 {
@@ -66,6 +75,66 @@ static void set_env(const char *value)
 	err = putenv_s("TF3MP_IN", value);
 	/* A build line is long; the log only needs its start. */
 	proxy_log("bridge: TF3MP_IN=%.80s%s (%s)", value, lstrlenA(value) > 80 ? "..." : "", err == 0 ? "ok" : "failed");
+}
+
+/* Sets TF3MP_<prefix><KEY> to value ("" removes it); returns 1 on success. */
+static int set_state_env(const char *prefix, const char *key, const char *value)
+{
+	char name[64];
+	int n;
+
+	if (!putenv_s)
+		return 0;
+	n = wsprintfA(name, "TF3MP_%s", prefix);
+	for (; *key && n < (int)sizeof(name) - 1; key++)
+		name[n++] = (*key >= 'a' && *key <= 'z') ? (char)(*key - 'a' + 'A') : *key;
+	name[n] = 0;
+	return putenv_s(name, value) == 0;
+}
+
+/* A state line of the mod: "<key> <text>" after the marker. */
+static void handle_state(const char *rest)
+{
+	int n = 0, i, first = 1, ok;
+
+	while (rest[n] >= 'a' && rest[n] <= 'z' && n < 8)
+		n++;
+	if (n == 0 || rest[n] != ' ')
+		return;
+	for (i = 0; i < n; i++)
+		state_key[i] = rest[i];
+	state_key[n] = 0;
+	rest += n + 1;
+	if (lstrlenA(rest) >= NET_STATE_MAX) {
+		proxy_log("bridge: state %s longer than %d characters, not sent", state_key, NET_STATE_MAX - 1);
+		return;
+	}
+	ok = net_set_state(state_key, rest);
+	set_state_env("OWN_", state_key, rest);
+	/* Every second or so; the log only notes the first of each key. */
+	for (i = 0; i < NET_STATE_KEYS; i++) {
+		if (lstrcmpA(own_logged[i], state_key) == 0)
+			first = 0;
+	}
+	for (i = 0; first && i < NET_STATE_KEYS; i++) {
+		if (!own_logged[i][0]) {
+			lstrcpynA(own_logged[i], state_key, NET_STATE_KEY_MAX);
+			break;
+		}
+	}
+	if (first)
+		proxy_log("bridge: first state %s of the mod%s: %.120s", state_key, ok ? "" : " (NO ROOM)", rest);
+}
+
+/* Puts the peer's changed states into the environment. */
+static void refresh_peer_states(void)
+{
+	while (net_take_peer_state(state_key, state_text)) {
+		if (!set_state_env("PEER_", state_key, state_text))
+			proxy_log("bridge: TF3MP_PEER_%s could not be set", state_key);
+		else if (!state_text[0])
+			proxy_log("bridge: state %s of the peer cleared", state_key);
+	}
 }
 
 /* Offers the oldest received line to the mod, or acknowledges the tick. */
@@ -144,6 +213,12 @@ static void handle_line(void)
 			net_send_line(hit + sizeof(SEND_MARKER) - 1);
 		return;
 	}
+	hit = find(line_buf, STATE_MARKER);
+	if (hit) {
+		if (!line_cut)
+			handle_state(hit + sizeof(STATE_MARKER) - 1);
+		return;
+	}
 	hit = find(line_buf, RECEIVED_MARKER);
 	if (hit) {
 		for (p = hit + sizeof(RECEIVED_MARKER) - 1; *p && *p != ' ' && n < (int)sizeof(token) - 1; p++)
@@ -175,6 +250,8 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	putenv_s = (putenv_s_fn)GetProcAddress(GetModuleHandleA("ucrtbase.dll"), "_putenv_s");
 	proxy_log("bridge: ucrtbase _putenv_s %s", putenv_s ? "found" : "NOT found");
 	set_env("hello");
+	set_state_env("", "ROLE", net_mode_name());
+	proxy_log("bridge: TF3MP_ROLE=%s", net_mode_name());
 
 	/* stdout.txt may be created a moment after the game starts. */
 	for (i = 0; i < 60 && !stopping && !find_stdout(); i++)
@@ -188,6 +265,7 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	offset.QuadPart = 0;
 	while (!stopping) {
 		Sleep(TAIL_INTERVAL_MS);
+		refresh_peer_states();
 		file = CreateFileA(stdout_path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 			NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		if (file == INVALID_HANDLE_VALUE)

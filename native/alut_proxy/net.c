@@ -19,6 +19,13 @@
  * lines wait in the inbox until the mod confirms them (net_inbox_ack). With
  * mode=loopback nothing goes over the network: captured lines go straight
  * into this game's own inbox, which tests the whole chain on one PC.
+ *
+ * State texts (v8): the mod keeps a few short texts up to date, each under a
+ * key (game speed from the GUI script, a checkpoint of the simulation). Only
+ * the latest text per key counts, so they are not queued like build lines:
+ * each goes out as "TF3MP/1 STATE <key> <text>" when it changes and again
+ * every second. The peer's texts are handed to bridge.c, which puts them into
+ * the environment; when the peer goes silent they are cleared.
  */
 #include "proxy.h"
 
@@ -27,11 +34,20 @@
 #define RESEND_MS 1000
 #define QUEUE_SIZE 8
 #define TOKEN_MAX 32
+#define STATE_RESEND_MS 1000
 
 struct entry {
 	char token[TOKEN_MAX];
 	char kind[8];
 	char text[NET_LINE_MAX];
+};
+
+struct state_slot {
+	char key[NET_STATE_KEY_MAX];
+	char text[NET_STATE_MAX];
+	int changed;
+	DWORD sent_at;
+	unsigned long count;
 };
 
 /* Ring buffer; entries are never copied as a whole (no C runtime for memcpy). */
@@ -52,6 +68,8 @@ static CRITICAL_SECTION lock;
 static struct queue inbox, outbox;
 static unsigned long next_line;
 static char packet[NET_LINE_MAX + 64];
+static struct state_slot own_states[NET_STATE_KEYS], peer_states[NET_STATE_KEYS];
+static char state_packet[NET_STATE_MAX + NET_STATE_KEY_MAX + 32];
 
 static void read_config(void)
 {
@@ -132,6 +150,71 @@ static int starts_with(const char *text, const char *prefix)
 int net_mode(void)
 {
 	return mode;
+}
+
+const char *net_mode_name(void)
+{
+	switch (mode) {
+	case NET_HOST:
+		return "host";
+	case NET_CLIENT:
+		return "client";
+	case NET_LOOPBACK:
+		return "loopback";
+	default:
+		return "off";
+	}
+}
+
+/* The slot for key, or a free one for it if create is set; NULL if there is none. Call under lock. */
+static struct state_slot *state_slot(struct state_slot *slots, const char *key, int create)
+{
+	int i;
+
+	for (i = 0; i < NET_STATE_KEYS; i++)
+		if (slots[i].key[0] && lstrcmpA(slots[i].key, key) == 0)
+			return &slots[i];
+	if (!create)
+		return NULL;
+	for (i = 0; i < NET_STATE_KEYS; i++) {
+		if (!slots[i].key[0]) {
+			lstrcpynA(slots[i].key, key, NET_STATE_KEY_MAX);
+			slots[i].text[0] = 0;
+			return &slots[i];
+		}
+	}
+	return NULL;
+}
+
+int net_set_state(const char *key, const char *text)
+{
+	struct state_slot *slot;
+
+	EnterCriticalSection(&lock);
+	slot = state_slot(own_states, key, 1);
+	if (slot && lstrcmpA(slot->text, text) != 0) {
+		lstrcpynA(slot->text, text, NET_STATE_MAX);
+		slot->changed = 1;
+	}
+	LeaveCriticalSection(&lock);
+	return slot != NULL;
+}
+
+int net_take_peer_state(char *key, char *text)
+{
+	int i, found = 0;
+
+	EnterCriticalSection(&lock);
+	for (i = 0; i < NET_STATE_KEYS && !found; i++) {
+		if (peer_states[i].key[0] && peer_states[i].changed) {
+			lstrcpynA(key, peer_states[i].key, NET_STATE_KEY_MAX);
+			lstrcpynA(text, peer_states[i].text, NET_STATE_MAX);
+			peer_states[i].changed = 0;
+			found = 1;
+		}
+	}
+	LeaveCriticalSection(&lock);
+	return found;
 }
 
 void net_send_line(const char *text)
@@ -248,6 +331,72 @@ static void receive_got(const char *rest)
 		proxy_log("net: line %s delivered to the peer", token);
 }
 
+/* A STATE datagram: the peer's latest text for a key. */
+static void receive_state(const char *rest)
+{
+	char key[NET_STATE_KEY_MAX];
+	const char *text = take_word(rest, key, sizeof(key));
+	struct state_slot *slot;
+	unsigned long count = 0;
+	int changed = 0;
+
+	if (!key[0] || lstrlenA(text) >= NET_STATE_MAX)
+		return;
+	EnterCriticalSection(&lock);
+	slot = state_slot(peer_states, key, 1);
+	if (slot) {
+		count = ++slot->count;
+		if (lstrcmpA(slot->text, text) != 0) {
+			lstrcpynA(slot->text, text, NET_STATE_MAX);
+			slot->changed = 1;
+			changed = 1;
+		}
+	}
+	LeaveCriticalSection(&lock);
+	if (!slot)
+		proxy_log("net: no room for state '%s' from the peer", key);
+	else if (count == 1 || (changed && count % 100 == 0))
+		proxy_log("net: state %s from the peer (%lu so far): %.120s", key, count, text);
+}
+
+/* The peer went silent: its states no longer hold. */
+static void clear_peer_states(void)
+{
+	int i;
+
+	EnterCriticalSection(&lock);
+	for (i = 0; i < NET_STATE_KEYS; i++) {
+		if (peer_states[i].key[0] && peer_states[i].text[0]) {
+			peer_states[i].text[0] = 0;
+			peer_states[i].changed = 1;
+		}
+	}
+	LeaveCriticalSection(&lock);
+}
+
+/* Sends every state that changed, and each again every STATE_RESEND_MS. */
+static void send_states(SOCKET s, const struct sockaddr_in *peer, DWORD now)
+{
+	int i, len;
+
+	for (i = 0; i < NET_STATE_KEYS; i++) {
+		len = 0;
+		EnterCriticalSection(&lock);
+		if (own_states[i].key[0] && own_states[i].text[0] &&
+		    (own_states[i].changed || now - own_states[i].sent_at >= STATE_RESEND_MS)) {
+			len = append(state_packet, 0, sizeof(state_packet), "TF3MP/1 STATE ");
+			len = append(state_packet, len, sizeof(state_packet), own_states[i].key);
+			len = append(state_packet, len, sizeof(state_packet), " ");
+			len = append(state_packet, len, sizeof(state_packet), own_states[i].text);
+			own_states[i].changed = 0;
+			own_states[i].sent_at = now;
+		}
+		LeaveCriticalSection(&lock);
+		if (len)
+			sendto(s, state_packet, len, 0, (const struct sockaddr *)peer, sizeof(*peer));
+	}
+}
+
 /* Sends the head of the outbox, again every RESEND_MS until the peer confirms it. */
 static void send_pending(SOCKET s, const struct sockaddr_in *peer, DWORD now, DWORD *last_send,
 	char *sending, unsigned long *attempts)
@@ -341,8 +490,10 @@ static DWORD WINAPI net_thread(LPVOID arg)
 			sent++;
 			last_send = now;
 		}
-		if (have_peer)
+		if (have_peer) {
 			send_pending(s, &peer, now, &last_line, sending, &attempts);
+			send_states(s, &peer, now);
+		}
 
 		fromlen = sizeof(from);
 		n = recvfrom(s, packet, sizeof(packet) - 1, 0, (struct sockaddr *)&from, &fromlen);
@@ -368,9 +519,12 @@ static DWORD WINAPI net_thread(LPVOID arg)
 				receive_line(s, &from, packet + 13, last_token);
 			else if (starts_with(packet, "TF3MP/1 GOT "))
 				receive_got(packet + 12);
+			else if (starts_with(packet, "TF3MP/1 STATE "))
+				receive_state(packet + 14);
 		}
 		if (connected && now - last_recv > PEER_TIMEOUT_MS) {
 			connected = 0;
+			clear_peer_states();
 			proxy_log("net: peer silent for %d s, waiting", PEER_TIMEOUT_MS / 1000);
 		}
 	}

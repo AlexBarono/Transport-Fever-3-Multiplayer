@@ -145,6 +145,15 @@ function Get-ConnectionStatus($gameDir) {
 	return "$head`r`n`r`n$text"
 }
 
+# Die letzten Abgleich-Zeilen des Mods aus stdout.txt (Pause, Geschwindigkeit, Prüfpunkte, Warnungen).
+function Get-SyncStatus($steam) {
+	try { $lines = Read-SameSpotLines (Find-SameSpotLog $steam) } catch { return '' }
+	$sync = @($lines | Where-Object { $_ -match '\[mp_probe\]\s*(sync |gui script|journal test)' } | Select-Object -Last 8)
+	if ($sync.Count -eq 0) { return '' }
+	$text = ($sync | ForEach-Object { $_ -replace '^.*\[mp_probe\]\s*', '' }) -join "`r`n"
+	return "`r`n`r`nAbgleich (letzte Zeilen aus dem Spiel):`r`n$text"
+}
+
 # ---------- Oberfläche ----------
 $steam = Get-SteamRoot
 $form = New-Object System.Windows.Forms.Form
@@ -275,7 +284,7 @@ $startGame.Add_Click({
 })
 
 $check.Add_Click({
-	try { $out.Text = Get-ConnectionStatus $gameBox.Text.Trim() } catch { Show-Error $_.Exception.Message }
+	try { $out.Text = (Get-ConnectionStatus $gameBox.Text.Trim()) + (Get-SyncStatus $steam) } catch { Show-Error $_.Exception.Message }
 })
 
 $replay.Add_Click({
