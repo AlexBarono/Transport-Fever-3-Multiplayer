@@ -15,7 +15,7 @@ local nodecfg = require("/mp_probe/nodecfg.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 21
+main.PROBE_VERSION = 22
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -339,7 +339,6 @@ function main.replay_line(env, line, number, state, distance)
 		main.apply_node_configs(env, data, player)
 		return
 	end
-	local described = false
 	local ok_r, found, missing, notes = pcall(build.resolve, data, main.finder(env))
 	if not ok_r then
 		logger.info("replay: lookup failed (" .. tostring(found):sub(1, 200) .. ")")
@@ -356,7 +355,22 @@ function main.replay_line(env, line, number, state, distance)
 		logger.info("replay SKIPPED: the build " .. tostring(missing))
 		return
 	end
-	local ok, message = build.replay(env, data, {
+	local street_work = #data.segments + #data.removed_segments + #data.removed_nodes
+	if has_gates and street_work > 0 and #data.demolished == 0 then
+		main.replay_in_steps(env, data, state, player)
+		return
+	end
+	local ok, message = build.replay(env, data, main.replay_options(player, has_gates))
+	logger.info("replay: " .. (ok and "sent, " or "failed, ") .. message)
+	if ok and has_gates then main.weld_copy(env, data, state, player) end
+	if ok then main.apply_node_configs(env, data, player) end
+end
+
+--- Options for build.replay of a received line.
+-- @param describe boolean v20: log what the game made of a copy with an entrance before it is sent
+function main.replay_options(player, describe)
+	local described = false
+	return {
 		log = function(text) logger.info("replay " .. text) end,
 		on_result = main.log_replay_result,
 		-- What the game holds for the first segment just before sending, lanes included.
@@ -364,17 +378,35 @@ function main.replay_line(env, line, number, state, distance)
 			local ok_f, lines = pcall(probe.fields, edge_list[1], "edge[1]", 4, main.RESULT_DUMP_LINES)
 			if ok_f and #lines > 0 then log_lines("replay proposal " .. label .. " edge[1]", lines) end
 		end,
-		-- v20: what the game made of a copy with an entrance, before it is sent.
-		prepare = has_gates and function(cmd)
+		prepare = describe and function(cmd)
 			if described then return end
 			described = true
 			logger.info("weld command before sending: " .. weld.describe_command(cmd))
 		end or nil,
 		player = player,
-	})
-	logger.info("replay: " .. (ok and "sent, " or "failed, ") .. message)
-	if ok and has_gates then main.weld_copy(env, data, state, player) end
-	if ok then main.apply_node_configs(env, data, player) end
+	}
+end
+
+--- v22: a construction whose entrance joins a street the same build split or changed. Run 21: with
+-- the copied entrance left out, the street split and the construction in one SimpleProposal made
+-- the game assert (map_util Get, then StreetShapeFactory PrepareTransitions '!cc.empty()') and
+-- nothing was built. The build tool hands the entrance to the construction in ways a SimpleProposal
+-- cannot, so the copy goes in steps: the streets and their node configurations, the construction
+-- alone, the entrance check with the engine's refresh (run 20b: it lays the entrance from the gate
+-- to the road node; that time our copied entrance was in its way), then all node configurations
+-- again, now that the entrance they name exists.
+function main.replay_in_steps(env, data, state, player)
+	local streets, constructions = build.split_constructions(data)
+	logger.info(string.format("replay in steps: streets first (%d nodes, %d segments, %d removed segments, " ..
+		"%d removed nodes), then %d construction(s)", #streets.nodes, #streets.segments,
+		#streets.removed_segments, #streets.removed_nodes, #constructions.constructions))
+	local ok_s, message_s = build.replay(env, streets, main.replay_options(player, false))
+	logger.info("replay streets: " .. (ok_s and "sent, " or "failed, ") .. message_s)
+	if ok_s then main.apply_node_configs(env, streets, player) end
+	local ok_c, message_c = build.replay(env, constructions, main.replay_options(player, true))
+	logger.info("replay construction: " .. (ok_c and "sent, " or "failed, ") .. message_c)
+	if ok_c then main.weld_copy(env, constructions, state, player) end
+	if ok_c then main.apply_node_configs(env, data, player) end
 end
 
 --- v21: gives the copy's nodes the lane connections the original got (nodecfg.lua).

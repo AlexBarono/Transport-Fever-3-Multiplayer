@@ -1676,6 +1676,22 @@ function build.drop_access(data)
 	end
 end
 
+--- Splits parsed and resolved data into its streets and its constructions, for a copy built in two
+-- proposals (v22). Both share the lists they keep; the construction part carries the gate positions.
+-- @return table streets, table constructions
+function build.split_constructions(data)
+	local streets = {}
+	for k, v in pairs(data) do streets[k] = v end
+	streets.constructions, streets.demolished = {}, {}
+	local constructions = {
+		version = data.version, nodes = {}, foreign = {}, segments = {}, removed_segments = {},
+		removed_nodes = {}, objects = {}, objects_to_remove = {}, access = {}, gates = {}, configs = {},
+		config_segments = {}, positions_of = {}, constructions = data.constructions, demolished = data.demolished,
+		gate_positions = data.gate_positions,
+	}
+	return streets, constructions
+end
+
 function build.replay(env, data, opts)
 	opts = opts or {}
 	local log = opts.log or function() end

@@ -1280,6 +1280,84 @@ test("a depot joined to a road travels as one line with entrance and gate (v20)"
 	assert(not build.deserialize("B5 n-1;0,0,0 g;-3"), "a gate on an unknown node is refused")
 end)
 
+test("a depot that splits a road is copied in steps: streets, then the depot, then the node configs (v22, run 21)", function()
+	-- The run 18 capture again, with a node configuration on the split node.
+	local road = run5_street().addedSegments[1]
+	local function seg(entity, a, b, template)
+		local s = { entity = entity, type = 0, comp = {} }
+		for k, v in pairs(road.comp) do s.comp[k] = v end
+		s.comp.node0, s.comp.node1 = a, b
+		if template then s.comp.roadTemplate = template end
+		s.params, s.streetEdge = road.params, road.streetEdge
+		return s
+	end
+	local split = { x = -2861.231, y = -3962.21, z = 2.673 }
+	local proposal = {
+		addedNodes = {
+			{ entity = 101, comp = { position = split } },
+			{ entity = 102, comp = { position = { x = -2866.509, y = -3979.147, z = 2.673 } } },
+		},
+		frozenNodes = { 1 },
+		addedSegments = {
+			seg(201, 101, 102, "::/infrastructure/street/constructions/entrance_new.street_template"),
+			seg(202, 11, 101), seg(203, 101, 12),
+		},
+		removedSegments = { { entity = 300, type = 0, comp = { node0 = 11, node1 = 12,
+			position0 = { x = -2903.335, y = -3949.088, z = 2.071 }, position1 = { x = -2821.038, y = -3974.736, z = 2.964 } } } },
+	}
+	local positions = { [11] = { x = -2903.335, y = -3949.088, z = 2.071 }, [12] = { x = -2821.038, y = -3974.736, z = 2.964 } }
+	local line = build.serialize(proposal, {
+		node_position = function(id) return positions[id] end,
+		to_add = { { fileName = "::/depots/road/road_depot/road_depot.con", name = "Depot", params = { seed = 0 },
+			transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -2872.5, -3998.5, 2.67, 1 } } },
+	})
+	line = line .. " k;-2861.231,-3962.21,2.673;-;2;-1;-;-;-"
+	with_engine_api({}, function(t)
+		local m = fresh_main()
+		-- The road the depot splits exists here: nodes 11 and 12 joined by segment 300.
+		m.finder = function()
+			return {
+				find_node = function(p)
+					for id, q in pairs(positions) do
+						if math.abs(p.x - q.x) < 0.01 and math.abs(p.y - q.y) < 0.01 then return id end
+					end
+				end,
+				find_edge = function(a, b) if (a == 11 and b == 12) or (a == 12 and b == 11) then return 300 end end,
+				find_construction = function() return nil end,
+				edge_objects_of = function() return {} end,
+				edge_construction = function() return nil end,
+			}
+		end
+		local nodecfg = require("/mp_probe/nodecfg.lua")
+		local saved, applied = nodecfg.apply, {}
+		nodecfg.apply = function(_, data) applied[#applied + 1] = { sent = #t.sent, data = data }; return 1, 1 end
+		logged = {}
+		local ok, err = pcall(m.replay_line, t.env, line, "d1", nil, 0)
+		nodecfg.apply = saved
+		assert(ok, err)
+		local all = table.concat(logged, "\n")
+		assert(contains(logged, "replay: 1 entrance segment(s) left out, the construction lays its own"), all)
+		assert(contains(logged, "replay in steps: streets first (1 nodes, 2 segments, 1 removed segments, 0 removed nodes), then 1 construction(s)"), all)
+		assert(#t.sent == 2, all)
+		-- First the split road alone.
+		local first = t.sent[1].proposal
+		local nodes, edges = sent_lists(first)
+		assert(#nodes == 1 and #edges == 2 and first.streetProposal.edgesToRemove[1] == 300, all)
+		assert(#(first.constructionsToAdd or {}) == 0, "no construction with the streets")
+		assert(contains(logged, "replay streets: sent, SimpleProposal/table: sent with signature 1"), all)
+		-- Then the depot alone.
+		local second = t.sent[2].proposal
+		local nodes2, edges2 = sent_lists(second)
+		assert(#second.constructionsToAdd == 1 and #(nodes2 or {}) == 0 and #(edges2 or {}) == 0, all)
+		assert(#(second.streetProposal.edgesToRemove or {}) == 0, "the road is not removed twice")
+		assert(contains(logged, "replay construction: sent, SimpleProposal/table: sent with signature 1"), all)
+		assert(contains(logged, "weld: the copied road_depot.con near -2872.5,-3998.5 is not here"), all)
+		-- Node configurations after the streets (what can be placed) and once more after the depot.
+		assert(#applied == 2 and applied[1].sent == 1 and applied[2].sent == 2, all)
+		assert(#applied[1].data.configs == 1 and #applied[2].data.configs == 1, all)
+	end)
+end)
+
 --- A small world for weld.lua as run 20b left it: depot 500 with gate node 601 and its own
 -- entrance 801 ending in node 604, on the spot of the copied road's node 603 (road 701 to 605) but
 -- not joined to it.
