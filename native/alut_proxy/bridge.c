@@ -101,9 +101,8 @@ static void handle_state(const char *rest)
 		n++;
 	if (n == 0 || rest[n] != ' ')
 		return;
-	for (i = 0; i < n; i++)
-		state_key[i] = rest[i];
-	state_key[n] = 0;
+	/* lstrcpynA instead of a copy loop: MSVC turns the loop into memcpy (no C runtime here). */
+	lstrcpynA(state_key, rest, n + 1);
 	rest += n + 1;
 	if (lstrlenA(rest) >= NET_STATE_MAX) {
 		proxy_log("bridge: state %s longer than %d characters, not sent", state_key, NET_STATE_MAX - 1);
