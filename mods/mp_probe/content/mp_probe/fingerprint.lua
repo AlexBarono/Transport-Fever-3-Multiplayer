@@ -3,7 +3,9 @@
 local actions = require("/mp_probe/actions.lua")
 local fingerprint = { VERSION = 1, QUANTUM = 0.001, MAX_RECORDS = 100000,
 	MAX_ITEMS = 65536, MAX_DEPTH = 24,
-	FIELDS = { construction = "hcon", edge = "hedge", line = "hline", vehicle = "hveh" } }
+	FIELDS = { construction = "hcon", edge = "hedge", line = "hline", vehicle = "hveh",
+		position = "hpos", cargo = "hcargo", town = "htown" } }
+local MOVING = { position = true, cargo = true, town = true }
 
 local function finite(n)
 	assert(type(n) == "number" and n == n and math.abs(n) < math.huge, "non-finite fingerprint number")
@@ -107,7 +109,12 @@ local function reference(ref)
 		return { kind = ref.kind, fileName = ref.fileName, transf = matrix(ref.transf) }
 	elseif ref.kind == "station" or ref.kind == "depot" then
 		assert(type(ref.index) == "number" and ref.index >= 1 and ref.index == math.floor(ref.index), "child index unreadable")
-		return { kind = ref.kind, parent = reference(ref.parent), index = ref.index }
+		local out = { kind = ref.kind, parent = reference(ref.parent) }
+		if ref.kind == "station" and ref.tag ~= nil then
+			finite(ref.tag); assert(ref.tag == math.floor(ref.tag), "station tag unreadable")
+			out.tag = ref.tag -- unique within this construction, stable across child reordering
+		else out.index = ref.index end
+		return out
 	elseif ref.kind == "street_station" then
 		assert(type(ref.name) == "string", "street station name unreadable")
 		return { kind = ref.kind, position = vector(ref.position), name = ref.name }
@@ -134,10 +141,16 @@ local function stop(entry)
 		selected = assert(stations[target.station + 1], "invalid line station index")
 	end
 	local alternatives = {}
+	local function terminal(index, tag)
+		finite(index)
+		if tag == nil then return index end
+		finite(tag); assert(tag == math.floor(tag), "terminal tag unreadable")
+		return { tag = tag } -- unique within the actual station, independent of terminal order
+	end
 	for i, alt in ipairs(entry.alternativeTerminals or {}) do
 		finite(alt.terminal)
 		alternatives[i] = { station = assert(stations[alt.station + 1], "invalid alternative station index"),
-			terminal = alt.terminal }
+			terminal = terminal(alt.terminal, alt.terminalTag) }
 	end
 	local waypoints = {}
 	for i, w in ipairs(entry.waypoints or {}) do
@@ -147,7 +160,7 @@ local function stop(entry)
 			waypoints[i] = { edge = e, index = w.index, param = reversed and (1 - finite(w.param)) or w.param, tag = w.tag }
 		else waypoints[i] = { pos = vector(w.pos), tag = w.tag } end
 	end
-	return { station = selected, group = sorted(stations), terminal = entry.terminal,
+	return { station = selected, group = sorted(stations), terminal = terminal(entry.terminal, entry.terminalTag),
 		loadMode = entry.loadMode, minWaitingTime = entry.minWaitingTime, maxWaitingTime = entry.maxWaitingTime,
 		maxAdditionalWaitingTime = entry.maxAdditionalWaitingTime, stopConfig = entry.stopConfig,
 		alternativeTerminals = sorted(alternatives), waypoints = waypoints }
@@ -173,6 +186,8 @@ function fingerprint.normalize(kind, record)
 			and type(record.userStopped) == "boolean" and type(record.autoDeparture) == "boolean", "vehicle unreadable")
 		return { name = record.name, config = record.config, userStopped = record.userStopped,
 			autoDeparture = record.autoDeparture, line = record.line and reference(record.line) or nil }
+	elseif MOVING[kind] then
+		return record -- already copied and validated by the same-tick capture below
 	end
 	error("unsupported fingerprint category", 0)
 end
@@ -185,7 +200,7 @@ function fingerprint.digest(kind, records)
 		values[#values + 1] = hash(fingerprint.canonical(fingerprint.normalize(kind, record)))
 	end
 	table.sort(values)
-	return "h" .. fingerprint.VERSION .. "_" .. hash(kind .. ":" .. #values .. ":" .. table.concat(values, ":"))
+	return "h" .. (MOVING[kind] and 2 or fingerprint.VERSION) .. "_" .. hash(kind .. ":" .. #values .. ":" .. table.concat(values, ":"))
 end
 
 local function short(path)
@@ -216,6 +231,14 @@ function fingerprint.describe(kind, n)
 	elseif kind == "vehicle" then
 		return string.format("%s on %s, config %s, stopped %s, auto %s", n.name, n.line and tostring(n.line.name) or "-",
 			part(n.config), tostring(n.userStopped), tostring(n.autoDeparture))
+	elseif kind == "position" then
+		return string.format("%s on %s at %s speed %.1f", n.vehicle.name, n.vehicle.line or "-", v3(n.position), n.speed)
+	elseif kind == "cargo" then
+		if n.scope == "vehicle" then return n.vehicle.name .. " cargo " .. part(n.counts) end
+		return n.cargoType .. " source " .. part(n.source) .. " target " .. part(n.target)
+	elseif kind == "town" then
+		return string.format("%s at %s population/capacity %s sizes %s stocks %s", n.name, v3(n.position),
+			part(n.usage), part(n.sizeFactors), part(n.stock))
 	end
 	return kind
 end
@@ -223,6 +246,7 @@ end
 --- The records of one category as { h = record hash (as in fingerprint.digest), d = description },
 -- sorted by hash. For finding out which records two games disagree on (main.world_send).
 function fingerprint.list(env, kind)
+	assert(not MOVING[kind], "moving-world details require the original checkpoint snapshot")
 	local out = {}
 	local records = actions.snapshot(env, kind)
 	for _, record in pairs(records) do
@@ -271,6 +295,345 @@ function fingerprint.values(env)
 		if ok then out[field] = digest else failed[#failed + 1] = field end
 	end
 	return out, failed
+end
+
+-- The engine has no paged entity enumeration or historical component reads. Capture a bounded
+-- immutable sample on one simulation tick, then hash that data over later updates. A category
+-- exceeding any limit stays unknown; partial sets are never published as a world digest.
+-- v33: budgets allow a medium map (about 200 vehicles, 2000 cargo items) at most one short hitch
+-- per checkpoint (once a minute of game time); 'world scan' in the log shows the real times.
+fingerprint.CAPTURE_MAX_MS = 80
+fingerprint.CATEGORY_MAX_MS = 30
+fingerprint.CAPTURE_MAX_CALLS = 16000
+fingerprint.STATIC_MAX_RECORDS = 1024
+fingerprint.VEHICLE_MAX_RECORDS = 2048
+fingerprint.CARGO_MAX_RECORDS = 4096
+fingerprint.TOWN_MAX_RECORDS = 256
+fingerprint.HASH_MAX_MS = 4
+fingerprint.HASH_BYTES_PER_STEP = 65536
+fingerprint.HASH_RECORDS_PER_STEP = 256
+fingerprint.RECORD_MAX_ITEMS = 2048
+fingerprint.RECORD_MAX_BYTES = 65536
+fingerprint.DETAIL_MAX_RECORDS = 256
+fingerprint.POSITION_QUANTUM = 0.1
+
+local function clock_for(env)
+	local fn = env.os and env.os.clock
+	if not fn and os then fn = os.clock end
+	if fn then
+		local ok, n = pcall(fn)
+		if ok and type(n) == "number" and n == n then return fn end
+	end
+end
+
+local function measured(fn)
+	return fn and fn() * 1000 or 0
+end
+
+local function integer(n)
+	finite(n)
+	assert(n == math.floor(n) and math.abs(n) <= 9007199254740991, "integer world value unreadable")
+	return n
+end
+
+local function position(v)
+	local q = fingerprint.POSITION_QUANTUM
+	local function bin(n) n = finite(n); return math.floor(n / q + 0.5) * q end
+	return { x = bin(v.x), y = bin(v.y), z = bin(v.z) }
+end
+
+local function bounded_plain(value)
+	local items, bytes, active = 0, 0, {}
+	local function visit(v, depth)
+		items = items + 1
+		assert(items <= fingerprint.RECORD_MAX_ITEMS and depth <= fingerprint.MAX_DEPTH, "checkpoint record limit")
+		local t = type(v)
+		bytes = bytes + (t == "string" and #v or 24)
+		assert(bytes <= fingerprint.RECORD_MAX_BYTES, "checkpoint record byte limit")
+		if t == "number" then finite(v); return end
+		if t == "string" then return end
+		if t == "boolean" then return end
+		assert(t == "table" and not active[v], "checkpoint value unreadable")
+		active[v] = true
+		for k, x in pairs(v) do visit(k, depth + 1); visit(x, depth + 1) end
+		active[v] = nil
+	end
+	visit(value, 0)
+end
+
+--- Captures plain data only. Native engine calls cannot be preempted; their elapsed time is
+-- measured too and immediately invalidates an over-budget category after the call returns.
+function fingerprint.begin(env, gt)
+	integer(gt)
+	local engine, ct, util = env.api.engine, env.api.type.ComponentType, env.api.engine.util
+	local clock = clock_for(env)
+	local started, category_started = measured(clock), 0
+	local job = { gt = gt, categories = {}, values = { wgt = gt }, failed = {}, lists = {}, category = 1,
+		stats = { capture_ms = 0, calls = 0, records = 0, limited = 0, hash_bytes = 0, steps = 0, clock = clock ~= nil } }
+	local category
+	local function guard()
+		if job.stats.calls >= fingerprint.CAPTURE_MAX_CALLS or measured(clock) - started > fingerprint.CAPTURE_MAX_MS
+			or measured(clock) - category_started > fingerprint.CATEGORY_MAX_MS then error("checkpoint capture budget", 0) end
+	end
+	local function call(fn, ...)
+		guard(); job.stats.calls = job.stats.calls + 1
+		local v = fn(...)
+		guard()
+		return v
+	end
+	local function component(id, name, optional)
+		local c = call(engine.getComponent, id, assert(ct[name], "component unavailable: " .. name))
+		if not optional then assert(c, "world component unreadable: " .. name) end
+		return c
+	end
+	local function ids(name, cap, owned)
+		local filters = owned and { requireOwnedByPlayer = util.getPlayer() } or nil
+		local list = call(engine.getEntitiesWithComponent, assert(ct[name], "component unavailable: " .. name), filters)
+		assert(list ~= nil and #list <= cap, "checkpoint entity limit: " .. name)
+		return list
+	end
+	local function name_of(id)
+		local n = component(id, "NAME", true)
+		assert(n == nil or type(n.name) == "string", "world name unreadable")
+		return n and n.name or ""
+	end
+	local function cargo_name(id)
+		local name = call(env.api.res.cargoTypeRep.getName, integer(id))
+		assert(type(name) == "string" and #name > 0, "cargo resource unreadable")
+		return name
+	end
+	local function vehicle_ref(id)
+		local v = component(id, "TRANSPORT_VEHICLE")
+		local out = { name = name_of(id), carrier = integer(v.carrier) }
+		if v.line and v.line >= 0 then out.line = name_of(v.line) end
+		return out
+	end
+	local function entity_ref(id)
+		integer(id)
+		if id < 0 then return { missing = true } end
+		local box = component(id, "BOUNDING_VOLUME").bbox
+		local lo, hi = box.min, box.max
+		return { name = name_of(id), position = position({ x = (finite(lo.x) + finite(hi.x)) / 2,
+			y = (finite(lo.y) + finite(hi.y)) / 2, z = (finite(lo.z) + finite(hi.z)) / 2 }) }
+	end
+	local function append(record)
+		guard(); bounded_plain(record)
+		category.records[#category.records + 1] = record
+		job.stats.records = job.stats.records + 1
+	end
+	local function capture(kind, fn)
+		category_started = measured(clock)
+		category = { kind = kind, field = fingerprint.FIELDS[kind], records = {}, hashes = {}, cursor = 1 }
+		local ok, err = pcall(function() guard(); fn(); guard() end)
+		if ok then job.categories[#job.categories + 1] = category
+		else
+			job.failed[#job.failed + 1] = category.field
+			job.stats[category.field] = tostring(err):sub(1, 120)
+			if tostring(err):find("limit", 1, true) or tostring(err):find("budget", 1, true) then job.stats.limited = job.stats.limited + 1 end
+		end
+	end
+	local function read_time()
+		return engine.getComponent(util.getWorld(), assert(ct.GAME_TIME)).gameTime
+	end
+	local time_ok, before = pcall(read_time)
+	if not time_ok or before ~= gt then
+		for _, kind in ipairs({ "construction", "line", "vehicle", "edge", "position", "cargo", "town" }) do
+			job.failed[#job.failed + 1] = fingerprint.FIELDS[kind]
+		end
+		job.stats.time_unreadable = true
+		return job
+	end
+	for _, spec in ipairs({ { "construction", "CONSTRUCTION" }, { "line", "LINE" },
+		{ "vehicle", "TRANSPORT_VEHICLE" }, { "edge", "BASE_EDGE" } }) do
+		capture(spec[1], function()
+			local read_failed = false
+			local audited_engine = setmetatable({ getComponent = function(id, c)
+				local ok, v = pcall(function()
+					local value = call(engine.getComponent, id, c)
+					if value ~= nil and c == ct.NAME then assert(type(value.name) == "string", "unreadable name") end
+					if value ~= nil and c == ct.CONSTRUCTION then
+						local params = value.params_native
+						if type(params) == "userdata" then params = call(function() return params:asTable() end) end
+						if params ~= nil then
+							bounded_plain(params) -- reject huge module tables before action capture's wire copy
+							local native = value
+							value = setmetatable({ params_native = params }, { __index = function(_, k) return native[k] end })
+						end
+					end
+					if value ~= nil and c == ct.TRANSPORT_VEHICLE then
+						local config = value.transportVehicleConfig
+						assert(#config.vehicles <= 128, "vehicle part limit")
+						if type(config) == "table" then bounded_plain(config) end
+					end
+					if value ~= nil and c == ct.LINE then
+						assert(#value.stops <= 128, "line stop limit")
+						if type(value.stops) == "table" then bounded_plain(value.stops) end
+					end
+					return value
+				end)
+				if not ok then read_failed = true; error(v, 0) end
+				return v
+			end }, { __index = engine })
+			local audited_models = setmetatable({ getName = function(id) return call(env.api.res.modelRep.getName, id) end }, { __index = env.api.res.modelRep })
+			local audited_res = setmetatable({ modelRep = audited_models }, { __index = env.api.res })
+			local audited_api = setmetatable({ engine = audited_engine, res = audited_res }, { __index = env.api })
+			local audited_env = setmetatable({ api = audited_api }, { __index = env })
+			for _, id in ipairs(ids(spec[2], fingerprint.STATIC_MAX_RECORDS, true)) do
+				guard()
+				local record = assert(actions.read_record, "record reader unavailable")(audited_env, id, spec[1])
+				assert(not read_failed, "checkpoint component read failed")
+				if record then append(record) end
+			end
+		end)
+	end
+	capture("position", function()
+		for _, id in ipairs(ids("TRANSPORT_VEHICLE", fingerprint.VEHICLE_MAX_RECORDS, true)) do
+			append({ vehicle = vehicle_ref(id), position = position(call(util.vehicle.getPosition, id)),
+				speed = finite(call(util.vehicle.getSpeed, id)) })
+		end
+	end)
+	capture("cargo", function()
+		for _, id in ipairs(ids("TRANSPORT_VEHICLE", fingerprint.VEHICLE_MAX_RECORDS, true)) do
+			local counts, out = call(util.cargo.getNumCargoPerTypeInVehicle, id), {}
+			local count = 0
+			-- The documented vector is 1-based (cargo id + 1). Accept an explicit 0-based map too.
+			local base = counts[0] ~= nil and 0 or 1
+			for k, n in pairs(counts) do
+				count = count + 1; assert(count <= 256, "cargo type limit")
+				assert(integer(n) >= 0, "cargo quantity unreadable")
+				if n > 0 then out[cargo_name(integer(k) - base)] = n end
+			end
+			append({ scope = "vehicle", vehicle = vehicle_ref(id), counts = out })
+		end
+		for _, id in ipairs(ids("SIM_CARGO", fingerprint.CARGO_MAX_RECORDS, false)) do
+			local c = component(id, "SIM_CARGO")
+			local r = { scope = "freight", cargoType = cargo_name(c.cargoType), source = entity_ref(c.sourceEntity),
+				target = entity_ref(c.targetOrPickupEntity), startTime = integer(c.startTime), pickupTime = integer(c.pickupTime) }
+			local on_vehicle = component(id, "SIM_ENTITY_AT_VEHICLE", true)
+			if on_vehicle then r.vehicle = vehicle_ref(on_vehicle.vehicle) end
+			append(r)
+		end
+	end)
+	capture("town", function()
+		for _, id in ipairs(ids("TOWN", fingerprint.TOWN_MAX_RECORDS, false)) do
+			local c, ref = component(id, "TOWN"), entity_ref(id)
+			assert(type(c.developmentActive) == "boolean", "town development unreadable")
+			local r = { name = ref.name, position = ref.position, initial = {}, sizeFactors = {}, usage = {},
+				cargoNeeds = {}, stock = {}, developmentActive = c.developmentActive,
+				capacityScalingFactor = finite(c.capacityScalingFactor) }
+			local usage = call(util.town.getTownCapacityUsage, id)
+			for i = 1, 3 do
+				r.initial[i], r.sizeFactors[i] = integer(c.initialLandUseCapacities[i]), finite(c.sizeFactors[i])
+				r.usage[i] = { used = integer(usage[i].used), capacity = integer(usage[i].capacity) }
+				r.cargoNeeds[i] = {}
+				for j, need in ipairs(c.cargoNeeds[i]) do
+					assert(j <= 256, "town cargo type limit")
+					r.cargoNeeds[i][j] = { cargoType = cargo_name(need[1]), amount = finite(need[2]) }
+				end
+				table.sort(r.cargoNeeds[i], function(a, b) return a.cargoType < b.cargoType end)
+			end
+			local stock_types = 0
+			for cargo, counts in pairs(call(util.town.getTownStockCargo, id)) do
+				guard(); stock_types = stock_types + 1
+				assert(stock_types <= 256, "town stock type limit")
+				r.stock[cargo_name(cargo)] = { integer(counts[1]), integer(counts[2]) }
+			end
+			append(r)
+		end
+	end)
+	local after_ok, after = pcall(read_time)
+	if not after_ok or after ~= gt then
+		for _, c in ipairs(job.categories) do job.failed[#job.failed + 1] = c.field end
+		job.categories = {}; job.stats.time_unreadable = true
+	end
+	job.stats.capture_ms = clock and measured(clock) - started or -1
+	return job
+end
+
+local function stream_hash(text)
+	return { text = text, cursor = 1, a = 2166136261, b = 2246822519 }
+end
+
+--- Bounded hashing of immutable data. In particular this never reads later vehicle positions,
+-- inventories or town populations and labels them with an earlier checkpoint time.
+function fingerprint.step(env, job)
+	if job.done then return job.values, job.failed, job.stats, job.lists end
+	local clock, bytes, records = clock_for(env), 0, 0
+	local started = measured(clock)
+	job.stats.steps = job.stats.steps + 1
+	local function finish_stats()
+		job.stats.hash_bytes = job.stats.hash_bytes + bytes
+		job.stats.last_step_bytes, job.stats.last_step_records = bytes, records
+		job.stats.max_step_ms = math.max(job.stats.max_step_ms or 0, clock and measured(clock) - started or 0)
+	end
+	while bytes < fingerprint.HASH_BYTES_PER_STEP and records < fingerprint.HASH_RECORDS_PER_STEP do
+		if clock and measured(clock) - started >= fingerprint.HASH_MAX_MS then break end
+		local c = job.categories[job.category]
+		if not c then
+			job.done = true
+			finish_stats()
+			return job.values, job.failed, job.stats, job.lists
+		end
+		if not c.stream then
+			if c.cursor <= #c.records then
+				local raw = c.records[c.cursor]
+				local ok, n, text = pcall(function()
+					bounded_plain(raw)
+					local normalized = fingerprint.normalize(c.kind, raw)
+					bounded_plain(normalized)
+					local encoded = fingerprint.canonical(normalized)
+					assert(#encoded <= fingerprint.RECORD_MAX_BYTES, "checkpoint encoded record limit")
+					return normalized, encoded
+				end)
+				if not ok then
+					job.failed[#job.failed + 1] = c.field
+					job.stats[c.field] = tostring(n):sub(1, 120)
+					job.categories[job.category] = { failed = true }
+					job.category = job.category + 1
+				else
+					c.stream, c.normalized = stream_hash(text), n
+				end
+			else
+				table.sort(c.hashes)
+				c.stream = stream_hash(c.kind .. ":" .. #c.hashes .. ":" .. table.concat(c.hashes, ":"))
+				c.final = true
+			end
+		end
+		if c.stream then
+			local s = c.stream
+			local last = math.min(#s.text, s.cursor + fingerprint.HASH_BYTES_PER_STEP - bytes - 1)
+			for i = s.cursor, last do
+				local b = s.text:byte(i)
+				s.a, s.b = (s.a * 131 + b) % 4294967291, (s.b * 137 + b) % 4294967279
+			end
+			bytes = bytes + math.max(0, last - s.cursor + 1)
+			s.cursor = last + 1
+			if s.cursor > #s.text then
+				local h = string.format("%08x%08x", s.a, s.b)
+				if c.final then
+					job.values[c.field] = "h" .. (MOVING[c.kind] and 2 or fingerprint.VERSION) .. "_" .. h
+					local list = c.list or {}
+					list.total, list.gt = #c.hashes, job.gt
+					list.truncated = #c.hashes > fingerprint.DETAIL_MAX_RECORDS
+					job.lists[c.field] = list
+					job.category = job.category + 1
+					c.records, c.hashes, c.stream, c.normalized = nil, nil, nil, nil
+				else
+					c.hashes[#c.hashes + 1] = h
+					if #c.hashes <= fingerprint.DETAIL_MAX_RECORDS then
+						c.list = c.list or {}
+						local ok, d = true, c.kind .. " data " .. h
+						if #s.text <= 4096 then ok, d = pcall(fingerprint.describe, c.kind, c.normalized) end
+						c.list[#c.list + 1] = { h = h, d = ok and d or "record description unavailable" }
+					end
+					c.records[c.cursor], c.cursor, c.stream, c.normalized = false, c.cursor + 1, nil, nil
+					records = records + 1
+				end
+			end
+		end
+	end
+	finish_stats()
+	return nil
 end
 
 return fingerprint

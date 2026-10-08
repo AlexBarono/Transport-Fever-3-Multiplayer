@@ -1,4 +1,4 @@
-/* v11: prepared-session compatibility and loaded-world gates before any gameplay traffic.
+/* v12: one host-ordered remote replay across both directions, with fair FIFO arbitration.
  * GOT means queued; only DONE OK releases the sender. A failure stops the queue for review.
  * Queues survive network interruptions within this process. Never replay after a game restart
  * without loading the same save on both PCs. No runtime imports: kernel32/Winsock only. */
@@ -11,7 +11,7 @@
 #define HELLO_INTERVAL_MS 2000
 #define PEER_TIMEOUT_MS 10000
 #define STATE_RESEND_MS 1000
-struct entry { char token[TOKEN_MAX]; char kind[8]; char *text; int length, part, received, failed; };
+struct entry { char token[TOKEN_MAX]; char kind[8]; char *text; int length, part, received, failed; unsigned long serial; };
 struct queue { struct entry items[QUEUE_SIZE]; int head, count, bytes; };
 struct state_slot { char key[NET_STATE_KEY_MAX]; char text[NET_STATE_MAX]; int changed; DWORD sent_at; unsigned long count; };
 struct completed { char token[TOKEN_MAX]; char result[8]; };
@@ -34,6 +34,11 @@ static DWORD session_nonce;
 static char packet[NET_LINE_MAX + 128], state_packet[NET_STATE_MAX + NET_STATE_KEY_MAX + 32];
 static char assembling[NET_LINE_MAX], assembly_token[TOKEN_MAX];
 static int assembly_part, assembly_count, assembly_length;
+enum { ORDER_IDLE, ORDER_ACK, ORDER_ACTIVE, ORDER_FINISH, ORDER_DONE };
+static unsigned long order_seq, released_seq, client_want_serial, client_done_serial, active_client_serial;
+static int order_side, order_phase, last_order_side = 'C', released_side;
+static char order_token[TOKEN_MAX], released_token[TOKEN_MAX], client_want_token[TOKEN_MAX];
+static DWORD last_order_send, last_want_send;
 static void clear_peer_states(void);
 static int append(char *out, int len, int size, const char *text) {
     while (*text && len < size - 1) out[len++] = *text++;
@@ -53,6 +58,43 @@ static int number(const char *text) {
     if (!*text) return -1;
     while (*text) { if (*text < '0' || *text > '9' || n > 1000000) return -1; n = n * 10 + *text++ - '0'; }
     return n;
+}
+static int unsigned_number(const char *text, unsigned long *value) {
+    unsigned long n = 0, digit;
+    if (!*text) return 0;
+    while (*text) {
+        if (*text < '0' || *text > '9') return 0;
+        digit = (unsigned long)(*text++ - '0');
+        if (n > 429496729UL || (n == 429496729UL && digit > 5)) return 0;
+        n = n * 10 + digit;
+    }
+    *value = n; return n != 0;
+}
+static const char *serial_word(const char *rest, unsigned long *value) {
+    char text[11]; const char *end = rest; int n;
+    while (*end && *end != ' ') end++;
+    n = (int)(end - rest);
+    if (n < 1 || n > 10 || *rest == '0' || *end != ' ') return NULL;
+    lstrcpynA(text, rest, n + 1);
+    return unsigned_number(text, value) ? end + 1 : NULL;
+}
+static int valid_token(const char *text) {
+    int n = 0; char c;
+    while ((c = *text++) != 0) {
+        if (++n >= TOKEN_MAX || !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') || c == '-' || c == '_' || c == '.')) return 0;
+    }
+    return n != 0;
+}
+static int ordered(void) { return !local_test && (mode == NET_HOST || mode == NET_CLIENT); }
+int net_ordering_enabled(void) { return ordered(); }
+static int inbox_permitted(const char *token) {
+    return !ordered() || (order_phase == ORDER_ACTIVE &&
+        order_side == (mode == NET_HOST ? 'C' : 'H') && !lstrcmpA(token, order_token));
+}
+static int outbox_permitted(const char *token) {
+    return !ordered() || (order_phase == ORDER_ACTIVE &&
+        order_side == (mode == NET_HOST ? 'H' : 'C') && !lstrcmpA(token, order_token));
 }
 static int hex_digit(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -94,7 +136,7 @@ static int queue_push(struct queue *q, const char *token, const char *kind, cons
     e->text = HeapAlloc(GetProcessHeap(), 0, length + 1);
     if (!e->text) return 0;
     lstrcpyA(e->text, text); lstrcpynA(e->token, token, TOKEN_MAX); lstrcpynA(e->kind, kind, 8);
-    e->length = length; e->part = e->received = e->failed = 0;
+    e->length = length; e->part = e->received = e->failed = 0; e->serial = 0;
     q->bytes += length; q->count++; return 1;
 }
 static void queue_pop(struct queue *q) {
@@ -251,15 +293,19 @@ static void send_states(SOCKET s, const struct sockaddr_in *peer, DWORD now)
 
 
 int net_send_line(const char *text) {
-    char token[TOKEN_MAX]; int ok;
+    char token[TOKEN_MAX]; int ok; struct queue *target;
     if (mode == NET_OFF) return 1;
     if (lstrlenA(text) >= NET_LINE_MAX) {
         if (!compatibility_failed) lstrcpyA(error_text, "message exceeds 256 KiB"); return 1;
     }
     EnterCriticalSection(&lock);
+    target = mode == NET_LOOPBACK ? &inbox : &outbox;
     wsprintfA(token, "%lu-%lu.%lu", GetCurrentProcessId(), session_nonce, next_line + 1);
-    ok = queue_push(mode == NET_LOOPBACK ? &inbox : &outbox, token, mode == NET_LOOPBACK ? "loop" : "net", text);
-    if (ok) next_line++;
+    ok = queue_push(target, token, mode == NET_LOOPBACK ? "loop" : "net", text);
+    if (ok) {
+        next_line++;
+        target->items[(target->head + target->count - 1) % QUEUE_SIZE].serial = next_line;
+    }
     LeaveCriticalSection(&lock);
     if (ok) proxy_log("net: line %s queued (%d bytes)", token, lstrlenA(text));
     return ok; /* 0 = backpressure: bridge must keep and retry this log line. */
@@ -268,7 +314,7 @@ int net_inbox_value(char *out, int size) {
     struct entry *e; int len = 0, offset, count;
     EnterCriticalSection(&lock); e = queue_head(&inbox);
     if (e && !e->received && !compatibility_failed && !session_changed &&
-        (local_test || (world_ready && peer_ready))) {
+        (local_test || (world_ready && peer_ready)) && inbox_permitted(e->token)) {
         count = (e->length + NET_BRIDGE_CHUNK - 1) / NET_BRIDGE_CHUNK;
         offset = e->part * NET_BRIDGE_CHUNK;
         len = wsprintfA(out, "part %s %s %d %d ", e->token, e->kind, e->part, count);
@@ -304,6 +350,12 @@ int net_inbox_result(const char *token, const char *result) {
             game_blocked = 1;
             if (!compatibility_failed) wsprintfA(error_text, "game rejected %.64s", token);
         }
+        if (!lstrcmpA(result, "OK") && ordered() && !lstrcmpA(token, order_token)) {
+            if (mode == NET_HOST && order_side == 'C') {
+                order_phase = ORDER_FINISH; client_done_serial = active_client_serial;
+            } else if (mode == NET_CLIENT && order_side == 'H') order_phase = ORDER_DONE;
+            last_order_send = 0;
+        }
         queue_pop(&inbox); ok = 1;
     }
     LeaveCriticalSection(&lock);
@@ -311,12 +363,31 @@ int net_inbox_result(const char *token, const char *result) {
     return ok;
 }
 static void state_field(const char *text, const char *key, char *out, int size, const char *fallback) {
-    char word[NET_STATE_MAX], prefix[32]; int n;
+    char prefix[32]; const char *end; int n, count;
     lstrcpynA(out, fallback, size); n = wsprintfA(prefix, "%s=", key);
     while (*text) {
-        text = take_word(text, word, sizeof(word));
-        if (starts_with(word, prefix)) { lstrcpynA(out, word + n, size); return; }
+        end = text; while (*end && *end != ' ') end++;
+        if (end - text >= n && starts_with(text, prefix)) {
+            count = (int)(end - text) - n + 1;
+            lstrcpynA(out, text + n, count < size ? count : size); return;
+        }
+        text = *end ? end + 1 : end;
     }
+}
+static const char *order_phase_name(void) {
+    return order_phase == ORDER_ACK ? "ack" : order_phase == ORDER_ACTIVE ? "active" :
+        order_phase == ORDER_FINISH ? "finish" : order_phase == ORDER_DONE ? "done" : "idle";
+}
+void net_order_value(char *out, int size) {
+    char text[192];
+    if (!ordered()) { if (size > 0) out[0] = 0; return; }
+    EnterCriticalSection(&lock);
+    wsprintfA(text, "seq=%lu side=%s phase=%s token=%s replay=%d", order_seq,
+        order_side == 'H' ? "host" : order_side == 'C' ? "client" : "none", order_phase_name(), order_token,
+        order_phase == ORDER_ACTIVE && inbox_permitted(order_token) && world_ready && peer_ready &&
+        !game_blocked && !compatibility_failed && !session_changed);
+    if (size > 0) lstrcpynA(out, text, size);
+    LeaveCriticalSection(&lock);
 }
 void net_status(char *out, int size) {
     struct entry *e; struct state_slot *own, *peer;
@@ -327,10 +398,11 @@ void net_status(char *out, int size) {
     state_field(peer ? peer->text : "", "status", peer_world, sizeof(peer_world), "unknown");
     state_field(own ? own->text : "", "fields", fields, sizeof(fields), "");
     state_field(own ? own->text : "", "ck", ck, sizeof(ck), "");
-    wsprintfA(text, "pid=%lu\r\nversion=" PROXY_VERSION "\r\nmode=%s\r\nconnected=%d\r\noutbox=%d\r\ninbox=%d\r\nblocked=%d\r\nerror=%s\r\nprotocol=%d\r\nprepared=%d\r\ncompatible=%d\r\nready=%d\r\npeer_ready=%d\r\nworld=%s\r\nworld_peer=%s\r\nworld_fields=%s\r\nworld_ck=%s\r\n",
+    wsprintfA(text, "pid=%lu\r\nversion=" PROXY_VERSION "\r\nmode=%s\r\nconnected=%d\r\noutbox=%d\r\ninbox=%d\r\nblocked=%d\r\nerror=%s\r\nprotocol=%d\r\nprepared=%d\r\ncompatible=%d\r\nready=%d\r\npeer_ready=%d\r\nworld=%s\r\nworld_peer=%s\r\nworld_fields=%s\r\nworld_ck=%s\r\nordering=%d\r\norder_seq=%lu\r\norder_side=%c\r\norder_phase=%s\r\norder_token=%s\r\n",
         GetCurrentProcessId(), net_mode_name(), link_connected, outbox.count, inbox.count,
         game_blocked || session_changed || compatibility_failed || (e ? e->failed : 0), error_text,
-        protocol, prepared, peer_compatible, world_ready, peer_ready, world, peer_world, fields, ck);
+        protocol, prepared, peer_compatible, world_ready, peer_ready, world, peer_world, fields, ck,
+        ordered(), order_seq, order_side ? order_side : '-', order_phase_name(), order_token);
     if (size > 0) lstrcpynA(out, text, size);
     LeaveCriticalSection(&lock);
 }
@@ -398,6 +470,7 @@ static void receive_fragment(SOCKET s, const struct sockaddr_in *from, const cha
         n <= 0 || n > FRAGMENT || (index < count - 1 && n != FRAGMENT)) return;
     if (answer_known(s, from, token)) return;
     if (game_blocked) { reply(s, from, "DONE", token, "FAIL"); return; }
+    if (!inbox_permitted(token)) return;
     if (lstrcmpA(assembly_token, token)) {
         if (index != 0) { reply(s, from, "RESET", token, ""); return; }
         lstrcpyA(assembly_token, token); assembly_part = assembly_length = 0; assembly_count = count;
@@ -419,6 +492,7 @@ static void receive_line(SOCKET s, const struct sockaddr_in *from, const char *r
     char token[TOKEN_MAX]; int ok; const char *text = take_word(rest, token, sizeof(token));
     if (!*token || !*text || lstrlenA(text) >= NET_LINE_MAX || answer_known(s, from, token)) return;
     if (game_blocked) { reply(s, from, "DONE", token, "FAIL"); return; }
+    if (!inbox_permitted(token)) return;
     EnterCriticalSection(&lock); ok = queue_push(&inbox, token, "net", text); LeaveCriticalSection(&lock);
     if (ok) reply(s, from, "GOT", token, "");
 }
@@ -426,12 +500,15 @@ static void receive_ack(const char *kind, const char *rest) {
     char token[TOKEN_MAX], value[16]; struct entry *e; int done = 0;
     rest = take_word(rest, token, sizeof(token)); take_word(rest, value, sizeof(value));
     EnterCriticalSection(&lock); e = queue_head(&outbox);
-    if (e && !lstrcmpA(e->token, token)) {
+    if (e && !lstrcmpA(e->token, token) && outbox_permitted(token)) {
         if (!lstrcmpA(kind, "PART") && number(value) == e->part) e->part++;
         else if (!lstrcmpA(kind, "RESET")) { e->part = 0; e->received = 0; }
         else if (!lstrcmpA(kind, "GOT")) e->received = 1;
         else if (!lstrcmpA(kind, "DONE")) {
-            if (!lstrcmpA(value, "OK")) { queue_pop(&outbox); done = 1; }
+            if (!lstrcmpA(value, "OK")) {
+                queue_pop(&outbox); done = 1;
+                if (ordered()) { order_phase = mode == NET_HOST ? ORDER_FINISH : ORDER_DONE; last_order_send = 0; }
+            }
             else if (!lstrcmpA(value, "FAIL") && !e->failed) {
                 e->failed = 1; game_blocked = 1; wsprintfA(error_text, "peer rejected %.64s", token); done = -1;
             }
@@ -443,7 +520,7 @@ static void receive_ack(const char *kind, const char *rest) {
 static void send_pending(SOCKET s, const struct sockaddr_in *peer, DWORD now, DWORD *last_send, char *sending, int *last_part) {
     struct entry *e; int len = 0, part = -1, count;
     EnterCriticalSection(&lock); e = queue_head(&outbox);
-    if (e && !e->failed && !game_blocked) {
+    if (e && !e->failed && !game_blocked && outbox_permitted(e->token)) {
         part = e->received ? -1 : e->part;
         if (lstrcmpA(sending, e->token) || *last_part != part || now - *last_send >= RESEND_MS) {
             lstrcpyA(sending, e->token); count = (e->length + FRAGMENT - 1) / FRAGMENT;
@@ -458,13 +535,121 @@ static void send_pending(SOCKET s, const struct sockaddr_in *peer, DWORD now, DW
     LeaveCriticalSection(&lock);
     if (len) { sendto(s, packet, len, 0, (const struct sockaddr *)peer, sizeof(*peer)); *last_send = now; *last_part = part; }
 }
+static int parse_order(const char *rest, unsigned long *seq, int *side, char *token) {
+    char direction[4]; const char *tail = serial_word(rest, seq);
+    if (!tail) return 0;
+    tail = take_word(tail, direction, sizeof(direction));
+    if ((lstrcmpA(direction, "H") && lstrcmpA(direction, "C")) ||
+        !valid_token(tail)) return 0;
+    *side = direction[0]; lstrcpyA(token, tail); return 1;
+}
+static void send_order_control(SOCKET s, const struct sockaddr_in *peer, const char *kind,
+    unsigned long seq, int side, const char *token) {
+    char text[160]; int n = wsprintfA(text, "TF3MP/1 %s %lu %c %s", kind, seq, side, token);
+    sendto(s, text, n, 0, (const struct sockaddr *)peer, sizeof(*peer));
+}
+/* One pending client head is enough: it cannot advance until its execution succeeded. */
+static void receive_want(const char *rest) {
+    const char *token; unsigned long n;
+    if (mode != NET_HOST || !ordered() || game_blocked) return;
+    token = serial_word(rest, &n);
+    if (!token || !valid_token(token)) return;
+    EnterCriticalSection(&lock);
+    if (n == client_done_serial + 1 &&
+        !(order_side == 'C' && order_phase != ORDER_IDLE && n == active_client_serial) &&
+        (!client_want_serial || (client_want_serial == n && !lstrcmpA(client_want_token, token)))) {
+        client_want_serial = n; lstrcpyA(client_want_token, token);
+    }
+    LeaveCriticalSection(&lock);
+}
+static void receive_order_control(SOCKET s, const struct sockaddr_in *peer, const char *kind, const char *rest) {
+    unsigned long seq; int side, ack = 0; char token[TOKEN_MAX]; struct entry *e;
+    if (!ordered() || game_blocked || !parse_order(rest, &seq, &side, token)) return;
+    EnterCriticalSection(&lock);
+    if (mode == NET_CLIENT && !lstrcmpA(kind, "ORDER")) {
+        if (seq == order_seq && order_phase != ORDER_IDLE && side == order_side && !lstrcmpA(token, order_token)) ack = 1;
+        else if (order_phase == ORDER_IDLE && order_seq != 0xffffffffUL && seq == order_seq + 1) {
+            e = queue_head(&outbox);
+            if (side == 'H' || (e && !lstrcmpA(e->token, token))) {
+                order_seq = seq; order_side = side; order_phase = ORDER_ACTIVE;
+                lstrcpyA(order_token, token); ack = 1;
+                proxy_log("net: host order %lu %c %s accepted", seq, side, token);
+            }
+        }
+    } else if (mode == NET_HOST && !lstrcmpA(kind, "OACK")) {
+        if (seq == order_seq && order_phase == ORDER_ACK && side == order_side && !lstrcmpA(token, order_token)) {
+            order_phase = ORDER_ACTIVE;
+            proxy_log("net: host order %lu acknowledged; one remote replay permitted", seq);
+        }
+    } else if (mode == NET_CLIENT && !lstrcmpA(kind, "RELEASE")) {
+        if (seq == released_seq && side == released_side && !lstrcmpA(token, released_token)) ack = 2;
+        else if (seq == order_seq && order_phase != ORDER_IDLE && side == order_side && !lstrcmpA(token, order_token) &&
+            (side == 'C' || order_phase == ORDER_DONE)) {
+            if (side == 'C') {
+                e = queue_head(&outbox);
+                if (e && !lstrcmpA(e->token, token)) queue_pop(&outbox);
+            }
+            released_seq = seq; released_side = side; lstrcpyA(released_token, token);
+            order_phase = ORDER_IDLE; ack = 2;
+        }
+    } else if (mode == NET_HOST && !lstrcmpA(kind, "RACK")) {
+        if (seq == order_seq && order_phase == ORDER_FINISH && side == order_side && !lstrcmpA(token, order_token)) {
+            released_seq = seq; released_side = side; lstrcpyA(released_token, token);
+            order_phase = ORDER_IDLE;
+            proxy_log("net: host order %lu completed on both peers", seq);
+        }
+    }
+    LeaveCriticalSection(&lock);
+    if (ack) send_order_control(s, peer, ack == 1 ? "OACK" : "RACK", seq, side, token);
+}
+static void pump_order(SOCKET s, const struct sockaddr_in *peer, DWORD now) {
+    struct entry *e; char token[TOKEN_MAX], kind[12]; unsigned long seq = 0, want = 0;
+    int side = 0, exhausted = 0;
+    if (!ordered() || game_blocked) return;
+    kind[0] = token[0] = 0;
+    EnterCriticalSection(&lock);
+    if (mode == NET_HOST) {
+        if (order_phase == ORDER_IDLE) {
+            e = queue_head(&outbox);
+            if (e || client_want_serial) {
+                if (order_seq == 0xffffffffUL) exhausted = 1;
+                else {
+                    order_seq++; order_side = e && (!client_want_serial || last_order_side == 'C') ? 'H' : 'C';
+                    last_order_side = order_side; order_phase = ORDER_ACK; last_order_send = 0;
+                    if (order_side == 'H') lstrcpyA(order_token, e->token);
+                    else {
+                        lstrcpyA(order_token, client_want_token); active_client_serial = client_want_serial;
+                        client_want_serial = 0; client_want_token[0] = 0;
+                    }
+                    proxy_log("net: host order %lu %c %s selected", order_seq, order_side, order_token);
+                }
+            }
+        }
+        if ((order_phase == ORDER_ACK || order_phase == ORDER_FINISH) && now - last_order_send >= RESEND_MS) {
+            lstrcpyA(kind, order_phase == ORDER_ACK ? "ORDER" : "RELEASE");
+            seq = order_seq; side = order_side; lstrcpyA(token, order_token); last_order_send = now;
+        }
+    } else {
+        e = queue_head(&outbox);
+        if (e && now - last_want_send >= RESEND_MS) {
+            want = e->serial; lstrcpyA(token, e->token); last_want_send = now;
+        }
+    }
+    LeaveCriticalSection(&lock);
+    if (exhausted) fail_compatibility("replay order sequence exhausted; prepare a new shared session");
+    else if (*kind) send_order_control(s, peer, kind, seq, side, token);
+    else if (want) {
+        char text[128]; int n = wsprintfA(text, "TF3MP/1 WANT %lu %s", want, token);
+        sendto(s, text, n, 0, (const struct sockaddr *)peer, sizeof(*peer));
+    }
+}
 static int same_address(const struct sockaddr_in *a, const struct sockaddr_in *b) {
     return a->sin_addr.s_addr == b->sin_addr.s_addr && a->sin_port == b->sin_port;
 }
 /* Required fields occur exactly once and are validated before any queued payload or state. */
 static int receive_hello(const char *rest) {
     char role[16], word[96], runtime[64], sid[66], game[66], package[66], mods[66], save[66];
-    const char *scan, *end; int seen = 0, remote_protocol = 0, ready = -1, bit, invalid = 0;
+    const char *scan, *end; int seen = 0, remote_protocol = 0, ready = -1, ordering = 0, bit, invalid = 0;
     char *target; int size;
     runtime[0] = sid[0] = game[0] = package[0] = mods[0] = save[0] = 0;
     scan = take_word(rest, role, sizeof(role));
@@ -480,6 +665,7 @@ static int receive_hello(const char *rest) {
         else if (starts_with(word, "mods=")) { bit = 32; target = mods; size = sizeof(mods); }
         else if (starts_with(word, "save=")) { bit = 64; target = save; size = sizeof(save); }
         else if (starts_with(word, "ready=")) { bit = 128; ready = number(word + 6); }
+        else if (starts_with(word, "order=")) { bit = 256; ordering = number(word + 6); }
         if (bit && (seen & bit)) { invalid = 1; break; }
         seen |= bit;
         if (target) {
@@ -495,7 +681,8 @@ static int receive_hello(const char *rest) {
     }
     if (!local_test) {
         if (compatibility_failed) return 0;
-        if (seen != 255 || !*runtime || (ready != 0 && ready != 1) ||
+        if (!(seen & 256) || ordering != 1) { fail_compatibility("peer replay ordering unavailable; update both PCs"); return 0; }
+        if (seen != 511 || !*runtime || (ready != 0 && ready != 1) ||
             (lstrcmpA(role, mode == NET_HOST ? "client" : "host"))) {
             fail_compatibility("peer session metadata missing or invalid; prepare both PCs again"); return 0;
         }
@@ -541,13 +728,14 @@ static DWORD WINAPI net_thread(LPVOID arg) {
         now = GetTickCount();
         if (have_peer && now - last_hello >= HELLO_INTERVAL_MS) {
             if (local_test) n = wsprintfA(hello, "TF3MP/1 HELLO %s pid=%lu proto=2 session=%lu-%lu", is_host ? "host" : "client", GetCurrentProcessId(), GetCurrentProcessId(), session_nonce);
-            else n = wsprintfA(hello, "TF3MP/1 HELLO %s pid=%lu proto=3 session=%lu-%lu sid=%s game=%s package=%s mods=%s save=%s ready=%d",
+            else n = wsprintfA(hello, "TF3MP/1 HELLO %s pid=%lu proto=3 session=%lu-%lu sid=%s game=%s package=%s mods=%s save=%s ready=%d order=1",
                 is_host ? "host" : "client", GetCurrentProcessId(), GetCurrentProcessId(), session_nonce,
                 prepared_id, game_hash, package_hash, mods_hash, save_hash, world_ready && !compatibility_failed);
             sendto(s, hello, n, 0, (struct sockaddr *)&peer, sizeof(peer)); last_hello = now;
         }
         if (have_peer && peer_protocol == protocol && peer_compatible && world_ready && peer_ready &&
             !session_changed && !compatibility_failed && now - last_recv <= PEER_TIMEOUT_MS) {
+            pump_order(s, &peer, now);
             send_pending(s, &peer, now, &last_line, sending, &last_part); send_states(s, &peer, now);
         }
         fromlen = sizeof(from); n = recvfrom(s, packet, sizeof(packet)-1, 0, (struct sockaddr *)&from, &fromlen);
@@ -573,7 +761,9 @@ static DWORD WINAPI net_thread(LPVOID arg) {
             if (session_changed || compatibility_failed || !peer_compatible || !world_ready || !peer_ready) continue;
             last_recv = now;
             if (!link_connected) { link_connected=1; proxy_log("net: connected to partner, port %d", ntohs(from.sin_port)); }
-            if (!lstrcmpA(kind,"FRAG")) receive_fragment(s,&from,rest);
+            if (!lstrcmpA(kind,"WANT")) receive_want(rest);
+            else if (!lstrcmpA(kind,"ORDER") || !lstrcmpA(kind,"OACK") || !lstrcmpA(kind,"RELEASE") || !lstrcmpA(kind,"RACK")) receive_order_control(s,&from,kind,rest);
+            else if (!lstrcmpA(kind,"FRAG")) receive_fragment(s,&from,rest);
             else if (!lstrcmpA(kind,"LINE")) receive_line(s,&from,rest);
             else if (!lstrcmpA(kind,"CHECK")) {
                 take_word(rest,token,sizeof(token));

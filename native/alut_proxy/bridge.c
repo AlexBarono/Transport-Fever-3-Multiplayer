@@ -178,22 +178,28 @@ static void handle_state(const char *rest)
 /* Puts the peer's changed states into the environment. */
 static void refresh_peer_states(void)
 {
+	char order[192];
 	while (net_take_peer_state(state_key, state_text)) {
 		if (!set_state_env("PEER_", state_key, state_text))
 			proxy_log("bridge: TF3MP_PEER_%s could not be set", state_key);
 		else if (!state_text[0])
 			proxy_log("bridge: state %s of the peer cleared", state_key);
 	}
+	net_order_value(order, sizeof(order));
+	set_state_env("", "ORDER", order);
 }
 
 /* Offers the oldest received line to the mod, or acknowledges the tick. */
 static void refresh_env(unsigned long seq)
 {
+	char order[192];
 	if (seq)
 		last_seq = seq;
 	offering = net_inbox_value(env_value, sizeof(env_value));
 	if (!offering)
 		wsprintfA(env_value, "ack %lu", last_seq);
+	net_order_value(order, sizeof(order));
+	set_state_env("", "ORDER", order);
 	set_env(env_value);
 	/* The entry remains in the inbox while the game executes it. */
 	if (net_inbox_count()) offering = 1;
@@ -383,6 +389,7 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	proxy_log("bridge: ucrtbase _putenv_s %s", putenv_s ? "found" : "NOT found");
 	set_env("hello");
 	set_state_env("", "ROLE", net_mode_name());
+	set_state_env("", "ORDERING", net_ordering_enabled() ? "1" : "0");
 	proxy_log("bridge: TF3MP_ROLE=%s", net_mode_name());
 
 	/* stdout.txt may be created a moment after the game starts. */

@@ -62,25 +62,50 @@ function Wait-NewSave([string]$saveDir, [datetime]$since, $tick, [int]$timeoutSe
 	}
 }
 
-# Beendet TF3 wie ein Klick auf das X des Fensters. Läuft es nach $waitSeconds noch (etwa weil das
-# Spiel nachfragt), entscheidet $askForce (gibt $true zurück), ob es hart beendet wird.
-function Stop-GameForResync($tick, $askForce, [int]$waitSeconds = 20, [string]$ProcessName = $GameProcessName) {
-	$running = { @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue).Count -gt 0 }
-	if (-not (& $running)) { return $false }
-	foreach ($game in @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) { try { [void]$game.CloseMainWindow() } catch {} }
-	$deadline = [DateTime]::UtcNow.AddSeconds($waitSeconds)
-	$forced = $false
-	while (& $running) {
-		if ([DateTime]::UtcNow -gt $deadline) {
-			if ($forced -or -not (& $askForce)) { throw "TF3 läuft noch. Bitte das Spiel selbst beenden und erneut auf 'Neu abgleichen' klicken." }
-			Get-Process -Name $ProcessName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-			$forced = $true
-			$deadline = [DateTime]::UtcNow.AddSeconds(15)
-		}
-		if (& $tick 'Beende TF3 ...' 0 0) { throw 'Abgebrochen.' }
-		Start-Sleep -Milliseconds 250
+# Kleine Prozessadapter erlauben auch auf Windows Tests ohne das echte Spiel zu schließen.
+function Get-ResyncGameProcesses([string]$ProcessName) { return @(Get-Process -Name $ProcessName -ErrorAction SilentlyContinue) }
+function Close-ResyncGameWindow($Process) {
+	try { if ($Process.HasExited) { return $true }; return [bool]$Process.CloseMainWindow() } catch { return $false }
+}
+function Stop-ResyncGameProcess($Process) {
+	try { Stop-Process -Id $Process.Id -Force -ErrorAction Stop }
+	catch {
+		if (-not (Get-Process -Id $Process.Id -ErrorAction SilentlyContinue)) { return }
+		throw "TF3-Prozess $($Process.Id) konnte nicht beendet werden: $($_.Exception.Message)"
 	}
-	# Die DLL im Spielordner ist erst kurz nach dem Prozessende wieder frei.
-	Start-Sleep -Milliseconds 1500
-	return $true
+}
+
+# Der ausdrücklich bestätigte Neuabgleich darf nach gesichertem Gastgeber-Spielstand TF3 beenden.
+# Zuerst normal schließen, nach kurzer Frist direkt beenden; kein verschluckter Zugriffsfehler.
+# Ein optionales $askForce bleibt für andere Aufrufer erhalten; ohne Callback gilt die Bestätigung
+# des Neuabgleichs. Während der Wartezeit bleibt die Oberfläche bedienbar.
+function Stop-GameForResync($tick, $askForce = $null, [double]$waitSeconds = 5, [string]$ProcessName = $GameProcessName, [double]$forceWaitSeconds = 10) {
+	$processes = @(Get-ResyncGameProcesses $ProcessName)
+	if (-not $processes.Count) { return $false }
+	if (& $tick 'Beende TF3 für den bestätigten Neuabgleich ...' 0 0) { throw 'Abgebrochen.' }
+	$windowRequested = $false
+	foreach ($process in $processes) { if (Close-ResyncGameWindow $process) { $windowRequested = $true } }
+	$deadline = [DateTime]::UtcNow.AddSeconds($(if ($windowRequested) { $waitSeconds } else { 0 }))
+	$forced = $false
+	while ($true) {
+		$processes = @(Get-ResyncGameProcesses $ProcessName)
+		if (-not $processes.Count) { return $true }
+		if ([DateTime]::UtcNow -ge $deadline) {
+			$ids = ($processes | ForEach-Object { $_.Id }) -join ', '
+			if ($forced) { throw "TF3 läuft nach dem Beenden weiter (Prozess $ids). Bitte im Task-Manager beenden und erneut 'Neu abgleichen' klicken." }
+			if ($askForce -and -not (& $askForce)) { throw "TF3 läuft noch. Bitte das Spiel selbst beenden und erneut auf 'Neu abgleichen' klicken." }
+			if (& $tick "TF3 reagiert nicht auf Schließen. Beende Prozess $ids ..." 0 0) { throw 'Abgebrochen.' }
+			$errors = @()
+			foreach ($process in $processes) { try { Stop-ResyncGameProcess $process } catch { $errors += $_.Exception.Message } }
+			if ($errors.Count -and @(Get-ResyncGameProcesses $ProcessName).Count) {
+				throw (($errors -join "`r`n") + "`r`nBitte TF3 im Task-Manager beenden. TF3 und Launcher anschließend mit denselben Rechten starten (beide ohne Administrator).")
+			}
+			$forced = $true
+			$deadline = [DateTime]::UtcNow.AddSeconds($forceWaitSeconds)
+		}
+		$left = [int][Math]::Ceiling([Math]::Max(0, ($deadline - [DateTime]::UtcNow).TotalSeconds))
+		$text = if ($forced) { "Warte auf das Ende des TF3-Prozesses (höchstens noch $left Sekunden) ..." } else { "TF3 wird geschlossen (höchstens noch $left Sekunden) ..." }
+		if (& $tick $text 0 0) { throw 'Abgebrochen.' }
+		Start-Sleep -Milliseconds 100
+	}
 }

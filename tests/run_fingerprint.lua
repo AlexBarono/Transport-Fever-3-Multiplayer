@@ -164,6 +164,26 @@ test("line names, colors, route order, load configuration and selected station a
 	end
 end)
 
+test("unique station and terminal tags survive harbor child and terminal reordering", function()
+	local m = mock()
+	local records = require("/mp_probe/actions.lua").snapshot(m.env, "line")
+	local record = records[tostring(m.lineid)]
+	for _, s in ipairs(record.data.stops) do
+		for i, ref in ipairs(s.target.stations) do ref.tag = 100 + i end
+		s.terminalTag = 700
+		for _, alt in ipairs(s.alternativeTerminals) do alt.terminalTag = 800 end
+	end
+	local before = fingerprint.digest("line", records)
+	for _, s in ipairs(record.data.stops) do
+		for _, ref in ipairs(s.target.stations) do ref.index = ref.index + 4 end
+		s.terminal = s.terminal + 3
+		for _, alt in ipairs(s.alternativeTerminals) do alt.terminal = alt.terminal + 5 end
+	end
+	assert(before == fingerprint.digest("line", records))
+	record.data.stops[1].terminalTag = 701
+	assert(before ~= fingerprint.digest("line", records), "a different tagged terminal must still differ")
+end)
+
 test("moving vehicle stop indexes, positions, depots and derived line modes are ignored", function()
 	local m = mock(); local before = m.values()
 	local v = m.entities[m.vid].TRANSPORT_VEHICLE
@@ -252,7 +272,7 @@ end)
 test("empty readable categories still have a comparison digest", function()
 	local m = mock(); m.entities = {}
 	local values = m.values()
-	for _, field in ipairs(sync.HASH_FIELDS) do assert(values[field]:match("^h1_%x+$")) end
+	for _, field in ipairs({ "hcon", "hedge", "hline", "hveh" }) do assert(values[field]:match("^h1_%x+$")) end
 end)
 
 test("unsupported, non-finite and cyclic data cannot become equality evidence", function()
@@ -299,6 +319,197 @@ test("the record list names the records and the field two games differ in", func
 		local l = fingerprint.list(a.env, kind)
 		assert(#l == 1 and not l[1].d:find("unreadable", 1, true), kind .. ": " .. tostring(l[1] and l[1].d))
 	end
+end)
+
+local function world_mock(shift, reverse, cargo_id)
+	local m = mock(shift, reverse)
+	local e, ct = m.env.api.engine, m.env.api.type.ComponentType
+	for _, name in ipairs({ "GAME_TIME", "TOWN", "BOUNDING_VOLUME", "SIM_CARGO", "SIM_ENTITY_AT_VEHICLE" }) do ct[name] = name end
+	m.gt, m.townid, m.cargoid, m.worldid = 60000, 4001 + (shift or 0), 5001 + (shift or 0), 99001 + (shift or 0)
+	cargo_id = cargo_id or 1
+	e.util.getWorld = function() return m.worldid end
+	m.entities[m.worldid] = { GAME_TIME = { gameTime = m.gt } }
+	e.getEntitiesWithComponent = function(c, filters)
+		local out = {}
+		e.forEachEntityWithComponent(function(id)
+			local owner = m.entities[id].PLAYER_OWNED
+			if not filters or (owner and owner.player == filters.requireOwnedByPlayer) then out[#out + 1] = id end
+		end, c)
+		return out
+	end
+	local function box(x, y)
+		return { bbox = { min = xyz(x - 1, y - 1, 0), max = xyz(x + 1, y + 1, 2) } }
+	end
+	m.entities[m.ca].BOUNDING_VOLUME, m.entities[m.cb].BOUNDING_VOLUME = box(100, 20), box(200, 20)
+	m.positions, m.speeds = { [m.vid] = xyz(151.25, 31.2, 5) }, { [m.vid] = 12.4 }
+	m.entities[m.vid].TRANSPORT_VEHICLE.carrier = 2
+	e.util.vehicle = { getPosition = function(id) return copy(assert(m.positions[id])) end,
+		getSpeed = function(id) return assert(m.speeds[id]) end }
+	m.cargo_counts = cargo_id == 1 and { 3, 4 } or { [0] = 3, [cargo_id] = 4 }
+	e.util.cargo = { getNumCargoPerTypeInVehicle = function(id) assert(id == m.vid); return copy(m.cargo_counts) end }
+	m.env.api.res.cargoTypeRep = { getName = function(id)
+		assert(id == 0 or id == cargo_id, "cargo resource missing")
+		return id == 0 and "::/passengers.cargo" or "::/coal.cargo"
+	end }
+	m.entities[m.cargoid] = { SIM_CARGO = { cargoType = cargo_id, sourceEntity = m.ca,
+		targetOrPickupEntity = m.cb, startTime = 50000, pickupTime = 55000 },
+		SIM_ENTITY_AT_VEHICLE = { vehicle = m.vid } }
+	m.entities[m.townid] = { NAME = { name = "City" }, BOUNDING_VOLUME = box(400, 900),
+		TOWN = { initialLandUseCapacities = { 100, 50, 40 }, sizeFactors = { 1, 1, 1 }, capacityScalingFactor = 1,
+			developmentActive = true, cargoNeeds = { {}, { { cargo_id, 10 } }, {} } } }
+	m.town_usage, m.town_stock = { { used = 42, capacity = 100 }, { used = 20, capacity = 50 }, { used = 10, capacity = 40 } }, { [cargo_id] = { 5, 25 } }
+	e.util.town = { getTownCapacityUsage = function(id) assert(id == m.townid); return copy(m.town_usage) end,
+		getTownStockCargo = function(id) assert(id == m.townid); return copy(m.town_stock) end }
+	-- Tests use work bounds; wall-clock thresholds must not make assertions machine-dependent.
+	m.env.os = { clock = function() return 0 end }
+	return m
+end
+
+local function finish(m, job)
+	job = job or fingerprint.begin(m.env, m.gt)
+	for _ = 1, 10000 do
+		local values, unreadable, stats, lists = fingerprint.step(m.env, job)
+		if values then return values, unreadable, stats, lists, job end
+		assert(job.stats.last_step_bytes <= fingerprint.HASH_BYTES_PER_STEP)
+		assert(job.stats.last_step_records <= fingerprint.HASH_RECORDS_PER_STEP)
+	end
+	error("checkpoint hash did not finish")
+end
+
+test("deferred static hashes equal the legacy digest and add exact-tick dynamic categories", function()
+	local m = world_mock()
+	local before = m.values()
+	local values, unreadable, stats, lists = finish(m)
+	assert(#unreadable == 0, table.concat(unreadable, ","))
+	for _, f in ipairs({ "hcon", "hedge", "hline", "hveh" }) do assert(values[f] == before[f], f) end
+	for _, f in ipairs({ "hpos", "hcargo", "htown" }) do assert(values[f]:match("^h2_%x+$") and lists[f].gt == m.gt, f) end
+	assert(values.wgt == m.gt and stats.steps > 0 and stats.hash_bytes > 0)
+end)
+
+test("positions, cargo allocation and town data do not depend on entity or resource ids", function()
+	local a, b = world_mock(), world_mock(10000, true, 7)
+	local av, af = finish(a); local bv, bf = finish(b)
+	assert(#af == 0 and #bf == 0)
+	same(av, bv)
+end)
+
+test("moving position and speed changes are detected at a common simulation tick", function()
+	local m = world_mock(); local before = finish(m)
+	m.positions[m.vid].x = m.positions[m.vid].x + 1
+	differs(before, finish(m), "hpos")
+	m.speeds[m.vid] = 17
+	differs(before, finish(m), "hpos")
+end)
+
+test("loaded passenger/freight quantities and global cargo allocations are compared", function()
+	local m = world_mock(); local before = finish(m)
+	m.cargo_counts[1] = 7
+	differs(before, finish(m), "hcargo")
+	m.cargo_counts[1] = 3
+	m.entities[m.cargoid].SIM_CARGO.targetOrPickupEntity = m.ca
+	differs(before, finish(m), "hcargo")
+	m.entities[m.cargoid + 1] = copy(m.entities[m.cargoid])
+	differs(before, finish(m), "hcargo")
+end)
+
+test("town population, growth sizes, development and stored freight changes are detected", function()
+	for _, change in ipairs({
+		function(m) m.town_usage[1].used = 43 end,
+		function(m) m.entities[m.townid].TOWN.sizeFactors[1] = 1.5 end,
+		function(m) m.entities[m.townid].TOWN.developmentActive = false end,
+		function(m) m.town_stock[1][1] = 9 end,
+	}) do
+		local m = world_mock(); local before = finish(m); change(m)
+		differs(before, finish(m), "htown")
+	end
+end)
+
+test("later updates hash only immutable original-tick records", function()
+	local m = world_mock(); local expected = finish(m)
+	local job = fingerprint.begin(m.env, m.gt)
+	m.positions[m.vid], m.cargo_counts, m.town_usage = xyz(9999, 8888), { 900, 600 }, { { used = 999, capacity = 999 } }
+	m.entities = {} -- any later live component read would now fail
+	local actual = finish(m, job)
+	same(expected, actual)
+	assert(actual.wgt == 60000)
+end)
+
+test("capture spanning two different simulation ticks publishes no world hashes", function()
+	local m = world_mock(); local original = m.env.api.engine.getComponent; local calls = 0
+	m.env.api.engine.getComponent = function(id, c)
+		if c == "GAME_TIME" then calls = calls + 1; return { gameTime = calls == 1 and 60000 or 60200 } end
+		return original(id, c)
+	end
+	local values, unreadable, stats = finish(m)
+	for _, f in ipairs(sync.HASH_FIELDS) do assert(values[f] == nil, f) end
+	assert(#unreadable == #sync.HASH_FIELDS and stats.time_unreadable)
+end)
+
+test("unreadable vehicle positions and unknown cargo source remain unknown", function()
+	local m = world_mock()
+	m.env.api.engine.util.vehicle.getPosition = function() error("position unavailable") end
+	m.entities[m.cargoid].SIM_CARGO.sourceEntity = 1234567
+	local values = finish(m)
+	assert(values.hpos == nil and values.hcargo == nil and values.htown)
+end)
+
+test("large-category record limits produce unknown without reading a partial set", function()
+	local m = world_mock(); local cap = fingerprint.CARGO_MAX_RECORDS
+	fingerprint.CARGO_MAX_RECORDS = 1
+	m.entities[m.cargoid + 1] = copy(m.entities[m.cargoid])
+	local values, unreadable, stats = finish(m)
+	fingerprint.CARGO_MAX_RECORDS = cap
+	assert(values.hcargo == nil and values.hpos and stats.limited >= 1)
+end)
+
+test("a slow native enumeration invalidates that category after returning", function()
+	local m = world_mock(); local elapsed = 0
+	m.env.os.clock = function() return elapsed / 1000 end
+	local original = m.env.api.engine.getEntitiesWithComponent
+	m.env.api.engine.getEntitiesWithComponent = function(c, filters)
+		local list = original(c, filters)
+		if c == "CONSTRUCTION" then elapsed = elapsed + fingerprint.CATEGORY_MAX_MS + 1 end
+		return list
+	end
+	local values, unreadable, stats = finish(m)
+	assert(values.hcon == nil and stats.limited >= 1 and stats.capture_ms >= 5 and values.hpos)
+end)
+
+test("capture and hashing obey hard native-call and byte-work budgets", function()
+	local m = world_mock(); local budget = fingerprint.CAPTURE_MAX_CALLS
+	fingerprint.CAPTURE_MAX_CALLS = 4
+	local values, unreadable, stats = finish(m)
+	fingerprint.CAPTURE_MAX_CALLS = budget
+	assert(stats.calls <= 4 and #unreadable > 0)
+	local bytes, records = fingerprint.HASH_BYTES_PER_STEP, fingerprint.HASH_RECORDS_PER_STEP
+	fingerprint.HASH_BYTES_PER_STEP, fingerprint.HASH_RECORDS_PER_STEP = 32, 1
+	local result, failed, measured = finish(m)
+	fingerprint.HASH_BYTES_PER_STEP, fingerprint.HASH_RECORDS_PER_STEP = bytes, records
+	assert(#failed == 0 and result.hpos and measured.steps > 20)
+end)
+
+test("oversized single construction params cannot monopolize a hash update", function()
+	local m = world_mock()
+	local modules = m.entities[m.ca].CONSTRUCTION.params_native.modules
+	for i = 1, 3000 do modules[10000 + i] = { name = "::/large.module", variant = i } end
+	local values, failed, stats = finish(m)
+	assert(values.hcon == nil and stats.limited >= 1 and values.hpos)
+end)
+
+test("large diagnostic lists advertise their truncation and keep the true multiset count", function()
+	local m = world_mock(); local limit = fingerprint.DETAIL_MAX_RECORDS
+	fingerprint.DETAIL_MAX_RECORDS = 1
+	local values, unreadable, stats, lists = finish(m)
+	fingerprint.DETAIL_MAX_RECORDS = limit
+	assert(#unreadable == 0 and values.hcon)
+	assert(lists.hcon.total == 2 and lists.hcon.truncated and #lists.hcon == 1)
+end)
+
+test("all seven hashes plus exact time and economic checkpoint fit the native state", function()
+	local values = finish(world_mock())
+	values.gt, values.ck, values.money, values.loan, values.loanmanaged = 60000, 999999, -90000000000, 9999999999, 1
+	values.lines, values.veh, values.st, values.con, values.date, values.adj = 99999, 99999, 99999, 99999, "2300-12-31", -90000000000
+	assert(#sync.encode(values) <= 511, #sync.encode(values))
 end)
 
 print(string.format("%d fingerprint tests passed, %d failed", passed, failed))

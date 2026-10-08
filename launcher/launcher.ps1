@@ -183,6 +183,12 @@ function Parse-JoinAddress([string]$text, [string]$defaultPort) {
 	}
 	throw 'Bitte die VPN-IPv4 des Gastgebers eingeben, zum Beispiel 100.80.12.4:47800.'
 }
+function Get-WorldDifferenceText([string]$fields) {
+	$labels = @{ hcon='Bauwerke'; hedge='Straßen/Gleise'; hline='Linien'; hveh='Fahrzeuge'; hpos='Fahrzeugpositionen'; hcargo='Fracht'; htown='Städte'; loan='Kredite'; money='Geld'; date='Datum'; con='Bauwerke'; st='Haltestellen'; lines='Linien'; veh='Fahrzeuge' }
+	$parts = @()
+	foreach ($field in ($fields -split ',')) { $field = $field.Trim(); if ($field) { $parts += $(if ($labels.ContainsKey($field)) { $labels[$field] } else { $field }) } }
+	return ($parts -join ', ')
+}
 function Get-SessionStatus($gameDir) {
 	$path = Join-Path $gameDir 'alut_proxy.status'
 	if (-not (Test-GameRunning)) { return @{ Text='Bereit zum Einrichten'; Color='idle' } }
@@ -191,7 +197,7 @@ function Get-SessionStatus($gameDir) {
 	foreach ($line in Get-Content $path) { if ($line -match '^(\w+)=(.*)$') { $values[$matches[1]]=$matches[2] } }
 	if ($values.blocked -eq '1' -or $values.error) { return @{ Text="Abgleich erforderlich: $($values.error)"; Color='error' } }
 	if ($values.world -eq 'diff' -or $values.world_peer -eq 'diff') {
-		return @{ Text="Weltabweichung erkannt ($($values.world_fields)). Bitte auf beiden PCs 'Neu abgleichen' klicken."; Color='error' }
+		return @{ Text="Weltabweichung erkannt ($(Get-WorldDifferenceText $values.world_fields)). Bitte auf beiden PCs 'Neu abgleichen' klicken."; Color='error' }
 	}
 	$pending=[int]$values.outbox + [int]$values.inbox
 	$disk = if ([int64]$values.backlog -gt 0) { " + weitere auf Datenträger" } else { "" }
@@ -449,7 +455,7 @@ function Select-ResyncSave([string]$saveDir, $tick) {
 		$file = Wait-SaveWritten $file $tick
 		$answer = [System.Windows.Forms.MessageBox]::Show(
 			"Spielstand für den Neuabgleich: '$($file.BaseName)', gespeichert um $($file.LastWriteTime.ToString('HH:mm:ss')) Uhr.`r`n`r`n" +
-			"Ja: diesen Stand nehmen. TF3 wird dafür beendet.`r`n" +
+			"Ja: diesen Stand nehmen. TF3 wird dafür beendet, bei Bedarf auch sein Prozess.`r`n" +
 			"Nein: Ich speichere jetzt im Spiel einen neueren Stand.`r`n" +
 			"Abbrechen: nichts tun.", 'Neu abgleichen', 'YesNoCancel', 'Question')
 		if ($answer -eq 'Cancel') { return $null }
@@ -480,14 +486,18 @@ function Invoke-Transfer([switch]$Resync) {
 		$tick = {
 			param($text, $done, $total)
 			$mb = if ($total -gt 0) { " ($([Math]::Round($done / 1MB, 1)) von $([Math]::Round($total / 1MB, 1)) MB)" } else { '' }
+			if ($done -gt 0 -and $total -gt 0 -and $text -match '^(Schicke|Empfange) ') {
+				if (-not $script:transferMeter -or $done -lt $script:transferMeter.StartBytes) { $script:transferMeter = @{ Clock = [Diagnostics.Stopwatch]::StartNew(); StartBytes = $done } }
+				$seconds = $script:transferMeter.Clock.Elapsed.TotalSeconds
+				if ($seconds -ge 0.2 -and $done -gt $script:transferMeter.StartBytes) {
+					$rate = ($done - $script:transferMeter.StartBytes) / $seconds
+					$left = [int][Math]::Ceiling(($total - $done) / $rate)
+					$mb += "  |  $([Math]::Round($rate / 1MB, 1)) MB/s  |  etwa $left Sekunden verbleibend"
+				}
+			} else { $script:transferMeter = $null }
 			$out.Text = "$text$mb$($script:transferHint)`r`n`r`nAbbrechen: noch einmal auf den Knopf klicken."
 			[System.Windows.Forms.Application]::DoEvents()
 			return $script:transferCancel
-		}
-		$askForce = {
-			$why = if ($hostRadio.Checked) { 'Der Spielstand für den Neuabgleich ist schon gespeichert.' } else { 'Dein Stand wird ohnehin durch den des Gastgebers ersetzt.' }
-			[System.Windows.Forms.MessageBox]::Show("TF3 hat sich nach 20 Sekunden noch nicht beendet. Vielleicht fragt das Spiel nach.`r`n`r`nJetzt hart beenden? $why",
-				'Neu abgleichen', 'YesNo', 'Question') -eq 'Yes'
 		}
 		if ($Resync) { $out.Text = Get-RecoveryInstructions $(if ($hostRadio.Checked) { 'host' } else { 'client' }) }
 		if ($hostRadio.Checked) {
@@ -495,9 +505,9 @@ function Invoke-Transfer([switch]$Resync) {
 				Enter-TransferBusy $others
 				$offeredSave = Select-ResyncSave $saveDir $tick
 				if (-not $offeredSave) { $script:forceNewSession = $previousForce; $out.Text = 'Neuabgleich abgebrochen. Nichts wurde geändert.'; return }
-				Stop-GameForResync $tick $askForce | Out-Null
+				Stop-GameForResync $tick | Out-Null
 				# Hat das Spiel beim Beenden noch einmal gespeichert, erst danach weiter.
-				Wait-SaveWritten (Get-Item -LiteralPath $offeredSave) $tick | Out-Null
+				Wait-SaveWritten (Get-Item -LiteralPath $offeredSave) $tick -quietSeconds 0.2 | Out-Null
 			} else {
 				$dialog = New-Object System.Windows.Forms.OpenFileDialog
 				$dialog.InitialDirectory = $saveDir
@@ -521,7 +531,7 @@ function Invoke-Transfer([switch]$Resync) {
 			Save-PreparedSession -Path (Join-Path $gameBox.Text.Trim() 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
 			$script:transferOK = $true; $script:forceNewSession = $false
 			$out.Text = "Fertig: $($result.Text)`r`n`r`nSpielversion, Moddateien und Spielstand stimmen überein. " +
-				"Beide starten jetzt über den großen Startknopf und laden '$($result.Session.SaveName)' pausiert."
+				"Beide starten jetzt über den großen Startknopf und laden '$($result.Session.SaveName)' pausiert. Das anschließende Laden der Welt übernimmt TF3."
 		}
 		elseif ($clientRadio.Checked) {
 			$endpoint = Parse-JoinAddress $ipBox.Text $port
@@ -529,10 +539,10 @@ function Invoke-Transfer([switch]$Resync) {
 			$parsed = $null
 			if (-not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) { throw 'Bitte die IP-Adresse des Gastgebers eingeben, z. B. 192.168.1.10.' }
 			if ($Resync -and (Test-GameRunning)) {
-				$question = "TF3 wird beendet und der Spielstand des Gastgebers geholt. Dein jetziger Stand wird nicht gespeichert.`r`n`r`nWeiter?"
+				$question = "TF3 wird beendet und der Spielstand des Gastgebers geholt. Dein jetziger Stand wird nicht gespeichert. Reagiert TF3 nicht auf Schließen, wird sein Prozess beendet.`r`n`r`nWeiter?"
 				if ([System.Windows.Forms.MessageBox]::Show($question, 'Neu abgleichen', 'YesNo', 'Question') -ne 'Yes') { $script:forceNewSession = $previousForce; return }
 				Enter-TransferBusy $others
-				Stop-GameForResync $tick $askForce | Out-Null
+				Stop-GameForResync $tick | Out-Null
 			} else { Enter-TransferBusy $others }
 			# Beim Neuabgleich ersetzt der Stand des Gastgebers einen gleichnamigen ohne Rückfrage (der alte bleibt als .bak).
 			$confirm = if ($Resync) { { param($question) $true } } else { { param($question) [System.Windows.Forms.MessageBox]::Show($question, 'Spielstand ersetzen?', 'YesNo', 'Question') -eq 'Yes' } }
@@ -544,7 +554,7 @@ function Invoke-Transfer([switch]$Resync) {
 			Save-PreparedSession -Path (Join-Path $gameBox.Text.Trim() 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
 			$script:transferOK = $true; $script:forceNewSession = $false
 			$out.Text = "Fertig: $($result.Text)`r`n`r`nSpielversion, Moddateien und Spielstand stimmen überein. " +
-				"Jetzt über den großen Startknopf starten und '$($result.Session.SaveName)' pausiert laden."
+				"Jetzt über den großen Startknopf starten und '$($result.Session.SaveName)' pausiert laden. Das anschließende Laden der Welt übernimmt TF3."
 		}
 		else { throw "Bitte oben 'Gastgeber' oder 'Mitspieler' wählen. Der Gastgeber schickt, der Mitspieler holt." }
 	} catch { Show-Error $_.Exception.Message }

@@ -5,6 +5,7 @@
 -- @module mp_probe.gui
 local logger = require("/mp_probe/logger.lua")
 local sync = require("/mp_probe/sync.lua")
+local hold = require("/mp_probe/hold.lua")
 
 local gui = {}
 
@@ -68,6 +69,12 @@ function gui.update(env)
 	-- A clock that jumped back does not stop the steps.
 	if now < g.next_at and g.next_at - now <= gui.INTERVAL then return end
 	g.next_at = now + gui.INTERVAL
+	-- Probe v33 (hold.lua): command logger and the 'Allein testen' hold test.
+	local ok_h, err_h = pcall(hold.step, env)
+	if not ok_h and g.failures < gui.MAX_FAILURES then
+		g.failures = g.failures + 1
+		logger.info("hold probe failed: " .. tostring(err_h):sub(1, 240))
+	end
 	local ok, err = pcall(gui.step, env, g, now)
 	if not ok then
 		g.failures = g.failures + 1
@@ -105,6 +112,38 @@ function gui.step(env, g, now)
 		return
 	end
 	if role == "host" then gui.resync_save(env, g, getenv) end
+	-- A common-tick intent freezes simulation time at its barrier until both results exist.
+	-- Do not feed this automatic pause into the user's shared speed register.
+	local clock = sync.decode(getenv("TF3MP_OWN_CLOCK"))
+	local clock_ui = sync.decode(getenv("TF3MP_OWN_CLOCKUI"))
+	local at = clock and tonumber(clock.at)
+	local holding = clock and ((clock.phase == "failed" and at and at > 0) or tonumber(clock.hold) == 1 or
+		(at and at > 0 and gt >= at and clock.phase ~= "idle"))
+	if getenv("TF3MP_ORDERING") == "1" and (speed == 0 or holding) then
+		-- Simulation update() stops at a barrier; script events still run while paused.
+		-- gui.update already throttles this heartbeat to four events per second.
+		local ok, err = pcall(function()
+			env.api.cmd.sendCommand(env.api.cmd.makeScriptingSendEventCmd(
+				"mp_probe", "mp_probe_replay", "mp_probe_replay", { timeline_tick = true }))
+		end)
+		if not ok and not g.heartbeat_failed then
+			g.heartbeat_failed = true
+			logger.info("paused network heartbeat unavailable: " .. tostring(err):sub(1, 200))
+		end
+	end
+	if holding then
+		if not clock_ui or tonumber(clock_ui.hold) ~= 1 then
+			local run = restore and tonumber(restore.tg or restore.run) or speed
+			logger.info("net state clockui hold=1 run=" .. tostring(run))
+		end
+		if speed ~= 0 then sync.set_speed(env, 0) end
+		return
+	elseif clock_ui and tonumber(clock_ui.hold) == 1 then
+		local run = tonumber(clock_ui.run) or 0
+		logger.info("net state clockui hold=0 run=" .. run)
+		if speed ~= run then sync.set_speed(env, run) end
+		return
+	end
 	local out = sync.speed_step(g.speed, {
 		own = speed, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
 		hold = true, src = "gui", restore = restore,
@@ -133,7 +172,9 @@ function gui.resync_save(env, g, getenv)
 	g.resync_ck = ck
 	logger.info("net state resync ck=" .. ck)
 	local found, save = pcall(function() return env.app.saveGame end)
-	if not found or type(save) ~= "function" then
+	-- Run 35: TF3's bindings hand out app.saveGame as a table, which is called like a function.
+	local kind = type(save)
+	if not found or (kind ~= "function" and kind ~= "table" and kind ~= "userdata") then
 		logger.info("resync: this game cannot save from the mod (" .. tostring(save):sub(1, 120) ..
 			"); for 'Neu abgleichen' save by hand")
 		return

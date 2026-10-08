@@ -51,7 +51,7 @@ $navJoin=New-Button $side 'Beitreten' 16 232 186 46
 $navTest=New-Button $side 'Testlabor' 16 288 186 46
 New-Label $side "VERBINDUNG ÜBER VPN" 24 650 180 24 9 $Accent | Out-Null
 New-Label $side "Beide PCs im selben VPN.`r`nNutze die VPN-IP des`r`nGastgebers zum Beitreten." 24 684 176 75 10 $Muted | Out-Null
-New-Label $side 'Probe v32  /  Bridge v11' 24 801 185 22 9 $Muted | Out-Null
+New-Label $side 'Probe v33  /  Bridge v12' 24 801 185 22 9 $Muted | Out-Null
 New-Label $form 'Eure nächste Verbindung.' 250 28 734 44 25 | Out-Null
 New-Label $form 'Sitzung vorbereiten, Spielstand teilen und gemeinsam loslegen.' 252 77 734 28 11 $Muted | Out-Null
 $statusLabel=New-Label $form 'Bereit zum Einrichten' 252 115 734 30 10 $Accent
@@ -99,7 +99,7 @@ $joinPage=New-Panel $form 250 155 734 220
 New-Label $joinPage 'Bei deinem Mitspieler beitreten' 22 18 690 34 18 | Out-Null
 New-Label $joinPage 'VPN-Adresse des Gastgebers' 22 66 680 24 10 $Muted | Out-Null
 $ipBox=New-Box $joinPage 22 100 690
-New-Label $joinPage "Zum Beispiel 100.80.12.4:47800 - eine kopierte Adresse kannst du direkt einfügen.`r`nHole zuerst den gemeinsamen Spielstand. Starte danach das Spiel und lade ihn pausiert." 22 155 690 55 10 $Muted | Out-Null
+New-Label $joinPage "Zum Beispiel 100.80.12.4:47800 - eine kopierte Adresse kannst du direkt einfügen.`r`nÜbertragung läuft im VPN. Danach lädt TF3 die Welt; lade den gemeinsamen Stand pausiert." 22 155 690 55 10 $Muted | Out-Null
 
 $testPage=New-Panel $form 250 155 734 220
 New-Label $testPage 'Testlabor / ein PC' 22 15 690 34 18 | Out-Null

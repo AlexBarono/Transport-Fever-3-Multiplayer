@@ -16,7 +16,7 @@
 
 $SaveMagic = 'TF3MPSAVE1'
 $SaveSessionMagic = 'TF3MPSAVE2'
-$SaveChunk = 65536
+$SaveChunk = 1MB
 # Größter Spielstand, den der Mitspieler annimmt (die größten bisher: rund 80 MB).
 $SaveMaxBytes = 1GB
 
@@ -113,6 +113,35 @@ function Test-NoHostError($exception) { return [bool]($exception -and $exception
 
 $SaveRetryHint = 'Häufige Gründe: VPN kurz getrennt, Launcher des Mitspielers geschlossen oder abgebrochen, Firewall/Virenschutz.'
 
+# Fortschritt höchstens zehnmal pro Sekunde zeichnen. Früher wurden bei einem 92-MB-Spielstand
+# rund 1400 WinForms-Neuzeichnungen/DoEvents auf jedem PC im eigentlichen Dateitransfer ausgeführt.
+# Erster Stand und Ende werden immer gemeldet; die übertragenen Bytes und SHA-Prüfung bleiben gleich.
+function New-SaveProgress { return @{ Clock = [Diagnostics.Stopwatch]::StartNew(); LastMs = [int64]-100; LastDone = [int64]-1 } }
+function Write-SaveProgress($State, $Tick, [string]$Text, [int64]$Done, [int64]$Total) {
+	$now = $State.Clock.ElapsedMilliseconds
+	if ($State.LastDone -lt 0 -or $now - $State.LastMs -ge 100 -or ($Done -eq $Total -and $Done -ne $State.LastDone)) {
+		$State.LastMs = $now; $State.LastDone = $Done
+		return [bool](& $Tick $Text $Done $Total)
+	}
+	return $false
+}
+
+# Asynchroner Nutzdatenempfang hält den Abbrechen-Knopf auch bei einem stehenden VPN bedienbar.
+# Die BinärWriter-Kopfdaten und das bestehende Sitzungsprotokoll ändern sich dadurch nicht.
+function Read-SaveData($Stream, [byte[]]$Buffer, [int]$Count, $Progress, $Tick, [string]$Text, [int64]$Done, [int64]$Total, [int]$TimeoutSeconds = 60) {
+	$operation = $Stream.BeginRead($Buffer, 0, $Count, $null, $null)
+	$deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+	$cancelOperation = $false
+	try {
+		while (-not $operation.AsyncWaitHandle.WaitOne(100)) {
+			if (Write-SaveProgress $Progress $Tick $Text $Done $Total) { $cancelOperation = $true; throw 'Abgebrochen.' }
+			if ([DateTime]::UtcNow -ge $deadline) { $cancelOperation = $true; throw (New-TransferBreak "Seit $TimeoutSeconds Sekunden keine Datenübertragung. $SaveRetryHint") }
+		}
+		return $Stream.EndRead($operation)
+	} catch { if ($cancelOperation) { $Stream.Close() }; throw }
+	finally { $operation.AsyncWaitHandle.Close() }
+}
+
 # Gastgeber: Hat der Mitspieler mitten in der Übertragung etwas geschickt, ist es seine Absage (Byte 0 + Grund).
 function Read-ReceiverAbort($client, $reader, [int]$waitMs) {
 	try {
@@ -120,7 +149,7 @@ function Read-ReceiverAbort($client, $reader, [int]$waitMs) {
 		$ok = $reader.ReadByte()
 		$text = $reader.ReadString()
 		if ($ok -eq 0 -and $text) { return $text }
-	} catch {}
+	} catch { Write-Verbose "Die Antwort des Mitspielers konnte nicht gelesen werden: $($_.Exception.Message)" }
 	return $null
 }
 
@@ -144,6 +173,7 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 		$writer.Write([int64]$total)
 		$done = [int64]0
 		$buffer = New-Object byte[] $SaveChunk
+		$progress = New-SaveProgress
 		foreach ($f in $files) {
 			$writer.Write($f.Name)
 			$writer.Write([int64]$f.Length)
@@ -151,15 +181,21 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 			$in = [System.IO.File]::OpenRead($f.FullName)
 			try {
 				while (($n = $in.Read($buffer, 0, $buffer.Length)) -gt 0) {
-					$writer.Write($buffer, 0, $n)
-					$done += $n
-					# Vor dem Ende antwortet der Mitspieler nur, wenn er abbricht.
-					if ($stream.DataAvailable) {
-						$reason = Read-ReceiverAbort $client $reader 5000
-						if ($reason) { throw "Der Mitspieler hat die Übertragung abgebrochen: $reason" }
-						throw (New-TransferBreak 'Unerwartete Antwort des Mitspielers während der Übertragung.')
+					# Keep the proven 64-KiB socket writes and abort checks even with larger disk
+					# reads. A large pending write can hide a receiver's refusal before it closes.
+					$offset = 0
+					while ($offset -lt $n) {
+						$sendCount = [Math]::Min(65536, $n - $offset)
+						$writer.Write($buffer, $offset, $sendCount)
+						$offset += $sendCount; $done += $sendCount
+						# Vor dem Ende antwortet der Mitspieler nur, wenn er abbricht.
+						if ($stream.DataAvailable) {
+							$reason = Read-ReceiverAbort $client $reader 5000
+							if ($reason) { throw "Der Mitspieler hat die Übertragung abgebrochen: $reason" }
+							throw (New-TransferBreak 'Unerwartete Antwort des Mitspielers während der Übertragung.')
+						}
+						if (Write-SaveProgress $progress $tick "Schicke '$name' ..." $done $total) { throw 'Abgebrochen.' }
 					}
-					if (& $tick "Schicke '$name' ..." $done $total) { throw 'Abgebrochen.' }
 				}
 			} finally { $in.Dispose() }
 		}
@@ -192,17 +228,18 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Session = $null, [int]$MaxAttempts = 5) {
 	$files = Get-SaveFiles $savPath
 	$name = [System.IO.Path]::GetFileNameWithoutExtension($savPath)
+	$hashes = @{}
+	foreach ($f in $files) { $hashes[$f.Name] = Get-FileSha256 $f.FullName }
 	$metadata = $null
 	if ($Session) {
 		Assert-SessionMetadata $Session
-		if ($Session.SaveName -cne $name -or $Session.SaveHash -ne (Get-SessionFileHash $savPath)) { throw 'Der angebotene Spielstand passt nicht mehr zur Sitzung. Bitte erneut vorbereiten.' }
+		$saveHash = ([BitConverter]::ToString($hashes[[IO.Path]::GetFileName($savPath)])).Replace('-', '').ToLowerInvariant()
+		if ($Session.SaveName -cne $name -or $Session.SaveHash -ne $saveHash) { throw 'Der angebotene Spielstand passt nicht mehr zur Sitzung. Bitte erneut vorbereiten.' }
 		$metadata = [Text.Encoding]::UTF8.GetBytes(($Session | ConvertTo-Json -Depth 6 -Compress))
 		if ($metadata.Length -gt 1MB) { throw 'Die Sitzungsbeschreibung ist zu groß.' }
 	}
 	$total = [int64]0
 	foreach ($f in $files) { $total += $f.Length }
-	$hashes = @{}
-	foreach ($f in $files) { $hashes[$f.Name] = Get-FileSha256 $f.FullName }
 
 	$listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $port)
 	$listener.Start()
@@ -240,17 +277,19 @@ function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Se
 # Leerlesen setzt Windows die Verbindung hart zurück und der Gastgeber sieht nur einen Schreibfehler.
 function Send-ReceiverAbort($client, $writer, $text) {
 	try {
+		# On Windows TcpClient.GetStream() can reject the half-closed socket after Shutdown(Send).
+		# Keep the existing stream first so remaining payload is drained before closing it.
+		$stream = $client.GetStream()
 		$client.SendTimeout = 3000
 		$writer.Write([byte]0); $writer.Write([string]$text); $writer.Flush()
 		$client.Client.Shutdown([System.Net.Sockets.SocketShutdown]::Send)
 		$client.ReceiveTimeout = 500
-		$stream = $client.GetStream()
 		$drain = New-Object byte[] 65536
 		$until = [DateTime]::UtcNow.AddSeconds(3)
 		while ([DateTime]::UtcNow -lt $until) {
 			try { if ($stream.Read($drain, 0, $drain.Length) -le 0) { break } } catch { break }
 		}
-	} catch {}
+	} catch { Write-Verbose "Die Absage an den Gastgeber konnte nicht gesendet werden: $($_.Exception.Message)" }
 }
 
 # Mitspieler: ein Übertragungsversuch. Netzwerkfehler kommen als IOException zurück, alles andere ist endgültig.
@@ -269,6 +308,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		try { $client.EndConnect($async) } catch { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt? ($((Get-TransferNetworkError $_.Exception).Message))") }
 		$client.ReceiveTimeout = 60000
 		$client.SendTimeout = 30000
+		$client.ReceiveBufferSize = 1MB
 		$stream = $client.GetStream()
 		$reader = New-Object System.IO.BinaryReader($stream, [System.Text.Encoding]::UTF8)
 		$writer = New-Object System.IO.BinaryWriter($stream, [System.Text.Encoding]::UTF8)
@@ -294,6 +334,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		$received = @()
 		$buffer = New-Object byte[] $SaveChunk
 		$done = [int64]0
+		$progress = New-SaveProgress
 		for ($i = 0; $i -lt $count; $i++) {
 			$fileName = $reader.ReadString()
 			$length = $reader.ReadInt64()
@@ -314,13 +355,13 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 				$left = $length
 				while ($left -gt 0) {
 					$want = [int][Math]::Min([int64]$buffer.Length, $left)
-					$n = $stream.Read($buffer, 0, $want)
+					$n = Read-SaveData $stream $buffer $want $progress $tick "Empfange '$name' ..." $done $total
 					if ($n -le 0) { throw (New-TransferBreak 'Der Gastgeber hat die Verbindung während der Übertragung getrennt.') }
 					$partFile.Write($buffer, 0, $n)
 					[void]$sha.TransformBlock($buffer, 0, $n, $null, 0)
 					$left -= $n
 					$done += $n
-					if (& $tick "Empfange '$name' ..." $done $total) { throw 'Abgebrochen.' }
+					if (Write-SaveProgress $progress $tick "Empfange '$name' ..." $done $total) { throw 'Abgebrochen.' }
 				}
 				[void]$sha.TransformFinalBlock($buffer, 0, 0)
 				if (-not (Test-SameBytes $sha.Hash $hash)) { throw (New-TransferBreak "Die Datei '$fileName' kam beschädigt an.") }

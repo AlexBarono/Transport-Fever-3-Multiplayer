@@ -1,6 +1,9 @@
 ﻿$ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot '..\launcher\launcher.ps1') -LibraryOnly
 $passed=0
+$translated=Get-WorldDifferenceText 'hcon,hpos,hcargo,htown,loan,future'
+if($translated -ne 'Bauwerke, Fahrzeugpositionen, Fracht, Städte, Kredite, future'){throw 'World fields are not explained correctly'}
+$passed++
 foreach($entry in @(@('100.80.12.4',47800),@('100.80.12.4:47900',47900),@('tf3mp://100.80.12.4:47801',47801))) {
     $value=Parse-JoinAddress $entry[0] '47800'
     if($value.Address -ne '100.80.12.4' -or $value.Port -ne $entry[1]){throw 'Endpoint parse failed'}

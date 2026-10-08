@@ -178,7 +178,18 @@ local function child_ref(env, id, kind)
 	local list = kind == "depot" and c.depots or c.stations
 	for i = 1, #list do
 		if list[i] == id then
-			return { kind = kind, parent = construction_ref(env, parent), index = i }
+			local ref = { kind = kind, parent = construction_ref(env, parent), index = i }
+			-- Station.tag is the engine's identity across modular upgrades. Harbors and
+			-- airports can have passenger/cargo stations in a different child order.
+			if kind == "station" then
+				local ok, tag = pcall(function()
+					local tag, count = component(env, id, "STATION").tag, 0
+					for j = 1, #list do if component(env, list[j], "STATION").tag == tag then count = count + 1 end end
+					return count == 1 and tag or nil
+				end)
+				if ok and type(tag) == "number" then ref.tag = tag end
+			end
+			return ref
 		end
 	end
 	error("no " .. kind .. " index in construction")
@@ -205,6 +216,18 @@ end
 local STOP_FIELDS = { "terminal", "loadMode", "minWaitingTime", "maxWaitingTime", "maxAdditionalWaitingTime" }
 local CONFIG_FIELDS = { "load", "maxLoad", "forceUnload", "destroyForConfigChange", "destroyForRefresh" }
 
+local function terminal_tag(env, group, station, terminal)
+	if type(station) ~= "number" or station < 0 or type(terminal) ~= "number" or terminal < 0 then return nil end
+	local ok, tag = pcall(function()
+		local id = assert(group.stations[station + 1], "station index missing")
+		local terminals = component(env, id, "STATION").terminals
+		local tag, count = terminals[terminal + 1].tag, 0
+		for i = 1, #terminals do if terminals[i].tag == tag then count = count + 1 end end
+		return count == 1 and tag or nil
+	end)
+	return ok and type(tag) == "number" and tag or nil
+end
+
 local function line_data(env, id)
 	local l = component(env, id, "LINE")
 	local out = take(l, { "customFilters", "reservationPriority" })
@@ -213,11 +236,14 @@ local function line_data(env, id)
 		local s = l.stops[i]
 		local entry = take(s, STOP_FIELDS)
 		entry.target = stop_ref(env, s)
+		local group = component(env, s.stationGroup, "STATION_GROUP")
+		entry.terminalTag = terminal_tag(env, group, s.station, s.terminal)
 		entry.stopConfig = take(s.stopConfig, CONFIG_FIELDS)
 		entry.alternativeTerminals = {}
 		for j = 1, #s.alternativeTerminals do
 			local t = s.alternativeTerminals[j]
-			entry.alternativeTerminals[j] = { station = t.station, terminal = t.terminal }
+			entry.alternativeTerminals[j] = { station = t.station, terminal = t.terminal,
+				terminalTag = terminal_tag(env, group, t.station, t.terminal) }
 		end
 		-- Preserve geographic waypoints. Edge waypoints need the local base-edge id.
 		entry.waypoints = {}
@@ -276,7 +302,10 @@ end
 
 local function record(env, id, kind)
 	if kind == "account" then
-		return { ref = { kind = "account", key = "player" }, loan = component(env, id, "ACCOUNT").loan }
+		return { ref = { kind = "account", key = "player" }, loan = component(env, id, "ACCOUNT").loan,
+			-- TF3's loan script performs installments itself. Rebooking a snapshot
+			-- change duplicates these payments; player Obtain/Repay events travel instead.
+			managed = env.api.engine.system.gameScriptSystem ~= nil or nil }
 	end
 	if not owned(env, id) then return nil end
 	if kind == "construction" then
@@ -307,6 +336,58 @@ local function record(env, id, kind)
 		if parent and parent >= 0 then return nil end -- Construction internals are removed as a whole.
 		return { ref = edge_ref(env, id) }
 	end
+end
+
+actions.read_record = record
+
+actions.LOAN_SCRIPT = "::/game_mechanics/finance/loan.gs"
+actions.LOAN_SOURCE = "mp_probe_loan"
+local function finite_integer(value, label, minimum)
+	assert(type(value) == "number" and value == value and math.abs(value) <= 9007199254740991
+		and value % 1 == 0 and value >= (minimum or 0), "invalid " .. label)
+	return value
+end
+
+local function loan_value(value, repay)
+	assert(type(value) == "table" or type(value) == "userdata", "loan data missing")
+	local out = take(value, { "type", "amount", "duration", "percentage", "lastPayDay", "timesPaid", "birthDay", "cooldownUntil", "id" })
+	assert(({ Small = true, Medium = true, Large = true, ExtraLarge = true, Custom = true })[out.type], "invalid loan type")
+	finite_integer(out.amount, "loan amount", 1)
+	finite_integer(out.duration, "loan duration", 1)
+	assert(type(out.percentage) == "number" and out.percentage == out.percentage
+		and out.percentage >= 0 and out.percentage <= 1, "invalid loan percentage")
+	if repay then
+		finite_integer(out.id, "loan id")
+		finite_integer(out.timesPaid, "loan payments")
+	end
+	return out
+end
+
+local function loan_table(env)
+	local id = env.api.engine.system.gameScriptSystem.getEntityForGameScript(actions.LOAN_SCRIPT)
+	return assert(component(env, id, "GAME_SCRIPT").state, "loan script state missing")
+end
+
+local function loan_terms(a, b)
+	return a.type == b.type and a.amount == b.amount and a.duration == b.duration and a.percentage == b.percentage
+end
+
+--- Observe the base game's player events. Monthly installments are never actions.
+-- The other game sends the same event to the original loan script, which owns the
+-- interest schedule, obtainedLoans and freeId as well as the journal booking.
+function actions.capture_loan(env, state, src, id, name, loans, log)
+	if id ~= "Loan" or (name ~= "Obtain" and name ~= "Repay") then return false end
+	if src == actions.LOAN_SOURCE then return true end
+	assert(type(loans) == "table", "loan event payload missing")
+	local obtained = loan_value(loans[2], name == "Repay")
+	local availed = loans[1] and loan_value(loans[1], false) or nil
+	local s = state:get() or {}
+	s.actions = s.actions or { snapshots = {}, queue = {}, errors = {} }
+	s.actions.queue[#s.actions.queue + 1] = actions.encode({ op = "loan_event",
+		value = { name = name, availed = availed, obtained = obtained } })
+	state:set(s)
+	if log then log("action loan " .. name .. " captured through the original game event") end
+	return true
 end
 
 --- Run 16: one unreadable entity ("Invalid entity") made the whole snapshot fail. Such entities
@@ -371,7 +452,7 @@ local function changed(kind, r, old)
 		return r.name ~= old.name or r.userStopped ~= old.userStopped or r.autoDeparture ~= old.autoDeparture
 			or not same(r.config, old.config) or line_key(r) ~= line_key(old)
 	end
-	if kind == "account" then return r.loan ~= old.loan end
+	if kind == "account" then return not r.managed and r.loan ~= old.loan end
 	if kind == "line" then
 		-- Run 24: once a bus was put on the copied line, the game filled in its transport modes and
 		-- the copy was sent back as a line change. The modes still travel with every line.
@@ -593,6 +674,14 @@ local function resolve(env, ref, s, peer, offset)
 		local parent = resolve(env, ref.parent, s, peer, offset)
 		local c = component(env, parent, "CONSTRUCTION")
 		local list = ref.kind == "depot" and c.depots or c.stations
+		if ref.kind == "station" and ref.tag ~= nil then
+			local matches = {}
+			for i = 1, #list do
+				local station = component(env, list[i], "STATION")
+				if station.tag == ref.tag then matches[#matches + 1] = list[i] end
+			end
+			return unique(matches, "construction station tag " .. tostring(ref.tag))
+		end
 		return assert(list[ref.index], "construction child index missing")
 	end
 	local matches = {}
@@ -666,10 +755,20 @@ local function make_line(env, value, s, peer, offset, current)
 		local stop = line_type(env, "Stop").new()
 		put_fields(stop, take(entry, STOP_FIELDS))
 		stop.stationGroup, stop.station = group_id, station
+		local function local_terminal(source_station, index, tag)
+			if tag == nil then return index end -- Older action payloads retain their index.
+			local id = assert(station_ids[source_station + 1], "terminal station missing")
+			local terminals = component(env, id, "STATION").terminals
+			local matches = {}
+			for k = 1, #terminals do if terminals[k].tag == tag then matches[#matches + 1] = k - 1 end end
+			return unique(matches, "station terminal tag " .. tostring(tag))
+		end
+		stop.terminal = local_terminal(entry.target.station, entry.terminal, entry.terminalTag)
 		stop.stopConfig = put_fields(line_type(env, "StopConfig").new(), entry.stopConfig)
 		local alternatives = {}
 		for j, alt in ipairs(entry.alternativeTerminals) do
-			alternatives[j] = env.api.type.StationTerminal.new(assert(indexes[alt.station]), alt.terminal)
+			alternatives[j] = env.api.type.StationTerminal.new(assert(indexes[alt.station]),
+				local_terminal(alt.station, alt.terminal, alt.terminalTag))
 		end
 		stop.alternativeTerminals = alternatives
 		local waypoints = {}
@@ -798,6 +897,23 @@ function actions.continue(env, state, log)
 	local task = s.action_work and table.remove(s.action_work, 1)
 	state:set(s)
 	if not task then return end
+	if task.command == "verify_loan" then
+		local loans, count, found = loan_table(env).obtainedLoans, 0, false
+		for _, loan in ipairs(loans) do
+			if loan_terms(loan, task.loan) then count = count + 1 end
+			if loan.id == task.loan.id then found = true end
+		end
+		local reflected = task.name == "Obtain" and count == task.count + 1 or task.name == "Repay" and not found
+		if not reflected then
+			task.tries = (task.tries or 0) + 1
+			assert(task.tries <= 30, "loan event rejected or not applied by original game script")
+			local live = state:get() or {}; live.action_work = live.action_work or {}
+			table.insert(live.action_work, 1, task); state:set(live)
+			return
+		end
+		log("action loan " .. task.name .. " verified in the original loan script")
+		return
+	end
 	local cmd, id, value = env.api.cmd, task.id, task.value
 	local target = component(env, id, task.kind == "line" and "LINE" or "TRANSPORT_VEHICLE")
 	assert(owned(env, id), "follow-up target no longer owned by local player")
@@ -972,12 +1088,34 @@ function actions.replay(env, action, state, peer, offset, log)
 				vehicle_settings(id, value, action.previous)
 			end)
 		else vehicle_settings(id, value, action.previous) end
+	elseif op == "loan_event" then
+		assert(value.name == "Obtain" or value.name == "Repay", "invalid loan event")
+		local obtained = loan_value(value.obtained, value.name == "Repay")
+		local availed = value.availed and loan_value(value.availed, false) or nil
+		local current, count, matches, exact = loan_table(env), 0, {}, nil
+		for _, loan in ipairs(current.obtainedLoans) do
+			if loan_terms(loan, obtained) then
+				count = count + 1; matches[#matches + 1] = loan
+				if loan.id == obtained.id then exact = loan end
+			end
+		end
+		if value.name == "Obtain" then
+			assert(#current.obtainedLoans < 4, "loan limit reached in destination game")
+		else
+			assert(exact or #matches == 1, #matches == 0 and "loan to repay not found" or "loan to repay is ambiguous")
+			-- Repay the destination's current principal and id; never pass the source id
+			-- blindly to the original game script.
+			obtained = loan_value(exact or matches[1], true)
+		end
+		send(cmd.makeScriptingSendEventCmd(actions.LOAN_SOURCE, "Loan", value.name, { availed, obtained }), function()
+			enqueue(state, { { command = "verify_loan", name = value.name, loan = obtained, count = count } })
+		end)
 	elseif op == "account_update" then
 		-- v32: a loan taken or paid back in the other game. The line carries the loan it has now;
 		-- this game books the difference as a loan entry, like the client's checkpoint correction.
 		local player = env.api.engine.util.getPlayer()
-		local loan = assert(tonumber(value.loan), "loan missing")
-		local before = assert(tonumber(component(env, player, "ACCOUNT").loan), "loan unreadable")
+		local loan = finite_integer(value.loan, "loan balance")
+		local before = finite_integer(component(env, player, "ACCOUNT").loan, "current loan balance")
 		if before == loan then
 			updated("account", player, value.ref)
 			log("action account_update: the loan is " .. tostring(loan) .. " here already")
@@ -986,7 +1124,9 @@ function actions.replay(env, action, state, peer, offset, log)
 		local sync = require("/mp_probe/sync.lua")
 		local entry, notes = sync.journal_entry(env, loan - before, "LOAN")
 		assert(entry, "loan booking not possible: " .. tostring(notes))
-		send(cmd.makeJournalBookAssetCmd(player, entry), function()
+		-- The shipped loan script always supplies an explicit position. Keep its
+		-- native call shape rather than relying on an optional argument in bindings.
+		send(cmd.makeJournalBookAssetCmd(player, entry, env.api.type.Vec3f.new(0, 0, 0)), function()
 			local after = component(env, player, "ACCOUNT").loan
 			updated("account", player, value.ref)
 			log(string.format("action account_update: loan %s -> %s (other game %s)%s", tostring(before), tostring(after),

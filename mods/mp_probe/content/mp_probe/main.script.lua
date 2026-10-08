@@ -15,11 +15,13 @@ local sync = require("/mp_probe/sync.lua")
 local gui = require("/mp_probe/gui.lua")
 local transport = require("/mp_probe/transport.lua")
 local fingerprint = require("/mp_probe/fingerprint.lua")
+local timeline = require("/mp_probe/timeline.lua")
+local hold = require("/mp_probe/hold.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 32
+main.PROBE_VERSION = 33
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -40,7 +42,7 @@ main.ENTITY_COMPONENTS = {
 
 --- Events the engine only delivers on subscription. Build proposals are what a multiplayer
 -- bridge has to capture and replay, so their parameter structure is dumped once.
-main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay" }
+main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay", "Obtain", "Repay", "mp_probe_schedule" }
 
 --- Replay test (phase 1, one PC). The copy is built this many metres beside the original so both
 -- are visible; at most MAX_REPLAYS per savegame session. A build with as many segments as the copy
@@ -201,6 +203,9 @@ function main.receive_line(env, s, value, state)
 		end
 		return
 	end
+	-- A logical scheduled action has no native permit of its own. Controls may arrive
+	-- during its callbacks; leave their inbox token untouched until that receipt clears.
+	if s.network_work and s.network_work.token ~= token then return end
 	s.last_line_token = token
 	if state then main.store(state, s) end
 	local offset = kind == "loop" and main.REPLAY_SIDE_OFFSET or 0
@@ -348,7 +353,17 @@ function main.replay_line(env, line, number, state, distance)
 		logger.info("replay: no line in the request")
 		return false, "missing replay line"
 	end
-	if line:sub(1, 3) == "W1 " then return main.world_receive(env, line, state) end
+	if line:sub(1, 3) == "S1 " then
+		local s = state:get() or {}
+		local role = sync.role(env.os and env.os.getenv)
+		if role ~= "host" and role ~= "client" then return false, "common timing needs a prepared peer" end
+		local now = main.game_time(env)
+		if not now then return false, "game time unreadable" end
+		local ok, err = timeline.receive(main.timeline_of(s, role), line, now)
+		state:set(s)
+		return ok, err
+	end
+	if line:sub(1, 3) == "W1 " or line:sub(1, 3) == "W2 " then return main.world_receive(env, line, state) end
 	if line:sub(1, 1) == "A" then
 		local action, err = actions.decode(line)
 		if not action then logger.info("action replay: bad line (" .. tostring(err) .. ")"); return false, err end
@@ -696,6 +711,7 @@ end
 function main.store(state, s)
 	local live = state:get() or {}
 	s.network_work, s.network_done, s.network_followup = live.network_work, live.network_done, live.network_followup
+	s.timeline = live.timeline
 	state:set(s)
 end
 
@@ -808,7 +824,7 @@ function main.update(_user_params, state, _dt)
 			transport.fail(state, "build continuation event unavailable")
 		end
 	end
-	transport.check(state, logger.info)
+	main.check_network(state)
 	s = state:get() or s
 	main.log_network_wait(s)
 	if actions.has_work(s) and not s.action_work_requested then
@@ -821,6 +837,106 @@ function main.update(_user_params, state, _dt)
 			logger.info("action continuation: simulation event unavailable; work remains queued")
 		end
 	end
+	main.timeline_tick(_G, state)
+end
+
+--- The common-tick timeline of this game. A save made by the other game (Neuabgleich) carries its
+-- timeline with the other role; that one is never continued here.
+function main.timeline_of(s, role)
+	if not s.timeline or s.timeline.role ~= role then s.timeline = timeline.new(role) end
+	return s.timeline
+end
+
+-- This entry accepts only intents whose caller has prevented their original execution.
+-- Ordinary TF3 UI capture remains post-execution and must not use this path.
+function main.submit_intent(env, state, param)
+	if type(param) ~= "table" then return false, "held command data missing" end
+	local role = sync.role(env.os and env.os.getenv)
+	if (role ~= "host" and role ~= "client") or env.os.getenv("TF3MP_ORDERING") ~= "1" then
+		return false, "common timing requires the native ordered session"
+	end
+	local s = state:get() or {}
+	local ok, err = timeline.submit(main.timeline_of(s, role), param and param.line, param and param.held)
+	state:set(s)
+	return ok, err
+end
+
+function main.check_network(state)
+	transport.check(state, function(text)
+		local origin, seq, result = text:match("^net result scheduled_(%a+)%.(%d+) (%a+)")
+		if seq then
+			local s = state:get() or {}
+			if s.timeline then timeline.complete(s.timeline, tonumber(seq), result == "OK"); state:set(s) end
+			logger.info("timeline result " .. origin .. "." .. seq .. " " .. result)
+		else logger.info(text) end
+	end)
+end
+
+function main.timeline_tick(env, state)
+	local getenv = env.os and env.os.getenv
+	local role = sync.role(getenv)
+	if (role ~= "host" and role ~= "client") or getenv("TF3MP_ORDERING") ~= "1" then return end
+	local now = main.game_time(env)
+	-- An unreadable clock is skipped, never taken as a timeline failure (that would hold both games).
+	if not now then return end
+	local s = state:get() or {}
+	local m = main.timeline_of(s, role)
+	local peer = sync.decode(getenv("TF3MP_PEER_CLOCK"))
+	local intent = timeline.step(m, now, peer and tonumber(peer.gt))
+	local clock = timeline.clock(m)
+	local raw = sync.encode(clock)
+	if (m.active or m.error or (s.updates or 0) % 5 == 0) and m.published ~= raw then
+		m.published = raw; logger.info(main.STATE_MARKER .. "clock " .. raw)
+	end
+	if m.error and not m.error_logged then
+		m.error_logged = true; logger.info("timeline stopped: " .. m.error)
+		logger.info(main.STATE_MARKER .. "health ck=" .. (s.sync and s.sync.own_k or 0) .. " status=diff fields=clock")
+	end
+	local line = timeline.take(m)
+	-- Save before any engine command: its callback can replace the live receipt/timeline.
+	state:set(s)
+	if line then
+		transport.send(line, s, logger.info)
+		local live = state:get() or {}
+		live.transport_seq = math.max(live.transport_seq or 0, s.transport_seq or 0)
+		state:set(live)
+	end
+	if clock.hold == 1 then sync.set_speed(env, 0) end
+	if intent then
+		local live = state:get() or {}
+		if live.network_work then timeline.reject(live.timeline, "another engine action is still active at the common tick"); state:set(live); return end
+		local token = "scheduled_" .. intent.origin .. "." .. intent.seq
+		if not main.send_replay_event(env, { line = intent.line, number = token, offset = 0, source = "scheduled",
+			schedule_seq = intent.seq, schedule_at = intent.at }) then
+			live = state:get() or live
+			timeline.reject(live.timeline, "common execution event unavailable"); state:set(live)
+		end
+	end
+end
+
+-- GUI sends this event while paused, when simulation update() no longer runs.
+-- It advances only transport and existing work, never polling/capturing new UI actions.
+function main.paused_network_tick(env, state)
+	local getenv = env.os and env.os.getenv
+	local role = sync.role(getenv)
+	if (role ~= "host" and role ~= "client") or getenv("TF3MP_ORDERING") ~= "1" then return end
+	local wrapped = transport.env(env, state)
+	main.network_run(wrapped, state)
+	local s = state:get() or {}
+	if actions.has_work(s) then
+		local ok, err = pcall(actions.tick, wrapped, state, transport.action_log(state, logger.info))
+		if not ok then transport.fail(state, main.error_text(err)) end
+	end
+	s = state:get() or {}
+	if s.weld_checks and #s.weld_checks > 0 then
+		local ok, err = pcall(main.recheck_welds, env, s, function(text) transport.fail(state, text) end)
+		if not ok then s.weld_checks = nil; transport.fail(state, main.error_text(err)) end
+		main.store(state, s)
+	end
+	main.check_network(state)
+	s = state:get() or {}
+	if main.bridge_has_work(env, s) then main.bridge_tick(env, 0, s, state, true) end
+	main.timeline_tick(env, state)
 end
 
 --- The simulation side of keeping the games in step (sync.lua), once per update.
@@ -846,18 +962,35 @@ function main.sync_tick(env, s)
 	if role ~= "host" and role ~= "client" then return end
 	if sync.at_checkpoint(gt) then
 		local k = sync.checkpoint_of(gt)
-		if k ~= ss.own_k then
-			local values, failed = sync.values(env, gt)
+		if k ~= (ss.capture_k or ss.own_k) and not ss.world_pending then
+			local values, failed, job = sync.values(env, gt, true)
 			values.ck = k
 			-- Money this game booked to follow the host (the simulated host in tools\fake-partner.ps1
 			-- needs it to keep its own difference).
 			if role == "client" then values.adj = ss.adj or 0 end
-			ss.own, ss.own_k = sync.keep(ss.own, k, values), k
-			if #failed > 0 and ss.failed_logged ~= table.concat(failed, ",") then
-				ss.failed_logged = table.concat(failed, ",")
-				logger.info("sync: checkpoint values unreadable: " .. ss.failed_logged)
+			ss.capture_k = k
+			if job then ss.world_pending = { values = values, failed = failed, job = job }
+			else main.sync_publish(ss, values, failed) end
+		end
+	end
+	-- Engine records are captured at one game tick. Only pure-data hashing continues later;
+	-- moving positions/cargo must never be re-read across several simulation ticks.
+	if ss.world_pending then
+		local pending = ss.world_pending
+		local hashes, failed, stats, lists = sync.world_step(env, pending.job)
+		if hashes then
+			for field, value in pairs(hashes) do pending.values[field] = value end
+			for _, field in ipairs(failed or {}) do pending.failed[#pending.failed + 1] = field end
+			ss.world_lists = ss.world_lists or {}
+			ss.world_lists[pending.values.ck] = { gt = pending.values.gt, lists = lists or {} }
+			for key in pairs(ss.world_lists) do
+				if key <= pending.values.ck - sync.KEEP then ss.world_lists[key] = nil end
 			end
-			logger.info(main.STATE_MARKER .. "sim " .. sync.encode(values))
+			if stats then
+				logger.info("world scan ck=" .. pending.values.ck .. " " .. sync.encode(stats))
+			end
+			main.sync_publish(ss, pending.values, pending.failed)
+			ss.world_pending = nil
 		end
 	end
 	if ss.ticks % main.SYNC_READ_EVERY == 0 then
@@ -870,6 +1003,15 @@ function main.sync_tick(env, s)
 		main.sync_compare(env, ss, role, gt)
 	end
 	main.sync_speed_fallback(env, ss, role, gt, getenv)
+end
+
+function main.sync_publish(ss, values, failed)
+	ss.own, ss.own_k = sync.keep(ss.own, values.ck, values), values.ck
+	if #failed > 0 and ss.failed_logged ~= table.concat(failed, ",") then
+		ss.failed_logged = table.concat(failed, ",")
+		logger.info("sync: checkpoint values unreadable: " .. ss.failed_logged)
+	end
+	logger.info(main.STATE_MARKER .. "sim " .. sync.encode(values))
 end
 
 --- Compares every checkpoint both games have and that was not compared yet.
@@ -887,12 +1029,13 @@ function main.sync_compare(env, ss, role, gt)
 					#fields == 0 and "same" or ("differs in " .. table.concat(fields, ", "))))
 				for _, note in ipairs(out.notes) do logger.info("sync: " .. note) end
 				for _, warning in ipairs(out.warnings) do logger.info("sync WARNING: the games differ: " .. warning) end
-				local world_status = out.world_mismatch and "diff" or (out.world_different or 0) > 0 and "checking"
+				local world_status = (out.world_mismatch or out.needs_resync) and "diff" or (out.world_different or 0) > 0 and "checking"
 					or (out.world_fields or 0) == #(sync.HASH_FIELDS or {}) and (out.world_fields or 0) > 0 and "same" or "unknown"
 				local world_fields = {}
 				for _, field in ipairs(sync.HASH_FIELDS or {}) do
 					if out.diffs[field] then world_fields[#world_fields + 1] = field end
 				end
+				if out.needs_resync and out.diffs.loan then world_fields[#world_fields + 1] = "loan" end
 				logger.info(main.STATE_MARKER .. "health ck=" .. p.k .. " status=" .. world_status ..
 					" fields=" .. (#world_fields > 0 and table.concat(world_fields, ",") or "none"))
 				if world_status == "diff" then
@@ -914,6 +1057,32 @@ end
 -- receiver logs which records only it has and which only the other game has (main.world_receive),
 -- so one log names both sides. Sent once per category and own digest.
 main.WORLD_PART_BYTES = 5800
+main.WORLD_MAX_RECORDS = 128
+main.WORLD_MAX_PARTS = 8
+
+-- Diagnostics use the immutable records that produced the compared digest. Never walk the
+-- live world again several seconds later, especially for moving vehicles and cargo.
+function main.world_send_snapshot(ss, own, field, list)
+	local parts, current, size, sent = {}, {}, 0, 0
+	local total = list.total or #list
+	for i = 1, math.min(#list, main.WORLD_MAX_RECORDS) do
+		local r = list[i]
+		local description = tostring(r.d or ""):sub(1, 320)
+		local item = r.h .. ":" .. build.escape(description)
+		if size + #item + 1 > main.WORLD_PART_BYTES and #current > 0 then
+			parts[#parts + 1] = current; current, size = {}, 0
+			if #parts >= main.WORLD_MAX_PARTS then break end
+		end
+		current[#current + 1] = item; size = size + #item + 1; sent = sent + 1
+	end
+	if #current > 0 or #parts == 0 then parts[#parts + 1] = current end
+	for i, items in ipairs(parts) do
+		transport.send(string.format("W2 %s %d %.0f %d %d %s %d %d %s", field, own.ck, own.gt,
+			i, #parts, own[field], total, (list.truncated or sent < total) and 1 or 0, #items > 0 and table.concat(items, " ") or "-"), {}, logger.info)
+	end
+	logger.info(string.format("world list %s ck=%d: %d/%d snapshot records sent%s", field, own.ck,
+		sent, total, (list.truncated or sent < total) and " (diagnostic limit)" or ""))
+end
 
 function main.world_send(env, ss, own, fields)
 	ss.world_sent = ss.world_sent or {}
@@ -923,6 +1092,12 @@ function main.world_send(env, ss, own, fields)
 		for k, f in pairs(fingerprint.FIELDS) do if f == field then kind = k end end
 		if kind and digest and ss.world_sent[field] ~= digest then
 			ss.world_sent[field] = digest
+			local cached = ss.world_lists and ss.world_lists[own.ck]
+			local snapshot = cached and cached.gt == own.gt and (cached.lists[field] or cached.lists[kind])
+			if snapshot then main.world_send_snapshot(ss, own, field, snapshot)
+			elseif own.wgt then
+				logger.info("world list " .. field .. ": original checkpoint snapshot unavailable; no fresh live comparison")
+			else
 			local list = fingerprint.list(env, kind)
 			local parts, current = {}, {}
 			local size = 0
@@ -939,12 +1114,78 @@ function main.world_send(env, ss, own, fields)
 					#items > 0 and table.concat(items, " ") or "-"), {}, logger.info)
 			end
 			logger.info(string.format("world list %s: %d records sent to the other game in %d part(s)", field, #list, #parts))
+			end
 		end
 	end
 end
 
+function main.world_receive_snapshot(line, state)
+	local field, ck, gt, index, count, digest, total, clipped, rest = line:match(
+		"^W2 (%a+) (%d+) (%d+) (%d+) (%d+) (h%d+_%x+) (%d+) ([01]) (.*)$")
+	ck, gt, index, count, total = tonumber(ck), tonumber(gt), tonumber(index), tonumber(count), tonumber(total)
+	local kind
+	for k, f in pairs(fingerprint.FIELDS) do if f == field then kind = k end end
+	if not kind or not count or count < 1 or count > main.WORLD_MAX_PARTS or index < 1 or index > count
+		or #rest > main.WORLD_PART_BYTES or total > 100000 then
+		logger.info("world list: invalid snapshot diagnostic"); return true
+	end
+	local s = state and (state:get() or {}) or {}
+	local cache = s.sync and s.sync.world_lists and s.sync.world_lists[ck]
+	local own = cache and cache.gt == gt and (cache.lists[field] or cache.lists[kind])
+	if not own then logger.info("world list " .. field .. ": matching snapshot unavailable, skipped"); return true end
+	s.world_rx = s.world_rx or {}
+	local key = field .. ":" .. ck .. ":" .. gt .. ":" .. digest
+	local rx = s.world_rx[field]
+	if not rx or rx.key ~= key then rx = { key = key, count = count, total = total, clipped = clipped, parts = {}, got = 0 }; s.world_rx[field] = rx end
+	if rx.count ~= count or rx.total ~= total or rx.clipped ~= clipped then return true end
+	if rx.parts[index] then return true end
+	rx.parts[index] = rest; rx.got = rx.got + 1
+	if rx.got == count then
+		local here, there, descriptions = {}, {}, {}
+		for _, r in ipairs(own) do here[r.h] = (here[r.h] or 0) + 1 end
+		local received = 0
+		for i = 1, count do
+			for item in rx.parts[i]:gmatch("%S+") do
+				local h, d = item:match("^(%x+):(.*)$")
+				if h then
+					received = received + 1
+					if received > main.WORLD_MAX_RECORDS then s.world_rx[field] = nil; if state then state:set(s) end; return true end
+					there[h] = (there[h] or 0) + 1; descriptions[h] = build.unescape(d)
+				end
+			end
+		end
+		if received > total or (clipped == "0" and received ~= total) then
+			s.world_rx[field] = nil
+			if state then state:set(s) end
+			logger.info("world list: invalid snapshot record count"); return true
+		end
+		local only_here, only_there, shown = 0, 0, 0
+		for h, n in pairs(there) do
+			if not own.truncated and n > (here[h] or 0) then
+				only_there = only_there + n - (here[h] or 0)
+				if shown < 16 then logger.info("world diff " .. field .. " only in the other snapshot: " .. descriptions[h]); shown = shown + 1 end
+			end
+		end
+		if clipped == "0" then
+			for _, r in ipairs(own) do
+				if (here[r.h] or 0) > (there[r.h] or 0) then
+					only_here = only_here + 1; here[r.h] = here[r.h] - 1
+					if shown < 16 then logger.info("world diff " .. field .. " only in this snapshot: " .. r.d); shown = shown + 1 end
+				end
+			end
+		end
+		logger.info(string.format("world diff %s ck=%d gt=%.0f: %d only here, %d only there%s", field, ck, gt,
+			only_here, only_there, (clipped == "1" and "; remote list truncated, missing remote records are not differences" or "") ..
+			(own.truncated and "; local list truncated, missing local records are not differences" or "")))
+		s.world_rx[field] = nil
+	end
+	if state then state:set(s) end
+	return true
+end
+
 --- Handles a W1 line from the other game (main.world_send): logs the records that differ.
 function main.world_receive(env, line, state)
+	if line:sub(1, 3) == "W2 " then return main.world_receive_snapshot(line, state) end
 	local field, index, count, digest, total, rest = line:match("^W1 (%a+) (%d+) (%d+) (%S+) (%d+) (.*)$")
 	if not field then logger.info("world list: bad line"); return true end
 	index, count = tonumber(index), tonumber(count)
@@ -1073,6 +1314,13 @@ end
 
 --- Without a GUI script the simulation keeps the shared speed (it stops while paused).
 function main.sync_speed_fallback(env, ss, role, gt, getenv)
+	local common = sync.decode(getenv("TF3MP_OWN_CLOCK"))
+	if common and (common.hold == 1 or common.phase == "failed" or
+		(tonumber(common.at) and common.at > 0 and gt >= common.at and common.phase ~= "idle")) then
+		-- The shared speed register describes the user's speed, not this temporary barrier.
+		sync.set_speed(env, 0)
+		return
+	end
 	local own_gui = sync.decode(getenv("TF3MP_OWN_GUI"))
 	if own_gui and own_gui.src == "gui" then ss.gui_seen = true end
 	if ss.gui_seen or ss.ticks < main.SYNC_FALLBACK_AFTER then return end
@@ -1108,6 +1356,15 @@ end
 --- GUI script (main.gs.lua): runs on every frame, also while the game is paused.
 function main.guiUpdate()
 	gui.update(_G)
+end
+
+--- GUI events (main.gs.lua, probe v33): what TF3's tools announce before they execute
+-- (hold.lua). Never lets an error reach the game's UI; nil means no objection.
+function main.guiHandleEvent(_user_params, _state, _gui_state, src, id, name, param)
+	local ok, result = pcall(hold.event, _G, src, id, name, param)
+	if ok then return result end
+	logger.info("gui event failed: " .. main.error_text(result):sub(1, 200))
+	return nil
 end
 
 --- True for a build proposal the player made (new road or track segments, or a construction owned
@@ -1283,13 +1540,27 @@ function main.remember_constructions(env, s, param)
 end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
+	if name == "mp_probe_schedule" or id == "mp_probe_schedule" then
+		local ok, err = main.submit_intent(_G, state, param)
+		if not ok then logger.info("timeline intent rejected: " .. tostring(err)) end
+		return
+	end
 	if main.is_replay_event(src, id, name) then
+		if type(param) == "table" and param.timeline_tick then
+			local ok, err = pcall(main.paused_network_tick, _G, state)
+			if not ok then
+				local live = state:get() or {}
+				if live.timeline then timeline.reject(live.timeline, main.error_text(err)); state:set(live) end
+				logger.info("paused network tick failed: " .. main.error_text(err):sub(1, 240))
+			end
+			return
+		end
 		if type(param) == "table" and param.network_continue then
 			local env = transport.env(_G, state)
 			local ok, err = pcall(main.network_continue, env, state)
 			if ok then ok, err = pcall(main.network_run, env, state) end
 			if not ok then transport.fail(state, err) end
-			transport.check(state, logger.info)
+			main.check_network(state)
 			return
 		end
 		if type(param) == "table" and param.sync_fix then
@@ -1306,7 +1577,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 				transport.fail(state, main.error_text(err))
 				logger.info("action continuation failed: " .. main.error_text(err):sub(1, 400))
 			end
-			transport.check(state, logger.info)
+			main.check_network(state)
 			return
 		end
 		local line = type(param) == "table" and param.line or nil
@@ -1320,6 +1591,11 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			line = s.last_build
 		end
 		local network = type(param) == "table" and param.source ~= nil
+		if type(param) == "table" and param.schedule_seq and main.game_time(_G) ~= param.schedule_at then
+			local live = state:get() or {}
+			if live.timeline then timeline.reject(live.timeline, "engine event missed the common tick"); state:set(live) end
+			logger.info("timeline execution rejected after its tick"); return
+		end
 		if network then
 			local live = state:get() or {}
 			if live.network_done and live.network_done.token == tostring(number) then
@@ -1337,9 +1613,17 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 				local ok_run, err_run = pcall(main.network_run, env, state)
 				if not ok_run then transport.fail(state, err_run) end
 			end
-			transport.dispatched(state); transport.check(state, logger.info)
+			transport.dispatched(state); main.check_network(state)
 		elseif not ok then logger.info("replay failed: " .. main.error_text(applied)) end
 		return
+	end
+	-- The base game's Loan script owns repayment schedules. Capture its player events,
+	-- never infer another loan request from its automatic monthly account movements.
+	local role = sync.role(_G.os and _G.os.getenv)
+	if (role == "host" or role == "client") and actions.capture_loan then
+		local ok, captured = pcall(actions.capture_loan, _G, state, src, id, name, param, logger.info)
+		if not ok then logger.info("loan capture failed: " .. main.error_text(captured):sub(1, 200))
+		elseif captured then return end
 	end
 	local s = state:get() or {}
 	if name == "handleLegacy" then
@@ -1352,6 +1636,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 		s.network_followup = nil
 		-- The other game's checkpoints and corrections belong to the session before.
 		s.sync = nil
+		s.timeline = nil
 	end
 	-- Event counts live in the savegame; start over for each probe version so a new version dumps again.
 	if s.seen_events_version ~= main.PROBE_VERSION then

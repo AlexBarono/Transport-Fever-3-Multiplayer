@@ -98,10 +98,21 @@ local function game(role)
 		local base = ({ TRANSPORT_VEHICLE = 1000, STATION = 2000, CONSTRUCTION = 3000 })[c]
 		for i = 0, n - 1 do fn(base + i) end
 	end
+	function engine.getEntitiesWithComponent(c, filters)
+		local out = {}
+		engine.forEachEntityWithComponent(function(id)
+			if not filters or engine.getComponent(id, "PLAYER_OWNED").player == filters.requireOwnedByPlayer then out[#out + 1] = id end
+		end, c)
+		return out
+	end
 	local JE = { Type = { LOAN = 0, CONSTRUCTION = 2, OTHER = 6 }, Other = { CHEAT = 3 } }
 	function JE.new() return { amount = 0, time = 0, category = { type = 0, other = 0 } } end
 	local cmd = {}
-	function cmd.makeJournalBookAssetCmd(player, entry) return { name = "book", player = player, entry = entry } end
+	function cmd.makeJournalBookAssetCmd(player, entry, position)
+		-- The position is optional (api/cmd.d.tl); runs 24-30 booked without one.
+		assert(position == nil or (position.x and position.y and position.z), "journal position must be a Vec3f")
+		return { name = "book", player = player, entry = entry }
+	end
 	function cmd.makeGameSetDateCmd(date) return { name = "date", date = date } end
 	function cmd.makeGameSetSpeedCmd(speed) return { name = "speed", speed = speed } end
 	function cmd.makeScriptingSendEventCmd(a, b, c, d) return { name = "event", args = { a, b, c, d } } end
@@ -127,6 +138,7 @@ local function game(role)
 	end
 	g.api = { engine = engine, cmd = cmd,
 		type = { ComponentType = ct, JournalEntry = JE,
+			Vec3f = { new = function(x, y, z) return { x = x, y = y, z = z } end },
 			Date = { addOffsetDays = function(d, n) return date_of(sync.days(d.year, d.month, d.day) + n) end } } }
 	g.os = { getenv = function(name) return g.vars[name] end, clock = function() return g.clock end }
 	g.env = { api = g.api, os = g.os }
@@ -575,7 +587,7 @@ test("journal corrections request the game's current time with the required sent
 	local g = game("client")
 	-- JE.new() starts at time=0; the real game's command rejects that default (run 27).
 	local entry = g.api.type.JournalEntry.new()
-	assert(not pcall(g.api.cmd.sendCommand, g.api.cmd.makeJournalBookAssetCmd(7, entry)))
+	assert(not pcall(g.api.cmd.sendCommand, g.api.cmd.makeJournalBookAssetCmd(7, entry, g.api.type.Vec3f.new(0, 0, 0))))
 	for _, amount in ipairs({ 5000, -5000 }) do
 		local ok = sync.book(g.env, amount, "OTHER")
 		assert(ok and g.sent[#g.sent].entry.time == -1 and g.sent[#g.sent].entry.amount == amount)
@@ -627,6 +639,10 @@ test("the installed mod manifest lists sync.lua and gui.lua, and the GUI script 
 	assert(loadfile(MOD_ROOT .. "/mp_probe/main.gs.lua"))()
 	local desc = data()
 	assert(desc.guiUpdateScript.fileName == "main.script@guiUpdate" and type(main.guiUpdate) == "function")
+	-- v33: the GUI event hook (hold.lua) is registered and listed.
+	assert(desc.guiHandleEventScript.fileName == "main.script@guiHandleEvent" and type(main.guiHandleEvent) == "function")
+	assert(manifest:find('"mp_probe/hold.lua"', 1, true) and manifest:find('"mp_probe/timeline.lua"', 1, true))
+	assert(main.guiHandleEvent({}, nil, nil, "", "x", "y", nil) == nil)
 end)
 
 test("world content differences require two consecutive checkpoints and never modify the world", function()
@@ -729,6 +745,92 @@ test("without a save function the host is told to save by hand, once per differe
 	host.vars.TF3MP_OWN_HEALTH = "ck=" .. (3 + gui.RESYNC_EVERY) .. " fields=hcon status=diff"
 	host.gui()
 	assert(has(host.logs, "resync: saving 'TF3MP-Neuabgleich' did not work: ") and not has(host.logs, "gui sync failed"))
+end)
+
+test("app.saveGame as a callable table (run 35) is called like a function", function()
+	local host = game("host")
+	host.saves = {}
+	host.env.app = { saveGame = setmetatable({}, { __call = function(_, name, cb, editor, skip)
+		host.saves[#host.saves + 1] = { name = name, editor = editor, skip = skip }
+		cb()
+	end }) }
+	host.vars.TF3MP_OWN_HEALTH = "ck=4 fields=hcon status=diff"
+	host.gui()
+	assert(#host.saves == 1 and host.saves[1].name == gui.RESYNC_SAVE and host.saves[1].skip == true)
+	assert(has(host.logs, "resync: saved 'TF3MP-Neuabgleich' at check 4") and not has(host.logs, "save by hand"))
+end)
+
+test("moving-world hashes are comparable only at identical actual simulation ticks", function()
+	local own = { gt = 60000, wgt = 60000, hpos = "h2_0000000000000001", hcargo = "h2_0000000000000003", htown = "h2_0000000000000005" }
+	local peer = copy(own); peer.hpos = "h2_0000000000000002"
+	local m, out = {}, nil
+	out = sync.compare(m, 1, own, peer, "host", 1)
+	assert(out.world_fields == 3 and out.world_different == 1 and not out.world_mismatch)
+	out = sync.compare(m, 2, own, peer, "host", 2)
+	assert(out.world_mismatch)
+	peer.gt, peer.wgt = 60200, 60200
+	out = sync.compare(m, 3, own, peer, "host", 3)
+	assert(out.world_fields == 0 and not out.world_mismatch and #out.world_unreadable == 7)
+	peer.gt, peer.wgt = 60000, nil
+	out = sync.compare(m, 4, own, peer, "host", 4)
+	assert(out.world_fields == 0 and not out.world_mismatch)
+end)
+
+test("managed loan differences request resync without journal or compensating money bookings", function()
+	local own = { money = 1000000, loan = 2750001, loanmanaged = 1 }
+	local peer = { money = 1083333, loan = 2833334, loanmanaged = 1 }
+	local m, out = {}, nil
+	for k = 1, 3 do
+		out = sync.compare(m, k, own, peer, "client", k)
+		assert(next(out.fix) == nil, "native loan schedules must never be replicated by journal deltas")
+	end
+	assert(out.loan_mismatch and out.needs_resync)
+	out = sync.compare(m, 4, own, own, "client", 4)
+	assert(not out.loan_mismatch and not out.needs_resync)
+end)
+
+test("the official game-script system marks its account loan as managed", function()
+	local g = game("client")
+	g.api.engine.system.gameScriptSystem = {}
+	local values = sync.values(g.env, g.gt)
+	assert(values.loanmanaged == 1 and values.loan == 0)
+end)
+
+test("a committed common-tick hold pauses without changing the shared speed version", function()
+	local g = game("host"); g.speed, g.gt = 3, 1200
+	g.gui()
+	local before = sync.decode(g.vars.TF3MP_OWN_GUI)
+	g.vars.TF3MP_OWN_CLOCK = "at=1200 phase=committed hold=1"
+	for _ = 1, 3 do g.gui() end
+	assert(g.speed == 0)
+	local after = sync.decode(g.vars.TF3MP_OWN_GUI)
+	assert(after.ver == before.ver and after.speed == 3 and after.run == 3)
+	local held = sync.decode(g.vars.TF3MP_OWN_CLOCKUI)
+	assert(held.hold == 1 and held.run == 3)
+	assert(not has(g.logs, "speed changed here: paused") and not has(g.logs, "gui sync failed"))
+end)
+
+test("a remembered common-tick hold restores its speed after the clock becomes idle", function()
+	local g = game("client"); g.speed, g.gt = 0, 1200
+	g.vars.TF3MP_OWN_GUI = "speed=3 ver=8 by=client run=3 tg=3 src=gui hb=9"
+	g.vars.TF3MP_OWN_CLOCKUI = "hold=1 run=3"
+	g.vars.TF3MP_OWN_CLOCK = "at=1200 phase=idle hold=0"
+	g.gui()
+	assert(g.speed == 3 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).hold == 0)
+	g.gui(); g.gui()
+	local restored = sync.decode(g.vars.TF3MP_OWN_GUI)
+	assert(restored.ver == 8 and restored.speed == 3 and restored.run == 3)
+	assert(not has(g.logs, "speed changed here: paused") and not has(g.logs, "gui sync failed"))
+end)
+
+test("invalid, fractional, non-finite and unsafe journal amounts are rejected before sending", function()
+	local g = game("client")
+	for _, amount in ipairs({ 0 / 0, math.huge, -math.huge, 0.5, 9007199254740992, -9007199254740992, "5000" }) do
+		local ok, notes = sync.book(g.env, amount, "LOAN")
+		assert(ok == false and notes:find("invalid journal amount", 1, true))
+	end
+	local ok, notes = sync.book(g.env, 5000, "MADE_UP")
+	assert(ok == false and notes:find("unsupported journal category", 1, true) and #g.sent == 0)
 end)
 
 print(string.format("%d sync tests passed, %d failed", passed, failed))

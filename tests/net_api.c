@@ -30,4 +30,6 @@ __declspec(dllexport) int mp_inbox(char *out) { return net_inbox_value(out,NET_L
 __declspec(dllexport) int mp_part(const char *token,int index) { return net_inbox_part_ack(token,index); }
 __declspec(dllexport) int mp_result(const char *token,const char *result) { return net_inbox_result(token,result); }
 __declspec(dllexport) void mp_status(char *out) { net_status(out,1024); }
+__declspec(dllexport) void mp_order(char *out) { net_order_value(out,192); }
+__declspec(dllexport) int mp_peer_state(char *key, char *text) { return net_take_peer_state(key,text); }
 __declspec(dllexport) void mp_stop(void) { net_stop(); }

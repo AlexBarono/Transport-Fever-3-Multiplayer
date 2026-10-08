@@ -91,6 +91,9 @@ Kurz gesagt: Das Depot wird allein gebaut. Danach lässt der Mod das Spiel den A
 | Bahnhofserweiterung: Bahnhof doppelt. | Ein erweiterter Bahnhof ersetzt den alten. | v26: alten und neuen Bahnhof paaren (`old2new`). |
 | Ein unlesbares Fahrzeug blockierte alle weiteren. | Ein Fehler stoppte die ganze Abfrage. | v26: jeden Eintrag einzeln absichern. |
 | Spiel startete im falschen Modus (Lauf 20). | Das Spiel wurde gestartet, bevor der Launcher die Einstellung gespeichert hatte. | Bedienregel: erst im Launcher installieren, dann das Spiel starten. |
+| Kredit aufgenommen, danach „peer rejected“ und Stillstand (Lauf 35, VPN). | v32 schickte jede Kreditänderung, auch die automatischen Monatsraten. Der Mitspieler buchte sie als neue Kredite, eine Buchung wurde abgelehnt und blockierte die Warteschlange. | v33 (Codex): Kredite gehören dem Kreditskript des Spiels (`game_mechanics/finance/loan.script.tl`). Übertragen wird nur sein Ereignis `Loan`/`Obtain` bzw. `Repay`; jedes Spiel bucht die Raten selbst. |
+| „resync: this game cannot save from the mod (table: …)“ (Lauf 35). | `app.saveGame` ist im GUI-Zustand eine aufrufbare Tabelle, keine Funktion. | v33: auch aufrufbare Tabellen aufrufen. |
+| Gleichzeitige Aktionen an verschiedenen Stellen machten Probleme. | Beide Richtungen bauten gleichzeitig nach. | DLL v12 (Codex): immer nur ein fremder Nachbau, vom Gastgeber abwechselnd freigegeben. |
 
 Die Fehler aus run27 bis run29 (Übertragung, Wiederaufnahme, Bahnhofsersatz) hat ChatGPT gelöst. Sie stehen in `docs/phase4-reliable-transport.md`.
 
@@ -102,6 +105,7 @@ Die Fehler aus run27 bis run29 (Übertragung, Wiederaufnahme, Bahnhofsersatz) ha
 - Vom Spiel gelesene Listen sind Kopien: ganz zuweisen, dann zurücklesen.
 - Gebäude mit Zufahrt allein bauen und den Anschluss vom Spiel berechnen lassen (`refreshConstruction`).
 - Jeder Fehler aus einem Spieltest wird ein Offline-Test mit der echten Protokollzeile, bevor die Lösung ins Paket kommt.
+- Die Skripte des Spiels liegen lesbar in `base/content/*.zip` (Teal-Quellen). Wie TF3 selbst etwas macht, steht dort; erst nachsehen, dann raten.
 
 ## Mehr Details
 

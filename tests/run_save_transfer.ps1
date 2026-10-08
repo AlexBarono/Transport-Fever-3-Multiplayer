@@ -1,11 +1,14 @@
 ﻿# Offline-Test der Spielstand-Übertragung (tools\save-transfer.ps1) über 127.0.0.1.
 # Aufruf aus dem Hauptordner: pwsh -File tests\run_save_transfer.ps1  (oder powershell -File ...)
+[CmdletBinding()]
+param([string]$Only = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $root 'tools\save-transfer.ps1')
 
 $passed = 0; $failed = 0
 function Test($name, $fn) {
+	if ($Only -and $name -notlike $Only) { return }
 	try { & $fn; $script:passed++ } catch { $script:failed++; Write-Host "FAIL ${name}: $($_.Exception.Message)" }
 }
 function Assert($cond, $msg) { if (-not $cond) { throw "assertion failed: $msg" } }
@@ -70,7 +73,52 @@ Test 'a save and its preview arrive intact' {
 		Assert (Test-SameBytes (Get-FileSha256 (Join-Path $hostDir $f)) (Get-FileSha256 (Join-Path $clientDir $f))) $f
 	}
 	Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'no .part left'
-	Assert ($ticks -gt 10) "progress ticks $ticks"
+	Assert ($ticks -gt 0) "progress ticks $ticks"
+}
+
+Test 'payload progress is throttled but initial and final bytes are shown' {
+	$seen = @{ Calls = 0; First = -1; Last = -1 }
+	$meter = New-SaveProgress
+	$paint = { param($text, $done, $total) if (-not $seen.Calls) { $seen.First = $done }; $seen.Last = $done; $seen.Calls++; $false }
+	for ($i = 1; $i -le 1500; $i++) { Write-SaveProgress $meter $paint 'payload' $i 1500 | Out-Null }
+	Assert ($seen.First -eq 1 -and $seen.Last -eq 1500) 'first/final progress'
+	Assert ($seen.Calls -lt 20) "avoids per-chunk UI repaint ($($seen.Calls) calls)"
+	$meter.LastMs = -100
+	Assert (Write-SaveProgress $meter { $true } 'payload' 1 2) 'cancel preserved'
+}
+
+function New-StalledTransferPair {
+	$listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0)
+	$listener.Server.ReceiveBufferSize = 1024
+	$listener.Start()
+	try {
+		$client = New-Object Net.Sockets.TcpClient
+		$client.SendBufferSize = 1024
+		$client.Connect('127.0.0.1', $listener.LocalEndpoint.Port)
+		$server = $listener.AcceptTcpClient()
+		return @{ Client = $client; Server = $server }
+	} finally { $listener.Stop() }
+}
+
+Test 'the receiver can cancel while a connected sender stops delivering bytes' {
+	$pair = New-StalledTransferPair
+	try {
+		$err = ''; $started = [DateTime]::UtcNow
+		try { Read-SaveData $pair.Client.GetStream() (New-Object byte[] 1024) 1024 (New-SaveProgress) { $true } 'Empfange ...' 0 1024 | Out-Null } catch { $err = $_.Exception.Message }
+		Assert ($err -eq 'Abgebrochen.') $err
+		Assert (([DateTime]::UtcNow - $started).TotalSeconds -lt 2) 'cancel is responsive without socket data'
+	} finally { $pair.Client.Close(); $pair.Server.Close() }
+}
+
+Test 'a receiver that cannot make progress reaches the bounded network timeout' {
+	$fakeStream = [pscustomobject]@{ Closed = $false; Operation = [pscustomobject]@{ AsyncWaitHandle = (New-Object Threading.ManualResetEvent($false)) } }
+	$fakeStream | Add-Member ScriptMethod BeginRead { param($buffer, $offset, $count, $callback, $state) return $this.Operation }
+	$fakeStream | Add-Member ScriptMethod EndRead { throw 'not completed' }
+	$fakeStream | Add-Member ScriptMethod Close { $this.Closed = $true }
+	$err = ''; $started = [DateTime]::UtcNow
+	try { Read-SaveData $fakeStream (New-Object byte[] 100) 100 (New-SaveProgress) { $false } 'Empfange ...' 0 100 -TimeoutSeconds 0 | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like '*keine Datenübertragung*') $err
+	Assert ($fakeStream.Closed -and ([DateTime]::UtcNow - $started).TotalSeconds -lt 2) 'timed out pending read is cancelled'
 }
 
 Test 'the same save again needs no question' {
@@ -289,11 +337,11 @@ $readSome = @"
 New-RandomFile (Join-Path $hostDir 'Abbruch.sav') 40000000
 
 Test 'a player who aborts mid-file tells the host why' {
-	$r = Start-Peer ($readSome + "`n	Send-ReceiverAbort `$c `$w 'Testgrund: Festplatte voll'; `$c.Close(); Write-Output 'OK'")
+	$r = Start-Peer ($readSome + "`n	`$VerbosePreference = 'Continue'; Send-ReceiverAbort `$c `$w 'Testgrund: Festplatte voll'; `$c.Close(); Write-Output 'OK'")
 	$err = ''
-	try { Send-Savegame (Join-Path $hostDir 'Abbruch.sav') $port $tick 30 | Out-Null } catch { $err = $_.Exception.Message }
-	Wait-Receiver $r | Out-Null
-	Assert ($err -like '*Mitspieler hat die Übertragung abgebrochen*Testgrund: Festplatte voll*') "host: $err"
+	try { Send-Savegame (Join-Path $hostDir 'Abbruch.sav') $port $tick 30 -MaxAttempts 1 | Out-Null } catch { $err = $_.Exception.Message }
+	$peer = Wait-Receiver $r
+	Assert ($err -like '*Mitspieler hat die Übertragung abgebrochen*Testgrund: Festplatte voll*') "host: $err / peer: $peer"
 }
 
 Test 'an abrupt close mid-file gives a readable message instead of the raw Write error' {
@@ -366,6 +414,8 @@ Test 'Neuabgleich: without a host the waiting player stops after its time' {
 	Assert ($out.Text -like 'Warte auf den Gastgeber*' -or $out.Text -like 'Verbinde mit*') "tick: $($out.Text)"
 }
 
-Remove-Item -Recurse -Force $base
+$resolvedBase = [IO.Path]::GetFullPath($base)
+if (-not $resolvedBase.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Test cleanup escaped TEMP.' }
+Remove-Item -LiteralPath $resolvedBase -Recurse -Force
 Write-Host "$passed save transfer tests passed, $failed failed"
 if ($failed -gt 0) { exit 1 }

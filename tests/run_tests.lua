@@ -292,8 +292,9 @@ test("update runs the probe once and snapshots periodically", function()
 	assert(error_headers == 1, "snapshot errors logged " .. error_headers .. " times")
 	assert(snapshots == 2, "snapshots " .. snapshots)
 	assert(state:get().probe_version == main.PROBE_VERSION)
-	assert(#state.subscribed == 2 and state.subscribed[1] == "onPostBuildProposal", "subscribed once")
+	assert(#state.subscribed == #main.SUBSCRIBED_EVENTS and state.subscribed[1] == "onPostBuildProposal", "subscribed once")
 	assert(state.subscribed[2] == main.REPLAY_EVENT, "our own replay event is subscribed too")
+	assert(state.subscribed[3] == "Obtain" and state.subscribed[4] == "Repay", "original loan operations subscribed")
 	assert(contains(logged, "subscribe onPostBuildProposal: ok"))
 end)
 
@@ -2864,7 +2865,8 @@ test("world comparison publishes matching, persistent mismatch and unknown healt
 	local main = fresh_main()
 	local sync = require("/mp_probe/sync.lua")
 	local own = { hcon = "h1_0000000000000001", hedge = "h1_0000000000000002",
-		hline = "h1_0000000000000003", hveh = "h1_0000000000000004" }
+		hline = "h1_0000000000000003", hveh = "h1_0000000000000004",
+		hpos = "h2_0000000000000005", hcargo = "h2_0000000000000006", htown = "h2_0000000000000007", gt = 60000, wgt = 60000 }
 	local peer = copy_value(own)
 	local mem = { own_k = 1, own = sync.keep(nil, 1, own), peer = sync.keep(nil, 1, peer) }
 	logged = {}
@@ -2880,6 +2882,73 @@ test("world comparison publishes matching, persistent mismatch and unknown healt
 	mem.own_k = 4; mem.own = sync.keep(mem.own, 4, {}); mem.peer = sync.keep(mem.peer, 4, peer)
 	main.sync_compare({}, mem, "host", 240000)
 	assert(contains(logged, "net state health ck=4 status=unknown fields=none"))
+end)
+
+test("deferred world hashes publish the original tick and cache its immutable diagnostic records", function()
+	local main = fresh_main()
+	local sync = require("/mp_probe/sync.lua")
+	local saved_values, saved_step, saved_time = sync.values, sync.world_step, main.game_time
+	local ok, err = pcall(function()
+		local now, steps = 60000, 0
+		main.game_time = function() return now end
+		sync.values = function(_, gt, deferred)
+			assert(deferred and gt == 60000); return { gt = gt }, {}, { immutable = true }
+		end
+		sync.world_step = function(_, job)
+			assert(job.immutable); steps = steps + 1
+			if steps == 1 then return nil end
+			return { hcon = "h1_0000000000000001", wgt = 60000 }, {}, { records = 1 },
+				{ hcon = { { h = "aa", d = "original snapshot" } } }
+		end
+		local env = { os = { getenv = function(name) if name == "TF3MP_ROLE" then return "host" end end } }
+		local s = { journal_test = main.PROBE_VERSION }
+		logged = {}; main.sync_tick(env, s)
+		assert(s.sync.world_pending and not s.sync.own_k)
+		now = 60200; main.sync_tick(env, s)
+		assert(not s.sync.world_pending and s.sync.own_k == 1)
+		assert(sync.find(s.sync.own, 1).gt == 60000)
+		assert(s.sync.world_lists[1].gt == 60000 and s.sync.world_lists[1].lists.hcon[1].d == "original snapshot")
+		assert(contains(logged, "gt=60000 hcon=h1_0000000000000001 wgt=60000"))
+	end)
+	sync.values, sync.world_step, main.game_time = saved_values, saved_step, saved_time
+	assert(ok, err)
+end)
+
+test("snapshot diagnostics retain multiplicity, ignore repeated parts and never read the live world", function()
+	local main = fresh_main()
+	local state = mock_state()
+	state:set({ sync = { world_lists = { [2] = { gt = 120000, lists = { hcon = {
+		{ h = "aa", d = "duplicate building" }, { h = "aa", d = "duplicate building" } } } } } } })
+	logged = {}
+	local prefix = "W2 hcon 2 120000 "
+	local suffix = " 2 h1_0000000000000001 2 0 "
+	main.replay_line({}, prefix .. "1" .. suffix .. "aa:duplicate", "diag.1", state, 0)
+	main.replay_line({}, prefix .. "1" .. suffix .. "aa:duplicate", "diag.1", state, 0)
+	assert(state:get().world_rx.hcon.got == 1)
+	main.replay_line({}, prefix .. "2" .. suffix .. "bb:different", "diag.2", state, 0)
+	assert(not state:get().world_rx.hcon)
+	assert(contains(logged, "1 only here, 1 only there"))
+	logged = {}
+	main.replay_line({}, "W2 hcon 2 120200 1 1 h1_0000000000000001 1 0 aa:x", "diag.3", state, 0)
+	assert(contains(logged, "matching snapshot unavailable, skipped"))
+	main.replay_line({}, "W2 hcon 2 120000 0 999 h1_0000000000000001 1 0 aa:x", "diag.4", state, 0)
+	assert(contains(logged, "invalid snapshot diagnostic"))
+end)
+
+test("large diagnostic lists are bounded and clipped remote records are never called missing", function()
+	local main = fresh_main()
+	local list = {}; for i = 1, 200 do list[i] = { h = string.format("%016x", i), d = "building " .. i } end
+	local own = { ck = 3, gt = 180000, wgt = 180000, hcon = "h1_0000000000000001" }
+	logged = {}
+	main.world_send({}, { world_lists = { [3] = { gt = own.gt, lists = { hcon = list } } } }, own, { "hcon" })
+	assert(contains(logged, "128/200 snapshot records sent (diagnostic limit)"))
+	local lines = {}
+	for _, text in ipairs(logged) do local line = text:match("net send (W2 .*)$"); if line then lines[#lines + 1] = line; assert(#line <= 6000) end end
+	assert(#lines > 0 and #lines <= main.WORLD_MAX_PARTS)
+	local state = mock_state(); state:set({ sync = { world_lists = { [3] = { gt = own.gt, lists = { hcon = list } } } } })
+	logged = {}
+	for i, line in ipairs(lines) do main.replay_line({}, line, "bounded." .. i, state, 0) end
+	assert(contains(logged, "0 only here, 0 only there; remote list truncated"))
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

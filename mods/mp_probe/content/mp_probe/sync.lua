@@ -43,8 +43,9 @@ sync.MONEY_TOLERANCE = 1000
 --- Counts that must match in both games.
 sync.COUNT_FIELDS = { "lines", "veh", "st", "con" }
 --- Persistent world contents, compared independently of local entity ids and moving vehicles.
-sync.HASH_FIELDS = { "hcon", "hedge", "hline", "hveh" }
-local HASH_FIELD = { hcon = true, hedge = true, hline = true, hveh = true }
+sync.HASH_FIELDS = { "hcon", "hedge", "hline", "hveh", "hpos", "hcargo", "htown" }
+local HASH_FIELD = { hcon = true, hedge = true, hline = true, hveh = true, hpos = true, hcargo = true, htown = true }
+local DYNAMIC_HASH = { hpos = true, hcargo = true, htown = true }
 --- A difference that stays is reported again after this many checkpoints.
 sync.REPEAT_WARNING = 10
 
@@ -303,7 +304,8 @@ local CORRECTED = { "loan", "money", "date" }
 -- @return table diffs (field -> {own, peer, d}), warnings, notes (texts), fix (field -> amount)
 function sync.compare(mem, k, own, peer, role, latest)
 	local out = { warnings = {}, notes = {}, fix = {}, diffs = {},
-		world_fields = 0, world_different = 0, world_mismatch = false, world_diffs = {} }
+		world_fields = 0, world_different = 0, world_mismatch = false, world_diffs = {}, world_unreadable = {},
+		loan_mismatch = false, needs_resync = false }
 	local diffs = out.diffs
 	for _, f in ipairs(sync.COUNT_FIELDS) do
 		local a, b = tonumber(own[f]), tonumber(peer[f])
@@ -311,14 +313,19 @@ function sync.compare(mem, k, own, peer, role, latest)
 	end
 	for _, f in ipairs(sync.HASH_FIELDS) do
 		local a, b = own[f], peer[f]
-		if type(a) == "string" and type(b) == "string" and a:match("^h1_%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$")
-			and b:match("^h1_%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$") then
+		local time_match = not DYNAMIC_HASH[f] or (type(own.wgt) == "number" and own.wgt == peer.wgt
+			and own.wgt >= 0 and own.wgt < math.huge and own.wgt == own.gt and peer.wgt == peer.gt)
+		if time_match and type(a) == "string" and type(b) == "string"
+			and a:match("^h[12]_%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$")
+			and b:match("^h[12]_%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$")
+			and a:sub(1, 3) == b:sub(1, 3) and (not DYNAMIC_HASH[f] or a:sub(1, 3) == "h2_") then
 			out.world_fields = out.world_fields + 1
 			if a ~= b then
 				diffs[f] = { own = a, peer = b }
 				out.world_different = out.world_different + 1
 				out.world_diffs[#out.world_diffs + 1] = f
 			end
+		else out.world_unreadable[#out.world_unreadable + 1] = f
 		end
 	end
 	local m_own, m_peer = tonumber(own.money), tonumber(peer.money)
@@ -348,6 +355,7 @@ function sync.compare(mem, k, own, peer, role, latest)
 	end
 
 	local prev = mem.last
+	local managed_loan = own.loanmanaged == 1 or peer.loanmanaged == 1
 	local function lasting(field)
 		local p = prev and prev.k == k - 1 and prev.diffs[field]
 		local d = diffs[field]
@@ -369,10 +377,13 @@ function sync.compare(mem, k, own, peer, role, latest)
 				field, tostring(d.own), tostring(d.peer))
 		end
 	end
+	out.loan_mismatch = managed_loan and lasting("loan") or false
+	out.needs_resync = out.loan_mismatch
 	if role == "client" then
 		for _, field in ipairs(CORRECTED) do
 			-- A loan booking moves the balance too, so money waits for the next comparison.
-			local blocked = field == "money" and out.fix.loan ~= nil
+			local blocked = (field == "money" and out.fix.loan ~= nil)
+				or (managed_loan and diffs.loan ~= nil and (field == "loan" or field == "money"))
 			if lasting(field) and not mem.off[field] and not mem.fixes[field] and not blocked then
 				out.fix[field] = diffs[field].d
 				mem.fixes[field] = { amount = diffs[field].d, after = latest or k, k = k }
@@ -403,7 +414,7 @@ end
 
 --- The values of a checkpoint. Fields that cannot be read are left out and named in the second
 -- return value.
-function sync.values(env, gt)
+function sync.values(env, gt, deferred_world)
 	local e, ct = env.api.engine, env.api.type.ComponentType
 	local out, failed = { gt = gt }, {}
 	local function try(name, fn)
@@ -416,8 +427,13 @@ function sync.values(env, gt)
 		return account.balance
 	end)
 	try("loan", function() return account and account.loan end)
+	if e.system and e.system.gameScriptSystem ~= nil then out.loanmanaged = 1 end
 	try("lines", function() return #e.system.lineSystem.getLines() end)
 	local function count(name, filter)
+		if deferred_world then
+			local config = name == "CONSTRUCTION" and { requireOwnedByPlayer = e.util.getPlayer() } or nil
+			return #e.getEntitiesWithComponent(assert(ct[name]), config)
+		end
 		local ids = {}
 		e.forEachEntityWithComponent(function(id) ids[#ids + 1] = id end, assert(ct[name]))
 		if not filter then return #ids end
@@ -435,10 +451,16 @@ function sync.values(env, gt)
 		end)
 	end)
 	try("date", function() return sync.date_text(e.util.getCalendarDate(gt)) end)
+	if deferred_world then return out, failed, fingerprint.begin(env, gt) end
 	local contents, unreadable = fingerprint.values(env)
 	for name, value in pairs(contents) do out[name] = value end
 	for _, name in ipairs(unreadable) do failed[#failed + 1] = name end
 	return out, failed
+end
+
+--- Processes only the immutable checkpoint data; no live world reads on later updates.
+function sync.world_step(env, job)
+	return fingerprint.step(env, job)
 end
 
 --- Names of an engine enum table, sorted.
@@ -457,8 +479,12 @@ sync.OTHER_NAMES = { "CHEAT", "OTHER", "MISC" }
 --- A journal entry of kind (a JournalEntry.Type name, e.g. OTHER or LOAN) over amount.
 -- @return entry or nil, text of what was set
 function sync.journal_entry(env, amount, kind)
+	if type(amount) ~= "number" or amount ~= amount or math.abs(amount) > 9007199254740991
+		or amount ~= math.floor(amount) then return nil, "invalid journal amount (finite safe integer required)" end
+	if kind ~= "OTHER" and kind ~= "LOAN" then return nil, "unsupported journal category" end
 	local JE = env.api.type.JournalEntry
-	local entry = JE.new()
+	local made, entry = pcall(function() return JE.new() end)
+	if not made or not entry then return nil, "journal entry constructor unavailable" end
 	local notes = {}
 	local ok_a, err_a = pcall(function() entry.amount = amount end)
 	notes[#notes + 1] = ok_a and ("amount " .. tostring(amount)) or ("amount FAILED " .. tostring(err_a):sub(1, 80))
@@ -478,6 +504,8 @@ function sync.journal_entry(env, amount, kind)
 				end
 			end
 		end
+		-- Reassigned as before v33: money corrections booked this way in game (runs 24-30). If the
+		-- engine hands out a copy, only the reassignment carries the type; on a reference it is a no-op.
 		entry.category = category
 	end)
 	notes[#notes + 1] = ok_c and ("type " .. kind) or ("type FAILED " .. tostring(err_c):sub(1, 80))
@@ -512,6 +540,7 @@ function sync.book(env, amount, kind, callback)
 	local entry, notes = sync.journal_entry(env, amount, kind)
 	if not entry then return false, notes end
 	local cmd = env.api.cmd
+	-- Without a position, as in runs 24-30 (the position is optional and only places the money popup).
 	cmd.sendCommand(cmd.makeJournalBookAssetCmd(env.api.engine.util.getPlayer(), entry), callback)
 	return true, notes
 end

@@ -7,15 +7,15 @@
 #include <windows.h>
 #include <stdarg.h>
 
-#define PROXY_VERSION "11"
+#define PROXY_VERSION "12"
 
 /* Longest build line the DLL passes between the games, in characters. */
 #define NET_LINE_MAX 262145
 #define NET_BRIDGE_CHUNK 6000
 
 /* State texts (v8): the latest text per key, sent to the peer every second, nothing queued. */
-#define NET_STATE_MAX 512
-#define NET_STATE_KEYS 4
+#define NET_STATE_MAX 1024
+#define NET_STATE_KEYS 8
 #define NET_STATE_KEY_MAX 12
 
 /* Appends one timestamped line to alut_proxy.log next to the DLL. */
@@ -40,6 +40,9 @@ int net_inbox_ack(const char *token);
 int net_inbox_part_ack(const char *token, int part);
 int net_inbox_result(const char *token, const char *result);
 void net_status(char *out, int size);
+/* Host-ordered remote replay permit; empty for explicit protocol-2 local tests. */
+void net_order_value(char *out, int size);
+int net_ordering_enabled(void);
 int net_game_reload(void);
 /* Original game load log, before Lua reports its first world initialization. */
 void net_world_loading(const char *name);

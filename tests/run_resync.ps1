@@ -98,29 +98,69 @@ Test 'cancelling while waiting for a save stops at once' {
 	Assert ($err -eq 'Abgebrochen.') $err
 }
 
-# Ein Programm unter eigenem Namen spielt TF3 (ohne Fenster, also nur hart zu beenden).
-$fakeName = 'tf3mpfakegame'
-$sleep = (Get-Command sleep -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-if ($sleep -and $IsLinux) {
-	$fake = Join-Path $base $fakeName
-	Copy-Item -LiteralPath $sleep -Destination $fake
-	Test 'a game that does not close by itself is closed hard only after asking' {
-		$p = Start-Process -FilePath $fake -ArgumentList '300' -PassThru
-		try {
-			Start-Sleep -Milliseconds 300
-			Assert ($null -ne (Get-GameStartTime $fakeName)) 'start time'
-			$err = ''
-			try { Stop-GameForResync $tick { $false } 1 $fakeName | Out-Null } catch { $err = $_.Exception.Message }
-			Assert ($err -like 'TF3 läuft noch*' -and -not $p.HasExited) "refused: $err"
-			$asked = @{ n = 0 }
-			$stopped = Stop-GameForResync $tick { $asked.n++; $true } 1 $fakeName
-			Assert ($stopped -and $asked.n -eq 1 -and $p.HasExited) 'closed after one question'
-			Assert (-not (Stop-GameForResync $tick { throw 'not asked' } 1 $fakeName)) 'nothing to close'
-			Assert ($null -eq (Get-GameStartTime $fakeName)) 'no start time'
-		} finally { if (-not $p.HasExited) { $p.Kill() } }
+# Die Prozessadapter testen denselben Ablauf auf Windows, ohne TF3 oder ein anderes Programm zu
+# beenden. Auch Zugriffsfehler und ein Prozess, der trotz Beenden weiterläuft, sind reproduzierbar.
+$originalAdapters = @{}
+foreach ($name in 'Get-ResyncGameProcesses', 'Close-ResyncGameWindow', 'Stop-ResyncGameProcess') { $originalAdapters[$name] = (Get-Item "Function:\$name").ScriptBlock }
+function Set-FakeResync([int[]]$Ids = @(41)) {
+	$script:fakeResync = @{ Remaining = @{}; Window = $true; CloseExits = $false; IgnoreStop = $false; StopError = ''; CloseCalls = 0; StopCalls = 0 }
+	foreach ($id in $Ids) { $script:fakeResync.Remaining[$id] = $true }
+}
+try {
+	function Get-ResyncGameProcesses($ProcessName) { foreach ($id in @($script:fakeResync.Remaining.Keys)) { [pscustomobject]@{ Id = $id } } }
+	function Close-ResyncGameWindow($Process) {
+		$script:fakeResync.CloseCalls++
+		if ($script:fakeResync.CloseExits) { $script:fakeResync.Remaining.Remove($Process.Id) }
+		return $script:fakeResync.Window
 	}
-} else { Write-Host 'skip: closing the game (needs Linux sleep)' }
+	function Stop-ResyncGameProcess($Process) {
+		$script:fakeResync.StopCalls++
+		if ($script:fakeResync.StopError) { throw $script:fakeResync.StopError }
+		if (-not $script:fakeResync.IgnoreStop) { $script:fakeResync.Remaining.Remove($Process.Id) }
+	}
+	Test 'a game that already exited needs no close or force operation' {
+		Set-FakeResync @()
+		Assert (-not (Stop-GameForResync { throw 'no progress needed' })) 'already gone'
+		Assert ($script:fakeResync.CloseCalls -eq 0 -and $script:fakeResync.StopCalls -eq 0) 'nothing touched'
+	}
+	Test 'normal window close is allowed to finish before forcing' {
+		Set-FakeResync; $script:fakeResync.CloseExits = $true
+		Assert (Stop-GameForResync $tick) 'closed'
+		Assert ($script:fakeResync.CloseCalls -eq 1 -and $script:fakeResync.StopCalls -eq 0) 'no forced stop'
+	}
+	Test 'a windowless game is forced immediately after the confirmed resync' {
+		Set-FakeResync @(41, 42); $script:fakeResync.Window = $false
+		$t0 = [DateTime]::UtcNow
+		Assert (Stop-GameForResync $tick -waitSeconds 5) 'stopped'
+		Assert ($script:fakeResync.StopCalls -eq 2) 'all TF3 processes stopped'
+		Assert (([DateTime]::UtcNow - $t0).TotalSeconds -lt 1) 'no pointless window wait'
+	}
+	Test 'an optional caller may still decline the forced stop' {
+		Set-FakeResync
+		$err = ''; try { Stop-GameForResync $tick { $false } 0 | Out-Null } catch { $err = $_.Exception.Message }
+		Assert ($err -like 'TF3 läuft noch*' -and $script:fakeResync.StopCalls -eq 0) $err
+	}
+	Test 'force access denied is surfaced with a useful rights explanation' {
+		Set-FakeResync; $script:fakeResync.StopError = 'Access denied (PID 41)'
+		$err = ''; try { Stop-GameForResync $tick -waitSeconds 0 | Out-Null } catch { $err = $_.Exception.Message }
+		Assert ($err -like '*Access denied*' -and $err -like '*denselben Rechten*') $err
+		Assert ($script:fakeResync.StopCalls -eq 1) 'no silent retry'
+	}
+	Test 'a process that survives force is bounded by the force deadline' {
+		Set-FakeResync; $script:fakeResync.IgnoreStop = $true
+		$err = ''; try { Stop-GameForResync $tick -waitSeconds 0 -forceWaitSeconds 0 | Out-Null } catch { $err = $_.Exception.Message }
+		Assert ($err -like '*läuft nach dem Beenden weiter*41*') $err
+		Assert ($script:fakeResync.StopCalls -eq 1) 'one force operation'
+	}
+	Test 'cancellation before closing leaves the process untouched' {
+		Set-FakeResync
+		$err = ''; try { Stop-GameForResync { $true } | Out-Null } catch { $err = $_.Exception.Message }
+		Assert ($err -eq 'Abgebrochen.' -and $script:fakeResync.CloseCalls -eq 0 -and $script:fakeResync.StopCalls -eq 0) $err
+	}
+} finally { foreach ($name in $originalAdapters.Keys) { Set-Item "Function:\$name" $originalAdapters[$name] } }
 
-Remove-Item -Recurse -Force $base
+$resolvedBase = [IO.Path]::GetFullPath($base)
+if (-not $resolvedBase.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Test cleanup escaped TEMP.' }
+Remove-Item -LiteralPath $resolvedBase -Recurse -Force
 Write-Host "$passed resync tests passed, $failed failed"
 if ($failed -gt 0) { exit 1 }
