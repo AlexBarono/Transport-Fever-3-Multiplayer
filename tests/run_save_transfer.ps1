@@ -35,7 +35,8 @@ function Start-Receiver($answer, $manifest = $null, $preparedPath = '') {
 try {
 	Start-Sleep -Milliseconds 500
 	`$manifest = if ('$($manifestPath.Replace("'", "''"))') { Get-Content -LiteralPath '$($manifestPath.Replace("'", "''"))' -Raw | ConvertFrom-Json } else { `$null }
-	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$false } { param(`$q) `$$answer } -LocalManifest `$manifest
+	`$out = [pscustomobject]@{ Text = '' }  # wie das Textfeld im Launcher
+	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$out.Text = `$a; `$false } { param(`$q) `$$answer } -LocalManifest `$manifest
 	if ('$($preparedPath.Replace("'", "''"))' -and `$t.Session) { Save-PreparedSession -Path '$($preparedPath.Replace("'", "''"))' -Session `$t.Session -SavePath `$t.SavePath | Out-Null }
 	`$text = if (`$t.Session) { `$t.Text } else { `$t }
 	Write-Output "OK `$text"
@@ -54,7 +55,10 @@ function Wait-Receiver($r) {
 	return (Get-Content $r.Out -Raw -Encoding UTF8).Trim()
 }
 $ticks = 0
-$tick = { param($text, $done, $total) $script:ticks++; $false }
+# Wie im Launcher schreibt der Fortschritt in ein Textfeld $out. Im ersten VPN-Versuch hieß der
+# Dateistrom des Mitspielers ebenfalls $out, und der Callback schrieb in den falschen.
+$out = [pscustomobject]@{ Text = '' }
+$tick = { param($text, $done, $total) $script:ticks++; $out.Text = $text; $false }
 
 Test 'a save and its preview arrive intact' {
 	$r = Start-Receiver 'true'
@@ -305,7 +309,8 @@ Test 'after a broken connection the host waits and the next attempt succeeds' {
 	$broken = Start-Peer ($readSome + "`n	`$c.Client.LingerState = New-Object Net.Sockets.LingerOption(`$true, 0); `$c.Close(); Write-Output 'OK'")
 	$retry = Start-Peer @"
 	Start-Sleep -Seconds 4
-	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$false } { param(`$q) `$true }
+	`$out = [pscustomobject]@{ Text = '' }  # wie das Textfeld im Launcher
+	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$out.Text = `$a; `$false } { param(`$q) `$true }
 	Write-Output "OK `$t"
 "@
 	$answer = Send-Savegame (Join-Path $hostDir 'Abbruch.sav') $port $tick 30

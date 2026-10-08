@@ -298,7 +298,9 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			$part = Join-Path $saveDir ($fileName + '.part')
 			$partsRef.Value += $part
 			$sha = [System.Security.Cryptography.SHA256]::Create()
-			try { $out = [System.IO.File]::Create($part) }
+			# Nicht out nennen: Der Fortschritts-Callback des Launchers schreibt in sein Textfeld $out
+			# und sähe sonst (dynamischer Gültigkeitsbereich) diesen Dateistrom.
+			try { $partFile = [System.IO.File]::Create($part) }
 			catch { $sha.Dispose(); throw "Der Spielstand kann nicht in '$saveDir' gespeichert werden: $($_.Exception.Message)" }
 			try {
 				$left = $length
@@ -306,7 +308,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 					$want = [int][Math]::Min([int64]$buffer.Length, $left)
 					$n = $stream.Read($buffer, 0, $want)
 					if ($n -le 0) { throw (New-TransferBreak 'Der Gastgeber hat die Verbindung während der Übertragung getrennt.') }
-					$out.Write($buffer, 0, $n)
+					$partFile.Write($buffer, 0, $n)
 					[void]$sha.TransformBlock($buffer, 0, $n, $null, 0)
 					$left -= $n
 					$done += $n
@@ -314,7 +316,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 				}
 				[void]$sha.TransformFinalBlock($buffer, 0, 0)
 				if (-not (Test-SameBytes $sha.Hash $hash)) { throw (New-TransferBreak "Die Datei '$fileName' kam beschädigt an.") }
-			} finally { $out.Dispose(); $sha.Dispose() }
+			} finally { $partFile.Dispose(); $sha.Dispose() }
 			$received += @{ Name = $fileName; Part = $part; Hash = $hash }
 		}
 		if ($done -ne $total -or @($received | Where-Object { [IO.Path]::GetExtension($_.Name) -ieq '.sav' }).Count -ne 1) { throw 'Die übertragenen Dateien stimmen nicht mit der angekündigten Spielstandgröße überein.' }
