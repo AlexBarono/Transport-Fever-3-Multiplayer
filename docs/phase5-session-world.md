@@ -23,6 +23,17 @@ Erster VPN-Versuch: Der Gastgeber sah nur „Ausnahme beim Aufrufen von Write mi
 - Statt der rohen .NET-Meldung erscheint ein deutscher Text mit den häufigen Ursachen. Das Übertragungsformat ist unverändert; ältere Launcher bleiben verträglich, zeigen aber selbst noch die alten Meldungen.
 - Tests: `tests/run_save_transfer.ps1` stellt den ursprünglichen Fehler nach (Abbruch mitten in einer 40-MB-Datei, harter Verbindungsabbruch, Neuversuch von beiden Seiten).
 
+### Depot vom anderen PC (8. Oktober 2026, run31 bis run33)
+
+Der erste Zwei-PC-Test mit Bauaktionen: Ein Straßendepot an einer bestehenden Straße wurde auf dem anderen PC nicht richtig übernommen, in beiden Richtungen.
+
+- run31: Der Gastgeber lehnte das Depot des Mitspielers ab („game rejected … node configurations could not all be resolved“). Zwei Knotenkonfigurationen nannten die Zufahrt, die das Depot selbst legt und die deshalb nicht mitgebaut wird. Behoben in `51a6635`: `build.drop_access` merkt sich diese Zufahrt, `nodecfg.resolve` überlässt die zugehörigen Konfigurationen dem Depot. run33 bestätigt das („4/5 placed … 1 left to the entrance“).
+- run32 und run33: Straße und Depot wurden gebaut, danach geschah nichts mehr. Die Zufahrt wurde nie an die Straße angeschlossen, keine Seite bekam eine Ausführungsquittung, beide Warteschlangen standen still und der Weltvergleich meldete eine Abweichung. Jede Stufe des Depotnachbaus wartete darauf, dass `update()` (Sim-Pool-Zustand) das Ende der vorigen Stufe sieht und das nächste Event schickt. Nach der Depotstufe kam dieses Event in beiden Läufen nicht mehr. Der Versuch in `bdc8cd3`, die Übergabe in `update()` abzusichern, half nicht (run33).
+- Jetzt laufen die Stufen direkt nacheinander in demselben Event: Straßen, deren Konfigurationen, Prüfung, Depot, Anschluss der Zufahrt, Prüfung. So hat es v22 bis v26 schon gemacht (run23/24). TF3 ruft die Bau-Callbacks auf, bevor `sendCommand` zurückkehrt. Nur wenn ein Callback noch aussteht, bleibt der Rest wie bisher `update()` und dem nächsten Event überlassen.
+- Der Gastgeber spielte in run33 pausiert. Die spätere Anschlussprüfung war nach 4 s Spielzeit fällig und wäre bei Pause nie gekommen. Sie ist jetzt auch nach 20 Aufrufen von `update()` fällig; die laufen bei Pause weiter.
+- Neue Logzeilen: `net step <token>: <Stufe>` bei jeder Stufe, und alle 50 Updates `net waiting <token>: …`, solange eine empfangene Aktion noch nicht quittiert ist. Damit zeigt das Protokoll, worauf eine hängende Aktion wartet.
+- Test: `tests/fixtures/run33-road-depot.b5` ist die echte Depotzeile aus run33 und läuft im Offline-Test bei pausierter Spielzeit vollständig bis zur Quittung.
+
 ## Freigabe durch die DLL
 
 Die native DLL v11 verlangt bei normalen Gastgeber-/Beitreten-Sitzungen HELLO-Protokoll 3 mit passender Sitzungskennung sowie Spiel-, Paket-, Mod- und Spielstandhash. Beide Seiten müssen den vereinbarten Spielstand geladen und ihre Lua-Initialisierung abgeschlossen haben, bevor Spielnachrichten ausgetauscht werden. Die DLL erkennt den geladenen Namen anhand der originalen Ladezeile im aktuellen Spielprotokoll. Der Spielstandinhalt wird unmittelbar vor dem Start vom Launcher geprüft; die DLL dekodiert den geladenen Weltinhalt nicht erneut aus der Engine.

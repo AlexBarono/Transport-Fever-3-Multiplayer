@@ -79,6 +79,12 @@ main.ACTION_KINDS = { "line", "vehicle" }
 --- v20: a copied construction's entrance is checked again this much game time after the copy,
 -- in case the world was not up to date right after the command.
 main.WELD_RECHECK_MS = 4000
+--- Two PCs, 8 Oct: the host played paused, so game time stood still and a check due by game time
+-- never came; update() still runs then (5 per second), so the check is also due after this many.
+main.WELD_RECHECK_UPDATES = 20
+--- How many staged steps (main.network_continue) one event runs at most while every command so far
+-- has come back; the depot copy has five.
+main.NETWORK_STEPS = 8
 --- Line budget for the dump of a refresh proposal (weld.lua).
 main.WELD_DUMP_LINES = 150
 --- Depot builds of the player whose refresh proposal is dumped (the engine's own picture of a
@@ -500,6 +506,12 @@ function main.network_continue(env, state)
 	if live.network_work and live.network_work.error then return end
 	if not follow then return end
 	follow.requested = nil
+	if live.network_work and (live.network_work.pending or 0) > 0 then
+		-- A request that crossed a command still outstanding; update() asks again once it is back.
+		state:set(live)
+		return
+	end
+	logger.info("net step " .. tostring(live.network_work and live.network_work.token) .. ": " .. tostring(follow.phase))
 	if follow.phase == "street_configs" then
 		main.apply_node_configs(env, follow.streets, follow.player)
 		follow.phase = "street_verify"
@@ -526,6 +538,22 @@ function main.network_continue(env, state)
 		follow = nil
 	end
 	live = state:get() or {}; live.network_followup = follow; state:set(live)
+end
+
+--- Two PCs, 8 Oct (runs 32 and 33): the copy of a depot stopped for good after the depot itself was
+-- built; the next step, which joins its entrance to the road, never ran, so neither PC confirmed the
+-- other's action. Each step waited for update() to see the step before it finished and to send the
+-- next event, and that hand-over between the Lua states got lost. TF3 calls the build callbacks
+-- before sendCommand returns (runs 9, 23, 30), so the steps now run right here, one after another,
+-- as v22 to v26 did in one event (runs 23 and 24); only a callback still outstanding leaves the
+-- rest to update() and the next event.
+function main.network_run(env, state)
+	for _ = 1, main.NETWORK_STEPS do
+		local live = state:get() or {}
+		local work = live.network_work
+		if not live.network_followup or not work or work.error or (work.pending or 0) > 0 then return end
+		main.network_continue(env, state)
+	end
 end
 
 -- Verify native replacements with the existing delayed, read-only connection check.
@@ -635,7 +663,8 @@ function main.recheck_welds(env, s)
 	if not now or not s.weld_checks or #s.weld_checks == 0 then return end
 	local waiting = {}
 	for _, c in ipairs(s.weld_checks) do
-		if now >= (c.due or 0) then
+		c.updates = (c.updates or 0) + 1
+		if now >= (c.due or 0) or c.updates >= main.WELD_RECHECK_UPDATES then
 			local id = world.find_construction(env, c.file, c.position)
 			if id then
 				local status = weld.status(env, id, c.gates or {})
@@ -670,6 +699,18 @@ function main.adopt_live_transport(live, s)
 	if mine_follow and mine_follow.requested and follow and follow.phase == mine_follow.phase and not follow.requested then
 		follow.requested = true
 	end
+end
+
+--- Once per bridge tick while a received action is not confirmed yet: what it still waits for, so a
+-- stuck one can be told apart in the log (runs 32 and 33 showed nothing at all).
+function main.log_network_wait(s)
+	local w = s.network_work
+	if not w or (s.updates or 0) % main.BRIDGE_EVERY ~= 0 then return end
+	local f = s.network_followup
+	logger.info(string.format("net waiting %s: step %s%s, %d command(s) outstanding, %d entrance check(s), " ..
+		"%d action step(s)%s%s", tostring(w.token), f and tostring(f.phase) or "-", f and f.requested and " (requested)" or "",
+		w.pending or 0, #(s.weld_checks or {}), #(s.action_work or {}), w.dispatched and "" or ", not dispatched",
+		w.error and (", error " .. tostring(w.error):sub(1, 120)) or ""))
 end
 
 function main.guard_state(state)
@@ -786,6 +827,7 @@ function main.update(_user_params, state, _dt)
 	end
 	transport.check(state, logger.info)
 	s = state:get() or s
+	main.log_network_wait(s)
 	if actions.has_work(s) and not s.action_work_requested then
 		s.action_work_requested = true
 		state:set(s)
@@ -1176,7 +1218,9 @@ end
 function main.handleEvent(_user_params, state, src, id, name, param)
 	if main.is_replay_event(src, id, name) then
 		if type(param) == "table" and param.network_continue then
-			local ok, err = pcall(main.network_continue, transport.env(_G, state), state)
+			local env = transport.env(_G, state)
+			local ok, err = pcall(main.network_continue, env, state)
+			if ok then ok, err = pcall(main.network_run, env, state) end
 			if not ok then transport.fail(state, err) end
 			transport.check(state, logger.info)
 			return
@@ -1218,9 +1262,14 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			if live.network_work and live.network_work.dispatched then return end
 			if not transport.begin(state, tostring(number)) then return end
 		end
-		local ok, applied, err = pcall(main.replay_line, transport.env(_G, state), line, number, state, distance)
+		local env = transport.env(_G, state)
+		local ok, applied, err = pcall(main.replay_line, env, line, number, state, distance)
 		if network then
-			if not ok or not applied then transport.fail(state, ok and (err or "replay failed") or applied) end
+			if not ok or not applied then transport.fail(state, ok and (err or "replay failed") or applied)
+			else
+				local ok_run, err_run = pcall(main.network_run, env, state)
+				if not ok_run then transport.fail(state, err_run) end
+			end
 			transport.dispatched(state); transport.check(state, logger.info)
 		elseif not ok then logger.info("replay failed: " .. main.error_text(applied)) end
 		return

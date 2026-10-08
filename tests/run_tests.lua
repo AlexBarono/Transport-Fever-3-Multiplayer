@@ -2671,6 +2671,97 @@ test("a command callback during update() is not overwritten by update's older co
 	end)
 end)
 
+test("a road depot from the other PC is built, joined and confirmed while paused (two PCs, 8 Oct: stuck after the depot)", function()
+	-- Runs 32 and 33: the host built the joining player's road and depot, then never joined the depot's
+	-- entrance and never confirmed the action; both PCs' queues stood still ("Weltabweichung").
+	local source = assert(io.open("tests/fixtures/run33-road-depot.b5", "r"))
+	local line = source:read("*a"); source:close()
+	with_engine_api({}, function(t)
+		local main = fresh_main()
+		local world, weld = require("/mp_probe/world.lua"), require("/mp_probe/weld.lua")
+		local value
+		local state = { get = function() return value and copy_value(value) end, set = function(_, v) value = copy_value(v) end,
+			subscribeToEvent = function() end }
+		state:set({ probe_version = main.PROBE_VERSION, subscribed = main.PROBE_VERSION,
+			replay_version = main.PROBE_VERSION, constructions_scanned = main.PROBE_VERSION,
+			actions_version = main.PROBE_VERSION, actions = {}, updates = 1 })
+		-- The road the depot joins exists here (both ends and the node in its middle).
+		local ids = {}
+		main.finder = function()
+			return {
+				find_node = function(p)
+					local key = string.format("%.0f,%.0f", p.x, p.y)
+					ids[key] = ids[key] or (900 + #t.sent * 10 + math.floor(p.x) % 7)
+					return ids[key]
+				end,
+				find_edge = function(a, b) return 5000 + a + b end,
+				find_construction = function() return nil end,
+				edge_objects_of = function() return {} end,
+				edge_construction = function() return nil end,
+			}
+		end
+		local steps, welded = {}, 0
+		main.apply_node_configs = function(_, data) steps[#steps + 1] = "configs " .. #data.configs end
+		main.verify_node_configs = function() steps[#steps + 1] = "verify" end
+		main.weld_copy = function(_, data)
+			welded = welded + 1
+			assert(#t.sent == 2, "the entrance is joined after the depot is built")
+			local live = state:get()
+			live.weld_checks = { { file = data.constructions[1].file, position = { x = 7285.8, y = 26.4, z = 8.6 },
+				gates = data.gate_positions, due = 1000 + main.WELD_RECHECK_MS } }
+			state:set(live)
+		end
+		local saved_find, saved_status = world.find_construction, weld.status
+		world.find_construction = function() return 114736 end
+		weld.status = function() return { welded = true, text = "construction 114736: gate -> WELDED" } end
+		logged = {}
+		local ok, err = pcall(function()
+			main.handleEvent(nil, state, "mp_probe", main.REPLAY_EVENT, main.REPLAY_EVENT,
+				{ line = line, number = "40780-5464828.1", source = "net", offset = 0 })
+			local all = table.concat(logged, "\n")
+			assert(#t.sent == 2 and #t.sent[1].proposal.constructionsToAdd == 0 and #t.sent[2].proposal.constructionsToAdd == 1, all)
+			assert(welded == 1, "the depot's entrance is joined in the same event: " .. all)
+			for _, phase in ipairs({ "street_configs", "street_verify", "construction", "finish", "verify" }) do
+				assert(contains(logged, "net step 40780-5464828.1: " .. phase), phase .. " missing: " .. all)
+			end
+			assert(table.concat(steps, ",") == "configs 5,verify,configs 0,verify", table.concat(steps, ","))
+			local s = state:get()
+			assert(s.network_work and not s.network_followup and #s.weld_checks == 1 and #t.events == 0, all)
+			assert(not contains(logged, "net result"), "the receipt waits for the entrance check")
+			-- The game stays paused: game time does not move, update() still runs.
+			for _ = 1, main.WELD_RECHECK_UPDATES do main.update(nil, state, 0) end
+			all = table.concat(logged, "\n")
+			assert(contains(logged, "weld check later: construction 114736: gate -> WELDED"), all)
+			assert(contains(logged, "net result 40780-5464828.1 OK"), all)
+			assert(#t.events == 0 and #t.sent == 2, "nothing is built twice")
+		end)
+		world.find_construction, weld.status = saved_find, saved_status
+		assert(ok, err)
+	end)
+end)
+
+test("a continuation that crosses an outstanding command waits and can be asked for again", function()
+	local main, state = fresh_main(), mock_state()
+	state:set({ network_work = { token = "c.1", pending = 1, dispatched = true },
+		network_followup = { phase = "finish", requested = true, data = { configs = {} }, gates = true } })
+	main.weld_copy = function() error("no step while a command is outstanding") end
+	logged = {}
+	main.network_continue({}, state)
+	local s = state:get()
+	assert(s.network_followup.phase == "finish" and not s.network_followup.requested and #logged == 0)
+end)
+
+test("a received action still waiting says what for, once per bridge tick", function()
+	local main = fresh_main()
+	logged = {}
+	main.log_network_wait({ updates = 49, network_work = { token = "a.1", pending = 0, dispatched = true } })
+	assert(#logged == 0)
+	main.log_network_wait({ updates = 50, network_work = { token = "a.1", pending = 1, dispatched = true },
+		network_followup = { phase = "finish", requested = true }, weld_checks = { {} } })
+	assert(#logged == 1 and contains(logged, "net waiting a.1: step finish (requested), 1 command(s) outstanding, " ..
+		"1 entrance check(s), 0 action step(s)"), tostring(logged[1]))
+end)
+
 test("an unreadable delayed station connection check rejects the execution receipt", function()
 	with_engine_api({}, function(t)
 		local main, state = fresh_main(), mock_state()
