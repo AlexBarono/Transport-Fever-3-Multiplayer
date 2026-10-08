@@ -45,7 +45,7 @@ Kurz gesagt: Das Depot wird allein gebaut. Danach lässt der Mod das Spiel den A
 **run34: Depot angeschlossen und quittiert, danach „1 Vorgang wartet“ und ein Fehler beim nächsten Bau.**
 - Was das Protokoll zeigte: Die Quittung für das Depot wurde bei jedem Update erneut geloggt. Die nächste Aktion des Mitspielers (eine Linie) wurde nie angenommen. Danach liefen die Welten auseinander.
 - Ursache: Ausgerechnet der Schutz aus `bdc8cd3`. Die Quittung entsteht in `update()`, und dabei wird die erledigte Aktion gelöscht. Der Schutz holte aber beim Speichern aus `update()` die noch offene Aktion aus dem gespeicherten Zustand zurück. So blieb das Depot für immer „offen“, und die Linie stand dahinter in der Schlange.
-- Lösung (dieser Commit): Der Schutz ist entfernt. `main.store` übernimmt beim Speichern aus `update()` die Quittungsfelder immer aus dem aktuellen Zustand. `update()` ändert diese Felder selbst nur über `transport.fail` und `transport.check`, die direkt den aktuellen Zustand schreiben.
+- Lösung `edc2c7c`: Der Schutz ist entfernt. `main.store` übernimmt beim Speichern aus `update()` die Quittungsfelder immer aus dem aktuellen Zustand. `update()` ändert diese Felder selbst nur über `transport.fail` und `transport.check`, die direkt den aktuellen Zustand schreiben.
 - Test: Der Depot-Test mit der echten Zeile aus run33 prüft jetzt, dass genau eine Quittung kommt und die nächste Aktion gebaut und quittiert wird. Mit dem alten Code schlägt er fehl („confirmed 6 times“).
 
 ## 2. Weitere Fehler vom 8. Oktober
@@ -61,7 +61,7 @@ Kurz gesagt: Das Depot wird allein gebaut. Danach lässt der Mod das Spiel den A
 **„Weltabweichung erkannt (hcon,hedge)“.**
 - Was das bedeutet: Jedes Spiel bildet alle 60 Sekunden Spielzeit Prüfsummen über Gebäude (`hcon`), Straßen und Gleise (`hedge`), Linien (`hline`) und Fahrzeuge (`hveh`) und vergleicht sie mit dem anderen. Bisher stand im Protokoll aber nur, dass die Prüfsummen verschieden sind.
 - In run34 kam die Abweichung direkt nach dem hängenden Depot. Sehr wahrscheinlich folgte sie aus dem Fehler oben: Die Linie und alles danach wurden auf einem PC nicht nachgebaut.
-- Neu (dieser Commit): Nach einer bestätigten Abweichung schickt jedes Spiel seine Liste der betroffenen Teile an das andere (`W1`-Zeilen). Der Empfänger schreibt ins Protokoll, was nur bei ihm und was nur beim anderen existiert, mit Datei, Position und Namen (`world diff … only in this game: …`). Beim nächsten Mal zeigt also schon das Protokoll des Gastgebers, welche Teile abweichen.
+- Neu in `edc2c7c`: Nach einer bestätigten Abweichung schickt jedes Spiel seine Liste der betroffenen Teile an das andere (`W1`-Zeilen). Der Empfänger schreibt ins Protokoll, was nur bei ihm und was nur beim anderen existiert, mit Datei, Position und Namen (`world diff … only in this game: …`). Beim nächsten Mal zeigt also schon das Protokoll des Gastgebers, welche Teile abweichen.
 
 ## 3. Frühere Fehler (6. und 7. Oktober)
 
