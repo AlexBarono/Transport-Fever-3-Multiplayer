@@ -538,42 +538,53 @@ function actions.note_reverse(s, id)
 end
 
 --- v35: vehicle commands clicked in the GUI run at a common tick in both games (hold.lua,
--- main.vehicle_intent). The commands and their argument.
-actions.VEHICLE_COMMANDS = { reverse = true, stopped = true, depot = true }
+-- main.vehicle_intent). v36: also sending to a line and selling (run 38).
+actions.VEHICLE_COMMANDS = { reverse = true, stopped = true, depot = true, line = true, sell = true }
 
---- The vehicle a timed command is for. In the game it was clicked in that is the entity itself;
+local TIMED_COMPONENT = { vehicle = "TRANSPORT_VEHICLE", line = "LINE" }
+
+--- The entity a timed command is for. In the game it was clicked in that is the entity itself;
 -- in the other game the one bound to it by an earlier action, the same entity of the shared save,
--- or the vehicle of the same name.
-function actions.vehicle_target(env, s, ref, own)
-	assert(type(ref) == "table" and ref.kind == "vehicle" and type(ref.key) == "string", "invalid vehicle reference")
+-- or the one of the same name.
+function actions.timed_target(env, s, ref, own)
+	local kind = type(ref) == "table" and ref.kind
+	assert(TIMED_COMPONENT[kind] and type(ref.key) == "string", "invalid timed reference")
 	local function usable(id)
-		local ok = pcall(component, env, id, "TRANSPORT_VEHICLE")
+		local ok = pcall(component, env, id, TIMED_COMPONENT[kind])
 		return ok and owned(env, id)
 	end
 	local id = tonumber(ref.key)
 	if own then
-		assert(id and usable(id), "own vehicle " .. ref.key .. " not found")
+		assert(id and usable(id), "own " .. kind .. " " .. ref.key .. " not found")
 		return id
 	end
-	local suffix = ":vehicle:" .. ref.key
+	local suffix = ":" .. kind .. ":" .. ref.key
 	for k, mapped in pairs(s.action_entities or {}) do
 		if type(k) == "string" and k:sub(-#suffix) == suffix and usable(mapped) then return mapped end
 	end
 	if id and usable(id) and name_of(env, id) == ref.name then return id end
-	return actions.resolve(env, { kind = "vehicle", key = ref.key, name = ref.name }, s, "timed", 0)
+	return actions.resolve(env, { kind = kind, key = ref.key, name = ref.name }, s, "timed", 0)
 end
 
+function actions.vehicle_target(env, s, ref, own) return actions.timed_target(env, s, ref, own) end
+
 function actions.vehicle_ref(env, id) return named_ref(env, id, "vehicle") end
+function actions.line_ref(env, id) return named_ref(env, id, "line") end
 
 --- After a timed command: what the next poll would otherwise see as this game's own action and
--- send back (the other game ran the same command at the same tick).
-function actions.vehicle_command_done(s, id, command, value)
+-- send back (the other game ran the same command at the same tick). line: the local line id
+-- (-1: none) and its reference; sell: the vehicle leaves the snapshot.
+function actions.vehicle_command_done(s, id, command, value, line_ref, stop)
 	local snaps = s.actions and s.actions.snapshots and s.actions.snapshots.vehicle
 	local r = snaps and snaps[tostring(id)]
 	if not r then return end
 	if command == "reverse" then r.quiet = actions.REVERSE_QUIET_POLLS
 	elseif command == "stopped" then r.userStopped = value == true
-	elseif command == "depot" then r.state, r.sell = "GOING_TO_DEPOT", value == true or nil end
+	elseif command == "depot" then r.state, r.sell = "GOING_TO_DEPOT", value == true or nil
+	elseif command == "line" then
+		-- Leaving a depot it was sent to is no "release" of its own.
+		r.line, r.stopIndex, r.held = line_ref, stop or 0, nil
+	elseif command == "sell" then snaps[tostring(id)] = nil end
 end
 
 --- Run 37: a train turned in one game and the turn did not travel. Logs the first direction and

@@ -3102,21 +3102,33 @@ end)
 local function vehicle_world(role, vars)
 	local entities = {
 		[30] = { NAME = { name = "Zug 1" }, PLAYER_OWNED = { player = 7 }, TRANSPORT_VEHICLE = { userStopped = false } },
+		[31] = { NAME = { name = "Bus 2" }, PLAYER_OWNED = { player = 7 }, TRANSPORT_VEHICLE = { userStopped = false } },
+		[40] = { NAME = { name = "Linie 1" }, PLAYER_OWNED = { player = 7 }, LINE = {} },
 	}
 	local sent = {}
-	local ct = { NAME = "NAME", PLAYER_OWNED = "PLAYER_OWNED", TRANSPORT_VEHICLE = "TRANSPORT_VEHICLE" }
+	local ct = { NAME = "NAME", PLAYER_OWNED = "PLAYER_OWNED", TRANSPORT_VEHICLE = "TRANSPORT_VEHICLE", LINE = "LINE" }
 	vars = vars or {}
 	vars.TF3MP_ROLE = role
 	local env = { os = { getenv = function(k) return vars[k] end },
 		api = { type = { ComponentType = ct },
 			engine = { getComponent = function(id, c) return entities[id] and entities[id][c] end,
+				forEachEntityWithComponent = function(fn, c)
+					for id, e in pairs(entities) do if e[c] then fn(id) end end
+				end,
+				system = { lineSystem = { getLines = function()
+					local out = {}
+					for id, e in pairs(entities) do if e.LINE then out[#out + 1] = id end end
+					return out
+				end } },
 				util = { getPlayer = function() return 7 end } },
 			cmd = {
 				makeVehicleReverseCmd = function(id) return { name = "reverse", id = id } end,
 				makeVehicleSetStoppedByUserCmd = function(id, v) return { name = "stopped", id = id, value = v } end,
 				makeVehicleSendToDepotCmd = function(id, v) return { name = "depot", id = id, value = v } end,
+				makeVehicleSetLineCmd = function(id, line, stop) return { name = "line", id = id, line = line, stop = stop } end,
+				makeVehicleSellCmd = function(list) return { name = "sell", list = list } end,
 				sendCommand = function(c, callback) sent[#sent + 1] = c; if callback then callback(c, true) end end } } }
-	return env, sent
+	return env, sent, entities
 end
 
 test("a clicked vehicle command is planned on the timeline in a session, else run at once (v35)", function()
@@ -3153,8 +3165,73 @@ test("at the common tick both games run the vehicle command on their own vehicle
 		assert(main.replay_line(env, line, "scheduled_client.1", state, 0) == true, table.concat(logged, "\n"))
 		assert(#sent == 1 and sent[1].name == "stopped" and sent[1].id == 30 and sent[1].value == true)
 		assert(state:get().actions.snapshots.vehicle["30"].userStopped == true, "would be sent back")
-		assert(contains(logged, "vehicle stopped for Zug 1 at the common tick") and contains(logged, "vehicle stopped for 30 done"))
+		assert(contains(logged, "vehicle stopped for Zug 1 at the common tick") and contains(logged, "vehicle stopped for Zug 1 done"))
 	end
+end)
+
+test("v36: buses sent to a line and sold in one frame are one timed batch", function()
+	local main = fresh_main()
+	local wire = require("/mp_probe/wire.lua")
+	local actions = require("/mp_probe/actions.lua")
+	local env, sent = vehicle_world("client", { TF3MP_ORDERING = "1" })
+	local state = mock_state()
+	logged = {}
+	main.vehicle_intent(env, state, { batch = wire.encode({ { command = "line", vehicle = 30, value = 40, stop = 2 },
+		{ command = "line", vehicle = 31, value = 40, stop = 0 }, { command = "sell", vehicles = { 31 } } }) })
+	assert(#sent == 0 and contains(logged, "vehicle line for Zug 1, line for Bus 2, sell of 1 vehicle(s) planned"), table.concat(logged, "\n"))
+	local m = state:get().timeline
+	assert(m.pending_requests == 1, "one request for the batch")
+	-- Without a session the same batch runs at once, in click order.
+	local solo, solo_sent = vehicle_world("host")
+	main.vehicle_intent(solo, mock_state(), { batch = wire.encode({ { command = "line", vehicle = 30, value = 40, stop = 2 },
+		{ command = "line", vehicle = 31, value = -1 }, { command = "sell", vehicles = { 30, 31 } } }) })
+	assert(#solo_sent == 3 and solo_sent[1].name == "line" and solo_sent[1].line == 40 and solo_sent[1].stop == 2)
+	assert(solo_sent[2].line == -1 and solo_sent[3].name == "sell" and #solo_sent[3].list == 2)
+	assert(not pcall(main.vehicle_intent, solo, mock_state(), { batch = "nonsense" }))
+end)
+
+test("v36: at the common tick the other game finds the bus and the line it bound earlier", function()
+	local main = fresh_main()
+	local actions = require("/mp_probe/actions.lua")
+	-- The host's bus 900 on the host's line 800; here they are 31 and 40 (bound by earlier actions).
+	local line = actions.encode({ op = "vehicle_command", origin = "host", commands = {
+		{ command = "line", target = { kind = "vehicle", key = "900", name = "Bus 2" },
+			line = { kind = "line", key = "800", name = "Linie 1" }, stop = 1 },
+		{ command = "sell", targets = { { kind = "vehicle", key = "30", name = "Zug 1" } } } } })
+	local env, sent = vehicle_world("client")
+	local state = mock_state()
+	state:set({ action_entities = { ["13620:vehicle:900"] = 31, ["13620:line:800"] = 40 },
+		actions = { snapshots = { vehicle = { ["31"] = { name = "Bus 2", held = true }, ["30"] = { name = "Zug 1" } } } } })
+	logged = {}
+	assert(main.replay_line(env, line, "scheduled_host.4", state, 0) == true, table.concat(logged, "\n"))
+	assert(#sent == 2 and sent[1].name == "line" and sent[1].id == 31 and sent[1].line == 40 and sent[1].stop == 1)
+	assert(sent[2].name == "sell" and sent[2].list[1] == 30)
+	local snaps = state:get().actions.snapshots.vehicle
+	assert(snaps["31"].line.key == "40" and snaps["31"].stopIndex == 1 and snaps["31"].held == nil, "would be sent back")
+	assert(snaps["30"] == nil, "a sold vehicle would be reported as removed")
+	-- A target that is not there yet stops everything before anything runs.
+	local missing = actions.encode({ op = "vehicle_command", origin = "host", commands = {
+		{ command = "stopped", target = { kind = "vehicle", key = "30", name = "Zug 1" }, value = true },
+		{ command = "reverse", target = { kind = "vehicle", key = "901", name = "Bus 9" } } } })
+	local env2, sent2 = vehicle_world("client")
+	local ok = pcall(main.replay_line, env2, missing, "scheduled_host.5", mock_state(), 0)
+	assert(not ok and #sent2 == 0)
+end)
+
+test("v36: a planned vehicle command waits for earlier replays and for its targets", function()
+	local main = fresh_main()
+	local actions = require("/mp_probe/actions.lua")
+	local env = vehicle_world("client")
+	local line = actions.encode({ op = "vehicle_command", origin = "host", commands = {
+		{ command = "line", target = { kind = "vehicle", key = "900", name = "Bus 9" },
+			line = { kind = "line", key = "800", name = "Linie 1" }, stop = 0 } } })
+	local intent = { line = line, origin = "host", seq = 3 }
+	local ok, why = main.intent_ready(env, { action_inbox = { {} } }, intent, "client")
+	assert(not ok and why:find("still being replayed"))
+	ok, why = main.intent_ready(env, {}, intent, "client")
+	assert(not ok and why:find("not found"), why)
+	assert(main.intent_ready(env, { action_entities = { ["13620:vehicle:900"] = 31 } }, intent, "client"))
+	assert(main.intent_ready(env, {}, { line = "B5 x", origin = "host", seq = 4 }, "client"), "builds do not wait")
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

@@ -104,6 +104,7 @@ test("other GUI events are logged once each and never answered", function()
 end)
 
 --- A GUI state with TF3's vehicle commands; vars make it a session with a partner (v35).
+-- v36: the makers return TF3's own commands; the wrapped sendCommand collects marked ones.
 local function vehicle_env(role, vars)
 	local e = env(role)
 	local getenv = e.os.getenv
@@ -111,41 +112,66 @@ local function vehicle_env(role, vars)
 	function e.api.cmd.makeVehicleReverseCmd(id) return { kind = "reverse", id = id } end
 	function e.api.cmd.makeVehicleSetStoppedByUserCmd(id, v) return { kind = "stopped", id = id, value = v } end
 	function e.api.cmd.makeVehicleSendToDepotCmd(id, v) return { kind = "depot", id = id, value = v } end
+	function e.api.cmd.makeVehicleSetLineCmd(id, line, stop) return { kind = "line", id = id, line = line, stop = stop } end
+	function e.api.cmd.makeVehicleSellCmd(list) return { kind = "sell", list = list } end
 	function e.api.cmd.makeScriptingSendEventCmd(src, id, name, param) return { kind = "event", id = id, name = name, param = param } end
 	return e
 end
 local SESSION = { TF3MP_ORDERING = "1", TF3MP_PEER_CLOCK = "at=0 gt=1000 hold=0 phase=idle seq=0" }
+local wire = require("/mp_probe/wire.lua")
 
-test("in a session vehicle clicks become script events for a common tick (v35)", function()
+test("in a session vehicle commands of one frame travel as one script event (v36)", function()
 	local e = vehicle_env("host", SESSION)
 	hold.step(e)
-	assert(has("vehicle hooks: 3 of 3 installed"))
-	local c = e.api.cmd.makeVehicleReverseCmd(117350)
-	assert(c.kind == "event" and c.name == "mp_probe_vehicle" and c.param.command == "reverse" and c.param.vehicle == 117350)
-	c = e.api.cmd.makeVehicleSetStoppedByUserCmd(7, true)
-	assert(c.param.command == "stopped" and c.param.value == true)
-	c = e.api.cmd.makeVehicleSendToDepotCmd(7, false)
-	assert(c.param.command == "depot" and c.param.value == false)
-	assert(#e.sent == 0, "the GUI sends the event itself")
+	assert(has("vehicle hooks: 6 of 6 installed"))
+	local cmd = e.api.cmd
+	local c = cmd.makeVehicleReverseCmd(117350)
+	assert(c.kind == "reverse" and c.id == 117350, "the maker returns TF3's own command")
+	local answers = {}
+	local function cb(r, ok) answers[#answers + 1] = { r = r, ok = ok } end
+	cmd.sendCommand(c, cb)
+	cmd.sendCommand(cmd.makeVehicleSetLineCmd(5, 40, 2), cb)
+	cmd.sendCommand(cmd.makeVehicleSetLineCmd(6, -1), cb)
+	cmd.sendCommand(cmd.makeVehicleSellCmd({ 7, 8 }), cb)
+	cmd.sendCommand(cmd.makeVehicleSetStoppedByUserCmd(9, true))
+	assert(#e.sent == 0, "nothing runs before the common tick")
+	assert(#answers == 4 and answers[1].ok == true and answers[1].r == c, "the window's callbacks run as if done")
+	assert(has("vehicle line for 5 clicked; both games run it at a common tick"))
 	hold.step(e)
-	assert(e.api.cmd.makeVehicleReverseCmd(5).param.vehicle == 5, "hooked twice")
-	-- A failed timeline or switched-off holding: commands run as usual.
+	assert(#e.sent == 1 and e.sent[1].c.kind == "event" and e.sent[1].c.name == "mp_probe_vehicle")
+	local list = assert(wire.decode(e.sent[1].c.param.batch))
+	assert(#list == 5 and list[1].command == "reverse" and list[1].vehicle == 117350)
+	assert(list[2].command == "line" and list[2].vehicle == 5 and list[2].value == 40 and list[2].stop == 2)
+	assert(list[3].value == -1 and list[3].stop == 0)
+	assert(list[4].command == "sell" and list[4].vehicles[2] == 8)
+	assert(list[5].command == "stopped" and list[5].value == true)
+	assert(has("vehicle commands handed over: 5"))
+	hold.step(e)
+	assert(#e.sent == 1, "a batch is sent once; hooked once")
+	-- Other commands pass through untouched.
+	cmd.sendCommand({ kind = "build" })
+	assert(#e.sent == 2 and e.sent[2].c.kind == "build")
+	-- A failed timeline: commands run as usual.
 	e.os.getenv = (function(get) return function(k)
 		if k == "TF3MP_OWN_CLOCK" then return "at=0 gt=1 hold=0 phase=failed seq=0" end
 		return get(k) end end)(e.os.getenv)
-	assert(e.api.cmd.makeVehicleSetStoppedByUserCmd(7, true).kind == "stopped")
+	cmd.sendCommand(cmd.makeVehicleSetStoppedByUserCmd(7, true))
+	assert(#e.sent == 3 and e.sent[3].c.kind == "stopped")
 end)
 
 test("without a partner a reverse runs at once and is told to the simulation; alone nothing travels (v35)", function()
 	local e = vehicle_env("client")
 	hold.step(e)
-	local c = e.api.cmd.makeVehicleReverseCmd(117350)
-	assert(c.kind == "reverse" and c.id == 117350, "command not passed through")
-	assert(#e.sent == 1 and e.sent[1].c.name == "mp_probe_reverse" and e.sent[1].c.param.vehicle == 117350)
-	assert(e.api.cmd.makeVehicleSetStoppedByUserCmd(3, true).kind == "stopped" and #e.sent == 1)
+	local cmd = e.api.cmd
+	cmd.sendCommand(cmd.makeVehicleReverseCmd(117350))
+	assert(#e.sent == 2 and e.sent[1].c.kind == "reverse" and e.sent[1].c.id == 117350, "command not passed through")
+	assert(e.sent[2].c.name == "mp_probe_reverse" and e.sent[2].c.param.vehicle == 117350)
+	cmd.sendCommand(cmd.makeVehicleSetLineCmd(3, 40, 0))
+	assert(#e.sent == 3 and e.sent[3].c.kind == "line")
 	local solo = vehicle_env("loopback", SESSION)
 	hold.step(solo)
-	assert(solo.api.cmd.makeVehicleReverseCmd(3).id == 3 and #solo.sent == 0)
+	solo.api.cmd.sendCommand(solo.api.cmd.makeVehicleReverseCmd(3))
+	assert(#solo.sent == 1 and solo.sent[1].c.id == 3)
 end)
 
 test("a read-only command table or missing commands are reported, not fatal", function()
@@ -153,19 +179,24 @@ test("a read-only command table or missing commands are reported, not fatal", fu
 	local real = e.api.cmd
 	e.api.cmd = setmetatable({}, { __index = real, __newindex = function() error("read only") end })
 	hold.step(e)
-	assert(has("vehicle hooks: 0 of 3 installed"))
+	assert(has("vehicle hooks: 0 of 6 installed"))
 	assert(e.api.cmd.makeVehicleReverseCmd(4).id == 4)
 	local f = env("host"); logs = {}
 	hold.step(f)
-	assert(has("vehicle hooks: 0 of 3 installed") and has("makeVehicleReverseCmd missing"))
+	assert(has("vehicle hooks: 1 of 6 installed") and has("makeVehicleReverseCmd missing"))
 end)
 
-test("a failing script event still gives the GUI the real command", function()
+test("a failing script event runs TF3's own commands here at once", function()
 	local e = vehicle_env("client", SESSION)
 	function e.api.cmd.makeScriptingSendEventCmd() error("no events here") end
 	hold.step(e)
-	assert(e.api.cmd.makeVehicleReverseCmd(8).id == 8 and has("vehicle reverse: no script event"))
-	assert(has("reverse: could not tell the simulation"))
+	local cmd = e.api.cmd
+	cmd.sendCommand(cmd.makeVehicleReverseCmd(8))
+	cmd.sendCommand(cmd.makeVehicleSetLineCmd(9, 40, 1))
+	assert(#e.sent == 0)
+	hold.step(e)
+	assert(has("vehicle commands: no script event"))
+	assert(#e.sent == 2 and e.sent[1].c.kind == "reverse" and e.sent[2].c.kind == "line")
 end)
 
 print(string.format("%d hold tests passed, %d failed", passed, failed))

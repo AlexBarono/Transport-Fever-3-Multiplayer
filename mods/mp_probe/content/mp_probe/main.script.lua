@@ -17,11 +17,12 @@ local transport = require("/mp_probe/transport.lua")
 local fingerprint = require("/mp_probe/fingerprint.lua")
 local timeline = require("/mp_probe/timeline.lua")
 local hold = require("/mp_probe/hold.lua")
+local wire = require("/mp_probe/wire.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 35
+main.PROBE_VERSION = 36
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -865,48 +866,143 @@ function main.submit_intent(env, state, param)
 end
 
 --- v35: a vehicle command clicked in this game's GUI (hold.lua: reverse, start/stop, to the
--- depot). It is planned on the common timeline and runs in both games at the same tick. Without
--- a timeline it runs here at once and travels as before (actions.poll).
-function main.vehicle_intent(env, state, param)
-	assert(type(param) == "table" and actions.VEHICLE_COMMANDS[param.command], "unknown vehicle command")
-	local id = param.vehicle
-	assert(type(id) == "number" and id >= 0 and id % 1 == 0, "invalid vehicle id")
-	local role = sync.role(env.os and env.os.getenv)
-	local action = { op = "vehicle_command", command = param.command, value = param.value == true,
-		origin = role, target = actions.vehicle_ref(env, id) }
-	local ok, err = main.submit_intent(env, state, { line = actions.encode(action), held = true })
-	if ok then
-		logger.info("vehicle " .. param.command .. " for " .. tostring(action.target.name) .. " planned for a common tick")
-		return
+-- depot; v36 also to a line and selling, several at once as param.batch). It is planned on the
+-- common timeline and runs in both games at the same tick. Without a timeline it runs here at
+-- once and travels as before (actions.poll).
+function main.vehicle_entry(env, p)
+	assert(type(p) == "table" and actions.VEHICLE_COMMANDS[p.command], "unknown vehicle command")
+	local function id(v) assert(type(v) == "number" and v >= 0 and v % 1 == 0, "invalid vehicle id"); return v end
+	if p.command == "sell" then
+		assert(type(p.vehicles) == "table" and #p.vehicles > 0, "nothing to sell")
+		local targets = {}
+		for i, v in ipairs(p.vehicles) do targets[i] = actions.vehicle_ref(env, id(v)) end
+		return { command = "sell", targets = targets }
 	end
-	logger.info("vehicle " .. param.command .. " not timed (" .. tostring(err) .. "); running it here now")
-	local s = state:get() or {}
-	if param.command == "reverse" then actions.note_reverse(s, id); state:set(s) end
-	main.send_vehicle_command(env, param.command, id, action.value)
+	local e = { command = p.command, target = actions.vehicle_ref(env, id(p.vehicle)) }
+	if p.command == "line" then
+		assert(type(p.value) == "number" and p.value % 1 == 0, "invalid line id")
+		if p.value >= 0 then e.line = actions.line_ref(env, p.value) end
+		e.stop = type(p.stop) == "number" and p.stop >= 0 and p.stop % 1 == 0 and p.stop or 0
+	else e.value = p.value == true end
+	return e
 end
 
-function main.send_vehicle_command(env, command, id, value)
+--- The local ids of one entry: vehicle(s) and, for "line", the line (-1: none).
+function main.vehicle_ids(env, s, e, own)
+	if e.command == "sell" then
+		local list = {}
+		for i, ref in ipairs(e.targets) do list[i] = actions.timed_target(env, s, ref, own) end
+		return list
+	end
+	local vehicle = actions.timed_target(env, s, e.target, own)
+	local line = e.line and actions.timed_target(env, s, e.line, own) or -1
+	return { vehicle }, line
+end
+
+function main.entry_name(e)
+	if e.command == "sell" then return "sell of " .. #e.targets .. " vehicle(s)" end
+	return e.command .. " for " .. tostring(e.target.name)
+end
+
+function main.vehicle_intent(env, state, param)
+	assert(type(param) == "table", "vehicle command data missing")
+	local list = { param }
+	if param.batch ~= nil then
+		local decoded, err = wire.decode(param.batch)
+		assert(type(decoded) == "table" and #decoded > 0, "invalid vehicle batch: " .. tostring(err))
+		list = decoded
+	end
+	local entries, poll = {}, false
+	for i, p in ipairs(list) do
+		entries[i] = main.vehicle_entry(env, p)
+		poll = poll or p.command == "line" or p.command == "sell"
+	end
+	local role = sync.role(env.os and env.os.getenv)
+	local s = state:get() or {}
+	if poll and not s.action_busy and not (s.action_work and #s.action_work > 0) then
+		-- A bus bought a moment ago must reach the other game before it is sent onto its line there.
+		local ok, err = pcall(actions.poll, env, s, function(text) logger.info(text) end, { "vehicle" })
+		if not ok then logger.info("action poll failed: " .. tostring(err):sub(1, 220)) end
+		state:set(s)
+	end
+	local action = { op = "vehicle_command", origin = role, commands = entries }
+	local ok, err = main.submit_intent(env, state, { line = actions.encode(action), held = true })
+	local names = {}
+	for i, e in ipairs(entries) do names[i] = main.entry_name(e) end
+	if ok then
+		logger.info("vehicle " .. table.concat(names, ", ") .. " planned for a common tick")
+		return
+	end
+	logger.info("vehicle " .. table.concat(names, ", ") .. " not timed (" .. tostring(err) .. "); running it here now")
+	s = state:get() or {}
+	for _, e in ipairs(entries) do
+		local ids, line = main.vehicle_ids(env, s, e, true)
+		if e.command == "reverse" then actions.note_reverse(s, ids[1]); state:set(s) end
+		main.send_vehicle_command(env, e, ids, line)
+	end
+end
+
+function main.send_vehicle_command(env, e, ids, line)
 	local cmd = env.api.cmd
-	local c
-	if command == "reverse" then c = cmd.makeVehicleReverseCmd(id)
-	elseif command == "stopped" then c = cmd.makeVehicleSetStoppedByUserCmd(id, value)
-	elseif command == "depot" then c = cmd.makeVehicleSendToDepotCmd(id, value)
-	else error("unknown vehicle command " .. tostring(command)) end
+	local c, id = nil, ids[1]
+	if e.command == "reverse" then c = cmd.makeVehicleReverseCmd(id)
+	elseif e.command == "stopped" then c = cmd.makeVehicleSetStoppedByUserCmd(id, e.value == true)
+	elseif e.command == "depot" then c = cmd.makeVehicleSendToDepotCmd(id, e.value == true)
+	elseif e.command == "line" then c = cmd.makeVehicleSetLineCmd(id, line, e.stop or 0)
+	elseif e.command == "sell" then c = cmd.makeVehicleSellCmd(ids)
+	else error("unknown vehicle command " .. tostring(e.command)) end
+	local name = main.entry_name(e)
 	cmd.sendCommand(c, function(_, success)
-		logger.info("vehicle " .. command .. " for " .. tostring(id) .. (success == false and " REJECTED by the game" or " done"))
+		logger.info("vehicle " .. name .. (success == false and " REJECTED by the game" or " done"))
 	end)
 end
 
---- At the common tick (scheduled replay of the planned line), in both games.
+--- The entries of a vehicle_command line (v35 lines carry one command at the top level).
+function main.vehicle_entries(action)
+	if type(action.commands) == "table" then return action.commands end
+	return { { command = action.command, target = action.target, value = action.value } }
+end
+
+--- At the common tick (scheduled replay of the planned line), in both games. All targets are
+-- found before anything runs.
 function main.run_vehicle_command(env, state, action)
-	assert(actions.VEHICLE_COMMANDS[action.command], "unknown vehicle command")
 	local role = sync.role(env.os and env.os.getenv)
+	local own = action.origin == role
 	local s = state:get() or {}
-	local id = actions.vehicle_target(env, s, action.target, action.origin == role)
-	actions.vehicle_command_done(s, id, action.command, action.value)
+	local entries, found = main.vehicle_entries(action), {}
+	for i, e in ipairs(entries) do
+		assert(actions.VEHICLE_COMMANDS[e.command], "unknown vehicle command")
+		local ids, line = main.vehicle_ids(env, s, e, own)
+		found[i] = { ids = ids, line = line }
+	end
+	for i, e in ipairs(entries) do
+		local f = found[i]
+		local line_ref = f.line and f.line >= 0 and actions.line_ref(env, f.line) or nil
+		for _, id in ipairs(f.ids) do actions.vehicle_command_done(s, id, e.command, e.value, line_ref, e.stop) end
+	end
 	state:set(s)
-	logger.info("vehicle " .. action.command .. " for " .. tostring(action.target.name) .. " at the common tick")
-	main.send_vehicle_command(env, action.command, id, action.value == true)
+	for i, e in ipairs(entries) do
+		logger.info("vehicle " .. main.entry_name(e) .. " at the common tick")
+		main.send_vehicle_command(env, e, found[i].ids, found[i].line)
+	end
+	return true
+end
+
+--- v36: a planned vehicle command waits at the barrier until the other game has replayed what came
+-- before it (a bus bought a moment ago) and every target exists here. At most INTENT_WAIT_STEPS
+-- steps (four per second while held); then it runs and reports what is missing.
+main.INTENT_WAIT_STEPS = 160
+function main.intent_ready(env, s, intent, role)
+	if type(intent.line) ~= "string" or intent.line:sub(1, 3) ~= "A1 " then return true end
+	local action = actions.decode(intent.line)
+	if not action or action.op ~= "vehicle_command" then return true end
+	if s.action_busy or (s.action_work and #s.action_work > 0) or (s.action_inbox and #s.action_inbox > 0) then
+		return false, "earlier actions are still being replayed"
+	end
+	for _, e in ipairs(main.vehicle_entries(action)) do
+		local ok, err = pcall(main.vehicle_ids, env, s, e, intent.origin == role)
+		if not ok then return false, main.error_text(err) end
+	end
 	return true
 end
 
@@ -955,6 +1051,18 @@ function main.timeline_tick(env, state)
 		local live = state:get() or {}
 		-- Another replay is still running: stay held at the barrier and execute on a later step.
 		if live.network_work then timeline.retry(live.timeline); state:set(live); return end
+		local ready, why = main.intent_ready(env, live, intent, role)
+		local wait = live.timeline.wait
+		if not ready then
+			if not wait or wait.seq ~= intent.seq then
+				wait = { seq = intent.seq, n = 0 }; live.timeline.wait = wait
+				logger.info("timeline " .. intent.origin .. "." .. intent.seq .. " waits: " .. tostring(why):sub(1, 160))
+			end
+			wait.n = wait.n + 1
+			if wait.n <= main.INTENT_WAIT_STEPS then timeline.retry(live.timeline); state:set(live); return end
+			logger.info("timeline " .. intent.origin .. "." .. intent.seq .. " waited too long, running it anyway")
+		end
+		live.timeline.wait = nil
 		logger.info("timeline execute " .. intent.origin .. "." .. intent.seq .. " at gt=" .. tostring(intent.gt) .. " (stamp " .. intent.at .. ")")
 		local token = "scheduled_" .. intent.origin .. "." .. intent.seq
 		if not main.send_replay_event(env, { line = intent.line, number = token, offset = 0, source = "scheduled",

@@ -381,7 +381,28 @@ if ($script:replayRecording) {
 	$out.AppendText("`r`nGespeicherte Aufnahme: $($script:replayRecording.Lines.Count) Aktionen aus '$($script:replayRecording.Save)'.`r`nTest starten, diesen ursprünglichen Spielstand laden und 'Am selben Ort nachbauen' klicken. Ohne neue Bauaufnahme.")
 }
 
-function Show-Error($msg) { [System.Windows.Forms.MessageBox]::Show($msg, 'Fehler', 'OK', 'Error') | Out-Null }
+# v36: Protokoll des Launchers neben alut_proxy.log im Spielordner (Lauf 38: ohne Protokoll war nicht zu
+# sehen, ob der Launcher den Neuabgleich überhaupt versucht hat).
+function Write-LauncherLog([string]$text) {
+	try {
+		$dir = $gameBox.Text.Trim()
+		if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) { return }
+		$path = Join-Path $dir 'alut_launcher.log'
+		if ((Test-Path -LiteralPath $path) -and (Get-Item -LiteralPath $path).Length -gt 2MB) { Move-Item -LiteralPath $path "$path.old" -Force }
+		Add-Content -LiteralPath $path -Value ('{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $PID, ($text -replace "`r?`n", ' | ')) -Encoding UTF8
+	} catch {}
+}
+function Show-Error($msg) {
+	Write-LauncherLog "Fehler: $msg"
+	[System.Windows.Forms.MessageBox]::Show($msg, 'Fehler', 'OK', 'Error') | Out-Null
+}
+# Größe und Dauer einer Übertragung fürs Protokoll.
+function Get-TransferRateText([string]$path, $clock) {
+	try {
+		$bytes = (Get-Item -LiteralPath $path).Length; $seconds = [Math]::Max(0.001, $clock.Elapsed.TotalSeconds)
+		return '{0:N1} MB in {1:N1} s ({2:N1} MB/s)' -f ($bytes / 1MB), $seconds, ($bytes / 1MB / $seconds)
+	} catch { return '' }
+}
 
 $install.Add_Click({
 	$script:installOK = $false
@@ -440,7 +461,7 @@ $startGame.Add_Click({
 		if ($cfg.test -eq 'fakehost') { Start-FakeHost $cfg.port }
 		elseif ($cfg.mode -in 'host','client' -and -not $cfg.test) {
 			$session = Get-LaunchSession $gameBox.Text.Trim() $steam -Installed
-			$out.Text="Sitzung geprüft. Im Spiel '$($session.SaveName)' pausiert laden."
+			$out.Text="Sitzung geprüft. Im Spiel '$($session.SaveName)' pausiert laden.`r`n`r`nDiesen Launcher während des Spiels offen lassen: Er gleicht Abweichungen im laufenden Spiel selbst neu ab."
 		}
 	} catch { Show-Error $_.Exception.Message; return }
 	try { Start-Process "steam://rungameid/$AppId" } catch { Show-Error 'Steam konnte nicht gestartet werden.' }
@@ -545,7 +566,9 @@ function Invoke-Transfer([switch]$Resync) {
 			[System.Windows.Forms.Application]::DoEvents()
 			$manifest = Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
 			$session = New-MultiplayerSession -Manifest $manifest -SavePath $offeredSave
+			$clock = [Diagnostics.Stopwatch]::StartNew()
 			$result = Send-Savegame $offeredSave ([int]$port) $tick -Session $session
+			Write-LauncherLog "Spielstand geschickt: $(Split-Path -Leaf $offeredSave), $(Get-TransferRateText $offeredSave $clock)"
 			Save-PreparedSession -Path (Join-Path $gameBox.Text.Trim() 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
 			$script:transferOK = $true; $script:forceNewSession = $false
 			$out.Text = "Fertig: $($result.Text)`r`n`r`nSpielversion, Moddateien und Spielstand stimmen überein. " +
@@ -568,7 +591,9 @@ function Invoke-Transfer([switch]$Resync) {
 			[System.Windows.Forms.Application]::DoEvents()
 			$manifest = Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
 			$wait = if ($Resync) { 600 } else { 0 }
+			$clock = [Diagnostics.Stopwatch]::StartNew()
 			$result = Receive-Savegame $ip ([int]$port) $saveDir $tick $confirm -LocalManifest $manifest -WaitSeconds $wait
+			Write-LauncherLog "Spielstand geholt: $(Split-Path -Leaf $result.SavePath), $(Get-TransferRateText $result.SavePath $clock) (inklusive Warten auf den Gastgeber)"
 			Save-PreparedSession -Path (Join-Path $gameBox.Text.Trim() 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
 			$script:transferOK = $true; $script:forceNewSession = $false
 			$out.Text = "Fertig: $($result.Text)`r`n`r`nSpielversion, Moddateien und Spielstand stimmen überein. " +
@@ -673,6 +698,7 @@ function Invoke-LiveResync($values, $reason) {
 		default { 'dein Mitspieler hat einen Fehler gemeldet' }
 	}
 	Register-LiveResync $script:liveMemory ([DateTime]::UtcNow)
+	Write-LauncherLog "Neuabgleich im laufenden Spiel $($script:liveMemory.Count) von ${LiveResyncMax}: Rolle $($values.mode), Grund $why, epoch $($values.epoch)"
 	$script:transferHint = "`r`n`r`nNeuabgleich im laufenden Spiel ($($script:liveMemory.Count) von $LiveResyncMax), Grund: $why.`r`nTF3 bleibt offen und lädt gleich den gemeinsamen Spielstand."
 	$statusLabel.Text = 'Neuabgleich im laufenden Spiel ...'; $statusLabel.ForeColor = $Muted
 	$tick = {
@@ -711,21 +737,30 @@ function Invoke-LiveResync($values, $reason) {
 			$savePath = Assert-LauncherSavePath $file.FullName $saveDir
 			$manifest = Get-LauncherManifest $gameDir $steam $tick
 			$session = New-MultiplayerSession -Manifest $manifest -SavePath $savePath
+			Write-LauncherLog "Neuabgleich: schicke $(Split-Path -Leaf $savePath) ($($file.LastWriteTime.ToString('HH:mm:ss')))"
+			$clock = [Diagnostics.Stopwatch]::StartNew()
 			$result = Send-Savegame $savePath $port $tick 150 -Session $session
+			Write-LauncherLog "Neuabgleich: geschickt, $(Get-TransferRateText $savePath $clock)"
 		} else {
 			# Nur dieser PC hat den Fehler gesehen: dem Gastgeber Bescheid sagen (resync_peer).
 			if ($reason.Kind -eq 'error') { Write-ProxyRequest $gameDir 'alut_proxy.save' 'save' | Out-Null }
 			if (-not $cfg.host) { throw 'In alut_proxy.ini fehlt die Adresse des Gastgebers.' }
 			$manifest = Get-LauncherManifest $gameDir $steam $tick
+			Write-LauncherLog "Neuabgleich: hole den Spielstand von $($cfg.host):$port"
+			$clock = [Diagnostics.Stopwatch]::StartNew()
 			$result = Receive-Savegame $cfg.host $port $saveDir $tick { param($question) $true } -LocalManifest $manifest -WaitSeconds 150
+			Write-LauncherLog "Neuabgleich: geholt, $(Get-TransferRateText $result.SavePath $clock) (inklusive Warten)"
 		}
 		Save-PreparedSession -Path (Join-Path $gameDir 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
 		$name = Get-LiveReloadName $result.SavePath
 		$reloadPath = Write-ProxyRequest $gameDir 'alut_proxy.reload' "name=$name"
+		Write-LauncherLog "Neuabgleich: TF3 soll '$name' laden"
 		Wait-LiveReload $statusPath $epochBefore $tick 120 $reloadPath | Out-Null
+		Write-LauncherLog "Neuabgleich: '$name' geladen"
 		$out.Text = "Neuabgleich im laufenden Spiel: '$name' ist geladen.`r`nSobald beide PCs ihn geladen haben, verbinden sie sich wieder. Dann gemeinsam weiterspielen (Pause aufheben)." +
 			"`r`nGrund war: $why."
 	} catch {
+		Write-LauncherLog "Neuabgleich fehlgeschlagen: $($_.Exception.Message)"
 		$out.Text = "Neuabgleich im laufenden Spiel hat nicht geklappt: $($_.Exception.Message)`r`n`r`n" +
 			"Dann bitte auf beiden PCs 'Neu abgleichen' klicken (TF3 startet dabei neu)."
 	} finally {
@@ -751,12 +786,16 @@ $timer.Add_Tick({
 		$values = Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
 		$reason = Get-LiveResyncReason $values $script:liveMemory ([DateTime]::UtcNow)
 		if ($reason) { Invoke-LiveResync $values $reason }
-	} catch { $script:liveBusy = $false }
+		elseif ($values.world -eq 'diff' -or $values.world_peer -eq 'diff' -or $values.error) {
+			$note = "Abweichung ohne Neuabgleich: world=$($values.world)/$($values.world_peer) error=$($values.error) ready=$($values.ready) resync=$($values.resync) bisher $($script:liveMemory.Count)"
+			if ($script:liveNote -ne $note) { $script:liveNote = $note; Write-LauncherLog $note }
+		}
+	} catch { $script:liveBusy = $false; Write-LauncherLog "Zeitgeber: $($_.Exception.Message)" }
 })
-$form.Add_Shown({ $timer.Start() })
+$form.Add_Shown({ Write-LauncherLog "Launcher gestartet ($(Split-Path -Leaf $Root))"; $timer.Start() })
 # v34: das normale X schließt den Launcher immer, auch während einer Übertragung. Laufende Schritte
 # werden abgebrochen; danach endet der (versteckte) PowerShell-Prozess sicher.
-$form.Add_FormClosing({ $script:transferCancel = $true })
+$form.Add_FormClosing({ $script:transferCancel = $true; Write-LauncherLog 'Launcher geschlossen' })
 $form.Add_FormClosed({
 	$timer.Stop(); $timer.Dispose()
 	if (-not $Preview) { [Environment]::Exit(0) }

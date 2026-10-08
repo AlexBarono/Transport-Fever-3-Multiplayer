@@ -17,6 +17,11 @@
 $SaveMagic = 'TF3MPSAVE1'
 $SaveSessionMagic = 'TF3MPSAVE2'
 $SaveChunk = 1MB
+# v36: Socketpuffer. Ein Puffer von 64 KB erlaubt nur 64 KB unterwegs; über ein VPN mit etwa 60 ms Ping sind das
+# rund 1 MB/s (Lauf 38). 8 MB reichen auch bei hohem Ping für über 50 MB/s.
+$SaveSocketBuffer = 8MB
+# Größe eines einzelnen Socket-Schreibvorgangs; dazwischen prüft der Gastgeber auf eine Absage.
+$SaveWriteSize = 256KB
 # Größter Spielstand, den der Mitspieler annimmt (die größten bisher: rund 80 MB).
 $SaveMaxBytes = 1GB
 
@@ -156,6 +161,8 @@ function Read-ReceiverAbort($client, $reader, [int]$waitMs) {
 # Gastgeber: ein einzelner Übertragungsversuch über eine angenommene Verbindung.
 function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes, [int64]$total, $tick) {
 	$client.SendTimeout = 30000
+	$client.SendBufferSize = $SaveSocketBuffer
+	$client.NoDelay = $true
 	# Der Mitspieler kann noch gefragt werden, ob er einen gleichnamigen Spielstand ersetzen will.
 	$client.ReceiveTimeout = 600000
 	$stream = $client.GetStream()
@@ -181,11 +188,11 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 			$in = [System.IO.File]::OpenRead($f.FullName)
 			try {
 				while (($n = $in.Read($buffer, 0, $buffer.Length)) -gt 0) {
-					# Keep the proven 64-KiB socket writes and abort checks even with larger disk
-					# reads. A large pending write can hide a receiver's refusal before it closes.
+					# Socket writes of $SaveWriteSize with an abort check after each: a very large pending
+					# write could hide a receiver's refusal before it closes.
 					$offset = 0
 					while ($offset -lt $n) {
-						$sendCount = [Math]::Min(65536, $n - $offset)
+						$sendCount = [Math]::Min($SaveWriteSize, $n - $offset)
 						$writer.Write($buffer, $offset, $sendCount)
 						$offset += $sendCount; $done += $sendCount
 						# Vor dem Ende antwortet der Mitspieler nur, wenn er abbricht.
@@ -308,7 +315,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		try { $client.EndConnect($async) } catch { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt? ($((Get-TransferNetworkError $_.Exception).Message))") }
 		$client.ReceiveTimeout = 60000
 		$client.SendTimeout = 30000
-		$client.ReceiveBufferSize = 1MB
+		$client.ReceiveBufferSize = $SaveSocketBuffer
 		$stream = $client.GetStream()
 		$reader = New-Object System.IO.BinaryReader($stream, [System.Text.Encoding]::UTF8)
 		$writer = New-Object System.IO.BinaryWriter($stream, [System.Text.Encoding]::UTF8)
