@@ -21,7 +21,7 @@ local hold = require("/mp_probe/hold.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 34
+main.PROBE_VERSION = 35
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -44,7 +44,7 @@ main.ENTITY_COMPONENTS = {
 -- bridge has to capture and replay, so their parameter structure is dumped once.
 -- v34: the builder events reach guiHandleEvent only when subscribed (company.script.tl does the same).
 main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay", "Obtain", "Repay", "mp_probe_schedule",
-	"builder.proposalCreate", "builder.proposalPrepareForApply", "builder.proposalApply" }
+	"builder.proposalCreate", "builder.proposalPrepareForApply", "builder.proposalApply", "mp_probe_reverse", "mp_probe_vehicle" }
 
 --- Replay test (phase 1, one PC). The copy is built this many metres beside the original so both
 -- are visible; at most MAX_REPLAYS per savegame session. A build with as many segments as the copy
@@ -369,6 +369,7 @@ function main.replay_line(env, line, number, state, distance)
 	if line:sub(1, 1) == "A" then
 		local action, err = actions.decode(line)
 		if not action then logger.info("action replay: bad line (" .. tostring(err) .. ")"); return false, err end
+		if action.op == "vehicle_command" then return main.run_vehicle_command(env, state, action) end
 		local peer = tostring(number):match("^([^.]+)")
 		local ok, result = pcall(actions.receive, state, action, peer, distance or main.REPLAY_SIDE_OFFSET)
 		if not ok then logger.info("action replay failed: " .. tostring(result):sub(1, 240)) end
@@ -861,6 +862,52 @@ function main.submit_intent(env, state, param)
 	local ok, err = timeline.submit(main.timeline_of(s, role), param and param.line, param and param.held)
 	state:set(s)
 	return ok, err
+end
+
+--- v35: a vehicle command clicked in this game's GUI (hold.lua: reverse, start/stop, to the
+-- depot). It is planned on the common timeline and runs in both games at the same tick. Without
+-- a timeline it runs here at once and travels as before (actions.poll).
+function main.vehicle_intent(env, state, param)
+	assert(type(param) == "table" and actions.VEHICLE_COMMANDS[param.command], "unknown vehicle command")
+	local id = param.vehicle
+	assert(type(id) == "number" and id >= 0 and id % 1 == 0, "invalid vehicle id")
+	local role = sync.role(env.os and env.os.getenv)
+	local action = { op = "vehicle_command", command = param.command, value = param.value == true,
+		origin = role, target = actions.vehicle_ref(env, id) }
+	local ok, err = main.submit_intent(env, state, { line = actions.encode(action), held = true })
+	if ok then
+		logger.info("vehicle " .. param.command .. " for " .. tostring(action.target.name) .. " planned for a common tick")
+		return
+	end
+	logger.info("vehicle " .. param.command .. " not timed (" .. tostring(err) .. "); running it here now")
+	local s = state:get() or {}
+	if param.command == "reverse" then actions.note_reverse(s, id); state:set(s) end
+	main.send_vehicle_command(env, param.command, id, action.value)
+end
+
+function main.send_vehicle_command(env, command, id, value)
+	local cmd = env.api.cmd
+	local c
+	if command == "reverse" then c = cmd.makeVehicleReverseCmd(id)
+	elseif command == "stopped" then c = cmd.makeVehicleSetStoppedByUserCmd(id, value)
+	elseif command == "depot" then c = cmd.makeVehicleSendToDepotCmd(id, value)
+	else error("unknown vehicle command " .. tostring(command)) end
+	cmd.sendCommand(c, function(_, success)
+		logger.info("vehicle " .. command .. " for " .. tostring(id) .. (success == false and " REJECTED by the game" or " done"))
+	end)
+end
+
+--- At the common tick (scheduled replay of the planned line), in both games.
+function main.run_vehicle_command(env, state, action)
+	assert(actions.VEHICLE_COMMANDS[action.command], "unknown vehicle command")
+	local role = sync.role(env.os and env.os.getenv)
+	local s = state:get() or {}
+	local id = actions.vehicle_target(env, s, action.target, action.origin == role)
+	actions.vehicle_command_done(s, id, action.command, action.value)
+	state:set(s)
+	logger.info("vehicle " .. action.command .. " for " .. tostring(action.target.name) .. " at the common tick")
+	main.send_vehicle_command(env, action.command, id, action.value == true)
+	return true
 end
 
 function main.check_network(state)
@@ -1544,6 +1591,22 @@ function main.remember_constructions(env, s, param)
 end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
+	if name == "mp_probe_vehicle" then
+		local ok, err = pcall(main.vehicle_intent, _G, state, param)
+		if not ok then logger.info("vehicle command failed: " .. main.error_text(err):sub(1, 200)) end
+		return
+	end
+	if name == "mp_probe_reverse" then
+		-- v35: the player clicked "Reverse" (hold.lua); the next action poll sends it.
+		local ok, err = pcall(function()
+			local s = state:get() or {}
+			actions.note_reverse(s, type(param) == "table" and param.vehicle or nil)
+			state:set(s)
+		end)
+		logger.info("reverse clicked for vehicle " .. tostring(type(param) == "table" and param.vehicle) ..
+			(ok and "" or (": " .. main.error_text(err):sub(1, 160))))
+		return
+	end
 	if name == "mp_probe_schedule" or id == "mp_probe_schedule" then
 		local ok, err = main.submit_intent(_G, state, param)
 		if not ok then logger.info("timeline intent rejected: " .. tostring(err)) end

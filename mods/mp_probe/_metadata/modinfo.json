@@ -5,7 +5,7 @@
             "role": "CREATOR"
         }
     ],
-    "description": "Experimental TF3 multiplayer prototype. Probe v34 / bridge v12: prepared sessions verify game, multiplayer package, installed mods and source save before exchanging actions. Detailed world digests detect persistent content differences. v33 syncs loans through the game's loan script, orders replays of both PCs, compares vehicle positions, cargo and towns, and v34 holds builds so that both games execute them at a common tick.",
+    "description": "Experimental TF3 multiplayer prototype. Probe v35 / bridge v13: prepared sessions verify game, multiplayer package, installed mods and source save before exchanging actions. Detailed world digests detect persistent content differences. v33 syncs loans through the game's loan script, orders replays of both PCs, compares vehicle positions, cargo and towns, v34 holds builds so that both games execute them at a common tick, and v35 does the same for train reversing, start/stop and depot orders and reloads a shared save in the running game when the worlds differ.",
     "name": "Multiplayer Probe (dev)",
     "summary": "Logs the TF3 Lua sandbox and engine API for multiplayer research.",
     "tags": [

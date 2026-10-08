@@ -450,6 +450,44 @@ try:
     time.sleep(.6); buf = c.create_string_buffer(262209)
     assert not host.mp_inbox(buf), "dependent actions must not run after a failed command"
     print("PASS failed game result blocks dependent actions", flush=True)
+
+    # v13: in-game resync. Both launchers ask their game to load the resync save; each DLL drops
+    # the old actions when its game loads it, and the peers wait for each other in the new epoch.
+    folder = {"host": work / "host", "client": work / "client"}
+    (folder["client"] / "alut_proxy.reload").write_text("name=TF3MP-Neuabgleich\r\n")
+    client.mp_requests()
+    assert status(client)["resync"] == "armed" and not (folder["client"] / "alut_proxy.reload").exists()
+    client.mp_log(b"[2026-10-08 10:05:00Z - MESSAGE - Main] Loading game from file TF3MP-Neuabgleich")
+    st = status(client)
+    assert st["epoch"] == "1" and st["resync"] == "-" and st["blocked"] == "0" and st["outbox"] == "0", st
+    client.mp_feed(b"net reload")
+    assert status(client)["error"] == "" and status(client)["ready"] == "1"
+    assert client.mp_send(b"B5 after-resync")
+    time.sleep(2.5)
+    assert status(host)["inbox"] == "0", "nothing travels until both games are in the same epoch"
+    # Another save is no resync; a wrong name is refused.
+    (folder["host"] / "alut_proxy.reload").write_text("name=..\\other")
+    host.mp_requests(); assert status(host)["resync"] == "-"
+    (folder["host"] / "alut_proxy.reload").write_text("name=TF3MP-Neuabgleich")
+    host.mp_requests(); assert status(host)["resync"] == "armed"
+    host.mp_log(b"[2026-10-08 10:05:01Z - MESSAGE - Main] Loading game from file TF3MP-Neuabgleich")
+    host.mp_feed(b"net reload")
+    st = status(host); assert st["epoch"] == "1" and st["blocked"] == "0" and st["inbox"] == "0", st
+    token, received = receive(host); assert received == b"B5 after-resync", received
+    assert host.mp_result(token, b"OK")
+    wait(lambda: status(client)["outbox"] == "0")
+    assert host.mp_send(b"B5 host-after-resync")
+    token, received = receive(client); assert received == b"B5 host-after-resync"
+    assert client.mp_result(token, b"OK")
+    wait(lambda: status(host)["outbox"] == "0")
+    # The partner's launcher request reaches this launcher through the DLL status.
+    assert status(host)["resync_peer"] == ""
+    assert client.mp_feed(b"net state resync ck=0 req=4")
+    wait(lambda: status(host)["resync_peer"] == "4")
+    # A save request for the host's game, and a later load of another save still blocks.
+    (folder["host"] / "alut_proxy.save").write_text("")
+    host.mp_requests(); assert not (folder["host"] / "alut_proxy.save").exists()
+    print("PASS in-game resync: old actions dropped, epochs wait for each other, fresh order afterwards", flush=True)
     probe = bind(); probe.sendto(b"TF3MP/1 HELLO client proto=2 session=intruder", ("127.0.0.1",host_port))
     time.sleep(.1)
     assert "peer restarted" not in status(host)["error"], "another endpoint must not take over the session"

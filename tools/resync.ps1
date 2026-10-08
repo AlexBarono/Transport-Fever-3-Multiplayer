@@ -109,3 +109,89 @@ function Stop-GameForResync($tick, $askForce = $null, [double]$waitSeconds = 5, 
 		Start-Sleep -Milliseconds 100
 	}
 }
+
+# ---------- v35: Neuladen im laufenden Spiel ----------
+# Bei einer kleinen Abweichung bleibt TF3 offen: Der Gastgeber schickt den Stand, den sein Spiel gerade
+# gespeichert hat, der Mitspieler holt ihn, und beide Launcher bitten über die DLL (alut_proxy.reload,
+# DLL v13) das laufende Spiel, ihn zu laden (gui.lua, app.loadGame). Höchstens $LiveResyncMax-mal pro
+# Spielstart und mit $LiveResyncCooldownSeconds Abstand; danach bleibt der Knopf 'Neu abgleichen'.
+$LiveResyncCooldownSeconds = 180
+$LiveResyncMax = 3
+# Fehler, nach denen beide Welten noch geladen sind und ein gemeinsamer Stand weiterhilft.
+$LiveResyncErrors = '^(peer rejected|game rejected|save reloaded with pending)'
+
+# Die Zeilen von alut_proxy.status als Hashtable; leer, wenn die Datei fehlt.
+function Read-ProxyStatusValues([string]$Path) {
+	$values = @{}
+	if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $values }
+	foreach ($line in @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue)) { if ($line -match '^(\w+)=(.*)$') { $values[$matches[1]] = $matches[2] } }
+	return $values
+}
+
+function New-LiveResyncMemory { return @{ Pid = ''; Count = 0; LastUtc = [datetime]::MinValue; PeerReq = '' } }
+
+# Warum dieses Spiel jetzt im laufenden Spiel neu abgleichen soll: @{Kind='diff'|'error'|'peer'; Detail}
+# oder $null. Kind 'peer': der Launcher des Mitspielers hat einen Neuabgleich verlangt (DLL-Status
+# resync_peer, neu seit dem letzten Mal). Zählt nichts mit; das macht Register-LiveResync beim Start.
+function Get-LiveResyncReason($Values, $Memory, [datetime]$NowUtc) {
+	if (-not $Values -or ($Values.mode -ne 'host' -and $Values.mode -ne 'client')) { return $null }
+	# Ein neu gestartetes TF3 (andere Prozessnummer) beginnt wieder bei null.
+	if ($Values.pid -and $Values.pid -ne $Memory.Pid) {
+		$Memory.Pid = $Values.pid; $Memory.Count = 0; $Memory.LastUtc = [datetime]::MinValue; $Memory.PeerReq = ''
+	}
+	$peerReq = [string]$Values.resync_peer
+	$peerNew = $peerReq -and $peerReq -ne $Memory.PeerReq
+	# Eine Bitte gilt einmal, auch wenn sie in die Wartezeit fällt (dann gleichen beide schon ab).
+	if ($peerReq) { $Memory.PeerReq = $peerReq }
+	if ($Values.resync -eq 'armed' -or $Values.ready -ne '1') { return $null }
+	if ($Memory.Count -ge $LiveResyncMax) { return $null }
+	if (($NowUtc - $Memory.LastUtc).TotalSeconds -lt $LiveResyncCooldownSeconds) { return $null }
+	if ($Values.world -eq 'diff' -or $Values.world_peer -eq 'diff') { return @{ Kind = 'diff'; Detail = [string]$Values.world_fields } }
+	if ([string]$Values.error -match $LiveResyncErrors) { return @{ Kind = 'error'; Detail = [string]$Values.error } }
+	if ($peerNew) { return @{ Kind = 'peer'; Detail = $peerReq } }
+	return $null
+}
+
+function Register-LiveResync($Memory, [datetime]$NowUtc) { $Memory.Count++; $Memory.LastUtc = $NowUtc }
+
+# Bittet die DLL neben dem Spiel um etwas (alut_proxy.save oder alut_proxy.reload); sie nimmt die Datei
+# etwa einmal pro Sekunde und löscht sie.
+function Write-ProxyRequest([string]$GameDir, [string]$Name, [string]$Text = '') {
+	$path = Join-Path $GameDir $Name
+	$temp = "$path.tmp"
+	[IO.File]::WriteAllText($temp, "$Text`r`n", (New-Object Text.ASCIIEncoding))
+	Move-Item -LiteralPath $temp -Destination $path -Force
+	return $path
+}
+
+# Name des Spielstands für alut_proxy.reload: so, wie TF3 ihn beim Laden ins Protokoll schreibt.
+function Get-LiveReloadName([string]$SavePath) {
+	$name = [IO.Path]::GetFileNameWithoutExtension($SavePath)
+	if (-not $name -or $name -match '[\\/:"]' -or $name -match '[\x00-\x1f]' -or $name.Length -gt 250) { throw "Dieser Spielstandname geht nicht für das Neuladen im Spiel: '$name'" }
+	return $name
+}
+
+# Wartet, bis die DLL das Neuladen angenommen (resync=armed) und das Spiel den Stand geladen hat
+# (epoch größer als vorher). $true = geladen; wirft mit Erklärung, wenn nicht.
+function Wait-LiveReload([string]$StatusPath, [int]$EpochBefore, $tick, [int]$TimeoutSeconds = 120, [string]$ReloadPath = '') {
+	$deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+	$armed = $false; $takenAt = $null
+	while ($true) {
+		$values = Read-ProxyStatusValues $StatusPath
+		if ($values.epoch -match '^\d+$' -and [int]$values.epoch -gt $EpochBefore) { return $true }
+		if ($values.resync -eq 'armed') { $armed = $true }
+		# Die DLL hat die Bitte genommen, aber nicht angenommen (steht dann in alut_proxy.log).
+		if (-not $armed -and $ReloadPath -and -not (Test-Path -LiteralPath $ReloadPath)) {
+			if (-not $takenAt) { $takenAt = [DateTime]::UtcNow }
+			elseif (([DateTime]::UtcNow - $takenAt).TotalSeconds -ge 3) { $deadline = [DateTime]::MinValue }
+		}
+		if ([DateTime]::UtcNow -gt $deadline) {
+			if ($ReloadPath -and (Test-Path -LiteralPath $ReloadPath)) { Remove-Item -LiteralPath $ReloadPath -Force -ErrorAction SilentlyContinue }
+			if ($armed) { throw 'TF3 hat den gemeinsamen Spielstand nicht geladen. Bitte auf beiden PCs "Neu abgleichen" klicken.' }
+			throw 'Die Multiplayer-DLL hat das Neuladen nicht angenommen (alte DLL oder Fehler in der Sitzung). Bitte auf beiden PCs "Neu abgleichen" klicken.'
+		}
+		$text = if ($armed) { 'TF3 lädt den gemeinsamen Spielstand ...' } else { 'Bitte TF3, den gemeinsamen Spielstand zu laden ...' }
+		if (& $tick $text 0 0) { throw 'Abgebrochen.' }
+		Start-Sleep -Milliseconds 250
+	}
+}

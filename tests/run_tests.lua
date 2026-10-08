@@ -369,6 +369,20 @@ test("handleEvent starts counting again for a new probe version", function()
 	assert(not contains(logged, "name=onX #2"))
 end)
 
+test("a reverse clicked in the GUI is noted for the next action poll (v35)", function()
+	local main = load_resource("/mp_probe/main.script.lua")
+	logged = {}
+	local state = mock_state()
+	main.handleEvent(nil, state, "mp_probe", "mp_probe_reverse", "mp_probe_reverse", { vehicle = 117350 })
+	assert(state:get().actions.user_reverse["117350"] == true)
+	assert(contains(logged, "reverse clicked for vehicle 117350"))
+	main.handleEvent(nil, state, "mp_probe", "mp_probe_reverse", "mp_probe_reverse", { vehicle = "x" })
+	assert(contains(logged, "invalid vehicle id"))
+	local found = false
+	for _, e in ipairs(main.SUBSCRIBED_EVENTS) do if e == "mp_probe_reverse" then found = true end end
+	assert(found, "not subscribed")
+end)
+
 test("handleEvent logs each event type once", function()
 	local main = load_resource("/mp_probe/main.script.lua")
 	logged = {}
@@ -3082,6 +3096,65 @@ test("a handed-over build without a common tick switches holding off", function(
 	gstate.value = { waiting = { since = now, seq = 3 } }
 	vars.TF3MP_OWN_CLOCK = "seq=3 phase=failed"
 	hold.step(env, gstate); assert(gstate.value.hold_off == "timeline failed")
+end)
+
+-- v35: vehicle commands clicked in the GUI are planned like held builds and run at the stamp.
+local function vehicle_world(role, vars)
+	local entities = {
+		[30] = { NAME = { name = "Zug 1" }, PLAYER_OWNED = { player = 7 }, TRANSPORT_VEHICLE = { userStopped = false } },
+	}
+	local sent = {}
+	local ct = { NAME = "NAME", PLAYER_OWNED = "PLAYER_OWNED", TRANSPORT_VEHICLE = "TRANSPORT_VEHICLE" }
+	vars = vars or {}
+	vars.TF3MP_ROLE = role
+	local env = { os = { getenv = function(k) return vars[k] end },
+		api = { type = { ComponentType = ct },
+			engine = { getComponent = function(id, c) return entities[id] and entities[id][c] end,
+				util = { getPlayer = function() return 7 end } },
+			cmd = {
+				makeVehicleReverseCmd = function(id) return { name = "reverse", id = id } end,
+				makeVehicleSetStoppedByUserCmd = function(id, v) return { name = "stopped", id = id, value = v } end,
+				makeVehicleSendToDepotCmd = function(id, v) return { name = "depot", id = id, value = v } end,
+				sendCommand = function(c, callback) sent[#sent + 1] = c; if callback then callback(c, true) end end } } }
+	return env, sent
+end
+
+test("a clicked vehicle command is planned on the timeline in a session, else run at once (v35)", function()
+	local main = fresh_main()
+	local env, sent = vehicle_world("host", { TF3MP_ORDERING = "1" })
+	local state = mock_state()
+	logged = {}
+	main.vehicle_intent(env, state, { command = "reverse", vehicle = 30 })
+	assert(#sent == 0 and contains(logged, "planned for a common tick"), table.concat(logged, "\n"))
+	local m = state:get().timeline
+	assert(m and #m.queue == 1 and m.queue[1].line:sub(1, 3) == "A1 ", "not queued")
+	-- No ordered session: it runs here at once, and a reverse is noted for the action poll.
+	local solo, solo_sent = vehicle_world("client")
+	local st = mock_state()
+	logged = {}
+	main.vehicle_intent(solo, st, { command = "reverse", vehicle = 30 })
+	assert(#solo_sent == 1 and solo_sent[1].name == "reverse" and solo_sent[1].id == 30)
+	assert(st:get().actions.user_reverse["30"] and contains(logged, "running it here now"))
+	main.vehicle_intent(solo, st, { command = "stopped", vehicle = 30, value = true })
+	assert(solo_sent[2].name == "stopped" and solo_sent[2].value == true)
+	assert(not pcall(main.vehicle_intent, solo, st, { command = "sell", vehicle = 30 }))
+end)
+
+test("at the common tick both games run the vehicle command on their own vehicle (v35)", function()
+	local main = fresh_main()
+	local actions = require("/mp_probe/actions.lua")
+	local line = actions.encode({ op = "vehicle_command", command = "stopped", value = true, origin = "client",
+		target = { kind = "vehicle", key = "30", name = "Zug 1" } })
+	for _, role in ipairs({ "host", "client" }) do
+		local env, sent = vehicle_world(role)
+		local state = mock_state()
+		state:set({ actions = { snapshots = { vehicle = { ["30"] = { name = "Zug 1", userStopped = false } } } } })
+		logged = {}
+		assert(main.replay_line(env, line, "scheduled_client.1", state, 0) == true, table.concat(logged, "\n"))
+		assert(#sent == 1 and sent[1].name == "stopped" and sent[1].id == 30 and sent[1].value == true)
+		assert(state:get().actions.snapshots.vehicle["30"].userStopped == true, "would be sent back")
+		assert(contains(logged, "vehicle stopped for Zug 1 at the common tick") and contains(logged, "vehicle stopped for 30 done"))
+	end
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

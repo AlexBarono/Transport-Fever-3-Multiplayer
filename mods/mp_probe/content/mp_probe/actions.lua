@@ -446,11 +446,38 @@ end
 -- send every vehicle of a line again when only the line was renamed.
 local function line_key(r) return r and r.line and r.line.key or nil end
 
+--- A vehicle configuration without what the game sets by itself: a compartment on automatic
+-- loading gets the cargo it loads at a station as its load config (run 37: every loading bulk
+-- train was sent as a new train set and replaced in the other game while it was driving).
+function actions.config_key(config)
+	if type(config) ~= "table" then return config end
+	local out = {}
+	for k, v in pairs(config) do out[k] = v end
+	if type(config.vehicles) == "table" then
+		out.vehicles = {}
+		for i, v in ipairs(config.vehicles) do
+			local part = {}
+			for k, x in pairs(v) do part[k] = x end
+			local auto, loads = v.autoLoadConfig, v.compartment2loadConfig
+			if type(auto) == "table" and type(loads) == "table" then
+				local kept = {}
+				for j, c in pairs(loads) do
+					if auto[j] ~= true then kept[j] = c end
+				end
+				part.compartment2loadConfig = kept
+			end
+			out.vehicles[i] = part
+		end
+	end
+	return out
+end
+local function same_config(a, b) return same(actions.config_key(a), actions.config_key(b)) end
+
 local function changed(kind, r, old)
 	if kind == "vehicle" then
 		-- Depot presence and stopIndex change during ordinary travel, not just UI actions.
 		return r.name ~= old.name or r.userStopped ~= old.userStopped or r.autoDeparture ~= old.autoDeparture
-			or not same(r.config, old.config) or line_key(r) ~= line_key(old)
+			or not same_config(r.config, old.config) or line_key(r) ~= line_key(old)
 	end
 	if kind == "account" then return not r.managed and r.loan ~= old.loan end
 	if kind == "line" then
@@ -466,7 +493,7 @@ end
 -- along, configuration included).
 function actions.vehicle_previous(r, old)
 	return { name = old.name, line = old.line, userStopped = old.userStopped, autoDeparture = old.autoDeparture,
-		config_changed = not same(r.config, old.config) }
+		config_changed = not same_config(r.config, old.config) }
 end
 
 --- Polls after the receiver reversed a train in which its own direction change is not sent back.
@@ -477,9 +504,11 @@ actions.REVERSE_QUIET_POLLS = 3
 -- - reverse: a train turned while driving. Trains also turn by themselves at a terminal, in both
 --   games alike, so only a turn between two polls that both saw the train driving counts;
 -- - release: sent out again from the depot it was sent to.
+-- - reverse also when the player clicked "Reverse" in this game (user: seen by hold.lua in the
+--   GUI, v35), whatever the train is doing; the turn that follows is then not counted again.
 -- Keeps r.held (in the depot it was sent to) and r.quiet (polls without reverse) for the next poll.
 -- @return table events or nil
-function actions.vehicle_events(r, old)
+function actions.vehicle_events(r, old, user)
 	local ev = {}
 	r.held = r.state == "IN_DEPOT" and (old.state == "GOING_TO_DEPOT" or old.held) or nil
 	local quiet = (old.quiet or 0) > 0
@@ -492,10 +521,71 @@ function actions.vehicle_events(r, old)
 		and r.reversed ~= nil and old.reversed ~= r.reversed then
 		ev.reverse = true
 	end
+	if user then ev.reverse, r.quiet = true, actions.REVERSE_QUIET_POLLS end
 	if old.held and r.state ~= nil and r.state ~= "IN_DEPOT" and r.state ~= "GOING_TO_DEPOT" and r.line then
 		ev.release = true
 	end
 	return next(ev) ~= nil and ev or nil
+end
+
+--- The player clicked "Reverse" for this vehicle (script event from hold.lua, v35). The next poll
+-- sends the reverse, also for a train standing at a station, where a turn alone does not count.
+function actions.note_reverse(s, id)
+	assert(type(id) == "number" and id >= 0 and id % 1 == 0, "invalid vehicle id")
+	s.actions = s.actions or { snapshots = {}, queue = {}, errors = {} }
+	s.actions.user_reverse = s.actions.user_reverse or {}
+	s.actions.user_reverse[tostring(id)] = true
+end
+
+--- v35: vehicle commands clicked in the GUI run at a common tick in both games (hold.lua,
+-- main.vehicle_intent). The commands and their argument.
+actions.VEHICLE_COMMANDS = { reverse = true, stopped = true, depot = true }
+
+--- The vehicle a timed command is for. In the game it was clicked in that is the entity itself;
+-- in the other game the one bound to it by an earlier action, the same entity of the shared save,
+-- or the vehicle of the same name.
+function actions.vehicle_target(env, s, ref, own)
+	assert(type(ref) == "table" and ref.kind == "vehicle" and type(ref.key) == "string", "invalid vehicle reference")
+	local function usable(id)
+		local ok = pcall(component, env, id, "TRANSPORT_VEHICLE")
+		return ok and owned(env, id)
+	end
+	local id = tonumber(ref.key)
+	if own then
+		assert(id and usable(id), "own vehicle " .. ref.key .. " not found")
+		return id
+	end
+	local suffix = ":vehicle:" .. ref.key
+	for k, mapped in pairs(s.action_entities or {}) do
+		if type(k) == "string" and k:sub(-#suffix) == suffix and usable(mapped) then return mapped end
+	end
+	if id and usable(id) and name_of(env, id) == ref.name then return id end
+	return actions.resolve(env, { kind = "vehicle", key = ref.key, name = ref.name }, s, "timed", 0)
+end
+
+function actions.vehicle_ref(env, id) return named_ref(env, id, "vehicle") end
+
+--- After a timed command: what the next poll would otherwise see as this game's own action and
+-- send back (the other game ran the same command at the same tick).
+function actions.vehicle_command_done(s, id, command, value)
+	local snaps = s.actions and s.actions.snapshots and s.actions.snapshots.vehicle
+	local r = snaps and snaps[tostring(id)]
+	if not r then return end
+	if command == "reverse" then r.quiet = actions.REVERSE_QUIET_POLLS
+	elseif command == "stopped" then r.userStopped = value == true
+	elseif command == "depot" then r.state, r.sell = "GOING_TO_DEPOT", value == true or nil end
+end
+
+--- Run 37: a train turned in one game and the turn did not travel. Logs the first direction and
+-- state changes of trains, so the next log shows what TF3 changes when a train is turned.
+actions.MAX_TRAIN_NOTES = 30
+function actions.note_train(a, r, old, log)
+	if r.reversed == nil and old.reversed == nil then return end
+	if r.reversed == old.reversed and r.state == old.state then return end
+	a.train_notes = (a.train_notes or 0) + 1
+	if a.train_notes > actions.MAX_TRAIN_NOTES then return end
+	log("action train " .. tostring(r.name) .. ": state " .. tostring(old.state) .. " -> " .. tostring(r.state) ..
+		", reversed " .. tostring(old.reversed) .. " -> " .. tostring(r.reversed))
 end
 
 --- Diffs each category independently. A failed read never masquerades as demolition/sale.
@@ -540,7 +630,10 @@ function actions.poll(env, s, log, kinds)
 							end
 							if #matches == 1 then old = previous[matches[1]]; replaced[matches[1]] = true end
 						end
-						local events = kind == "vehicle" and old and actions.vehicle_events(r, old) or nil
+						local user = kind == "vehicle" and a.user_reverse and a.user_reverse[key] or nil
+						if user and a.user_reverse then a.user_reverse[key] = nil end
+						local events = kind == "vehicle" and old and actions.vehicle_events(r, old, user) or nil
+						if kind == "vehicle" and old and log then actions.note_train(a, r, old, log) end
 						-- The account is only a baseline until its loan changes.
 						if kind ~= "edge" and (old or kind ~= "account") and (not old or events or changed(kind, r, old)) then
 							-- v26: one record that cannot travel (a vehicle that left its depot before it
@@ -1081,7 +1174,7 @@ function actions.replay(env, action, state, peer, offset, log)
 		local id = resolve(env, action.target, s, peer, offset)
 		if value.line then resolve(env, value.line, s, peer, offset) end
 		local config_changed = action.previous.config_changed
-		if config_changed == nil then config_changed = not same(value.config, action.previous.config) end
+		if config_changed == nil then config_changed = not same_config(value.config, action.previous.config) end
 		if config_changed then
 			send(cmd.makeVehicleReplaceCmd(id, make_vehicle(env, value.config)), function()
 				updated("vehicle", id, value.ref)

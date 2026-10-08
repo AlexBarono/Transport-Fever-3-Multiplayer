@@ -21,9 +21,8 @@ local logger = require("/mp_probe/logger.lua")
 
 local hold = {}
 
---- Distinct GUI events and commands logged per Lua state.
+--- Distinct GUI events logged per Lua state.
 hold.MAX_EVENTS = 40
-hold.MAX_COMMANDS = 30
 --- Builder events logged in full (with counts) per Lua state.
 hold.MAX_BUILDS = 12
 --- Real seconds between the refused build and the mod's own copy of it ('Allein testen').
@@ -42,7 +41,7 @@ local memories = setmetatable({}, { __mode = "k" })
 local function memory(env)
 	local m = memories[env]
 	if not m then
-		m = { events = {}, event_count = 0, commands = {}, command_count = 0, builds = 0 }
+		m = { events = {}, event_count = 0, builds = 0 }
 		-- Without TF3's GUI script state (older callers), keep the shared data in this Lua state.
 		local value = {}
 		m.fallback = { get = function() return value end, set = function(_, v) value = v end }
@@ -204,10 +203,11 @@ local function own_clock(env)
 	return require("/mp_probe/sync.lua").decode(getenv(env, "TF3MP_OWN_CLOCK")) or {}
 end
 
---- Every GUI step: the command logger, held builds and the 'Allein testen' check.
+--- Every GUI step: the vehicle hooks, held builds and the 'Allein testen' check.
 function hold.step(env, gui_state)
 	local m = memory(env)
-	hold.wrap(env, m)
+	m.gui_state = gui_state
+	hold.watch_vehicles(env, m)
 	local now = hold.clock(env, m)
 	gui_state = gui_state or m.fallback
 	local g = shared(gui_state)
@@ -262,55 +262,71 @@ function hold.step(env, gui_state)
 	test.proposal = nil
 end
 
-local function callable(v)
-	if type(v) == "function" then return true end
-	if type(v) ~= "table" and type(v) ~= "userdata" then return false end
-	local ok, mt = pcall(getmetatable, v)
-	-- TF3's bindings are tables with __call (run 36: "sendCommand is a table").
-	return ok and type(mt) == "table" and mt.__call ~= nil
+--- v35 (run 37): a train turned with "Reverse" did not travel, and a command that runs in one
+-- game a moment before the other leaves the vehicles in different places for good. TF3's vehicle
+-- windows build these commands with api.cmd.make...Cmd at the moment of the click
+-- (gui/entity_window/vehicle/vehicle.tl, gui/line_vehicle_mgmt/manager_window.tl). In a session
+-- the hook hands the GUI a script event instead (main.handleEvent "mp_probe_vehicle"): the
+-- simulation plans the command on the common timeline and runs it in both games at the same
+-- tick, or at once here if there is no timeline. Outside a session everything passes through.
+-- TF3's bindings are callable tables whose metatable cannot be read (run 36/37), so the original
+-- is called as is.
+hold.VEHICLE_COMMANDS = { makeVehicleReverseCmd = "reverse", makeVehicleSetStoppedByUserCmd = "stopped",
+	makeVehicleSendToDepotCmd = "depot" }
+
+--- Whether a vehicle command can go through the simulation now.
+function hold.timed(env, m)
+	if not session(env) then return false end
+	if shared(m.gui_state or m.fallback).hold_off then return false end
+	return own_clock(env).phase ~= "failed"
 end
 
---- Logs which commands go through api.cmd.sendCommand in this Lua state, by the name of the
--- make...Cmd that built them. Everything is passed through unchanged.
-function hold.wrap(env, m)
-	if m.wrapped then return end
-	m.wrapped = true
+function hold.watch_vehicles(env, m)
+	if m.vehicle_hooks ~= nil then return end
+	m.vehicle_hooks = 0
 	local cmd = env.api and env.api.cmd
-	if not cmd then return end
-	local names = setmetatable({}, { __mode = "k" })
-	local made = 0
-	local ok_pairs, err_pairs = pcall(function()
-		local makers = {}
-		for k, v in pairs(cmd) do
-			if type(k) == "string" and k:match("^make.+Cmd$") and callable(v) then makers[k] = v end
-		end
-		for k, f in pairs(makers) do
-			cmd[k] = function(...)
-				local c = f(...)
-				if c ~= nil and (type(c) == "table" or type(c) == "userdata") then pcall(function() names[c] = k end) end
+	local missing = {}
+	for maker, command in pairs(hold.VEHICLE_COMMANDS) do
+		local ok, err = pcall(function()
+			local original = cmd[maker]
+			assert(original ~= nil, maker .. " missing")
+			local hook = function(vehicle, value, ...)
+				if hold.timed(env, m) then
+					local ok_e, c = pcall(function()
+						return cmd.makeScriptingSendEventCmd("mp_probe", "mp_probe_vehicle", "mp_probe_vehicle",
+							{ command = command, vehicle = vehicle, value = value == true })
+					end)
+					if ok_e and c ~= nil then
+						logger.info("vehicle " .. command .. " clicked for " .. tostring(vehicle) .. "; both games run it at a common tick")
+						return c
+					end
+					logger.info("vehicle " .. command .. ": no script event (" .. tostring(c):sub(1, 120) .. "); running it as usual")
+				end
+				local c = original(vehicle, value, ...)
+				if command == "reverse" then
+					local sent, why = pcall(hold.reverse_clicked, env, vehicle)
+					if not sent then logger.info("reverse: could not tell the simulation (" .. tostring(why):sub(1, 160) .. ")") end
+				end
 				return c
 			end
-			made = made + 1
-		end
-	end)
-	local send = cmd.sendCommand
-	local ok_send, err_send = pcall(function()
-		assert(callable(send), "sendCommand is a " .. type(send) .. " without __call")
-		cmd.sendCommand = function(c, ...)
-			pcall(function()
-				local name = names[c] or tostring(c):gsub("0x%x+", ""):gsub("%x%x%x%x%x%x%x%x+", "")
-				m.commands[name] = (m.commands[name] or 0) + 1
-				if m.commands[name] == 1 and m.command_count < hold.MAX_COMMANDS then
-					m.command_count = m.command_count + 1
-					logger.info("gui command " .. name)
-				end
-			end)
-			return send(c, ...)
-		end
-	end)
-	logger.info("hold probe: " .. made .. " command makers wrapped" ..
-		(ok_pairs and "" or (" (makers: " .. tostring(err_pairs):sub(1, 100) .. ")")) ..
-		", sendCommand " .. (ok_send and "wrapped" or ("not wrapped: " .. tostring(err_send):sub(1, 100))))
+			cmd[maker] = hook
+			assert(cmd[maker] == hook, "api.cmd did not keep the hook")
+		end)
+		if ok then m.vehicle_hooks = m.vehicle_hooks + 1 else missing[#missing + 1] = tostring(err):sub(1, 100) end
+	end
+	logger.info("vehicle hooks: " .. m.vehicle_hooks .. " of 3 installed" ..
+		(#missing > 0 and (" (" .. table.concat(missing, "; ") .. ")") or ""))
+end
+
+--- The player clicked "Reverse" and it ran here at once (no timeline): the simulation sends it
+-- with its next action poll, also for a train standing at a station.
+function hold.reverse_clicked(env, vehicle)
+	local role = getenv(env, "TF3MP_ROLE")
+	if role ~= "host" and role ~= "client" then return end
+	assert(type(vehicle) == "number", "vehicle id is a " .. type(vehicle))
+	local cmd = env.api.cmd
+	cmd.sendCommand(cmd.makeScriptingSendEventCmd("mp_probe", "mp_probe_reverse", "mp_probe_reverse", { vehicle = vehicle }))
+	logger.info("reverse clicked for vehicle " .. vehicle .. "; the other game turns it too")
 end
 
 return hold

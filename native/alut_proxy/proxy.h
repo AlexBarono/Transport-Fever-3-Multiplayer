@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <stdarg.h>
 
-#define PROXY_VERSION "12"
+#define PROXY_VERSION "13"
 
 /* Longest build line the DLL passes between the games, in characters. */
 #define NET_LINE_MAX 262145
@@ -44,8 +44,11 @@ void net_status(char *out, int size);
 void net_order_value(char *out, int size);
 int net_ordering_enabled(void);
 int net_game_reload(void);
-/* Original game load log, before Lua reports its first world initialization. */
-void net_world_loading(const char *name);
+/* Original game load log, before Lua reports its first world initialization. Returns the new
+ * resync epoch if this load is the armed in-game resync (v13), else 0. */
+int net_world_loading(const char *name);
+/* v13: the next load of the save called name is an in-game resync; returns its epoch, 0 if refused. */
+int net_arm_resync(const char *name);
 /* Received messages not yet executed by the game. */
 int net_inbox_count(void);
 /* Keeps text as this game's latest state under key for the peer; 0 if there is no room for the key. */

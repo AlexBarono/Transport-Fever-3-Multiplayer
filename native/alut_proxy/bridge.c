@@ -257,6 +257,67 @@ static int find_stdout(void)
 	return stdout_path[0] != 0;
 }
 
+/* v13 in-game resync: the old lines in the disk backlog and this game's states are void. */
+static void resync_loaded(void)
+{
+	int i;
+	set_state_env("", "RELOAD", "");
+	set_state_env("", "SAVE", "");
+	for (i = 0; i < NET_STATE_KEYS; i++)
+		if (own_logged[i][0]) set_state_env("OWN_", own_logged[i], "");
+	if (spool != INVALID_HANDLE_VALUE) {
+		spool_read.QuadPart = spool_write.QuadPart = 0;
+		SetFilePointerEx(spool, spool_write, NULL, FILE_BEGIN); SetEndOfFile(spool);
+	}
+	offering = 0;
+	refresh_env(0);
+}
+
+/* v13: requests of the launcher next to the DLL. alut_proxy.save asks the host's game to save the
+ * resync save (TF3MP_SAVE=<n>); alut_proxy.reload ("name=<save>") asks the game to load that save
+ * while it runs (TF3MP_RELOAD=<epoch> <save>). Each file is taken once and deleted. */
+static int take_request(const char *file, char *text, int size)
+{
+	char path[MAX_PATH]; HANDLE h; DWORD got = 0;
+	if (!proxy_file_next_to_dll(path, file)) return 0;
+	h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (h == INVALID_HANDLE_VALUE) return 0;
+	if (!ReadFile(h, text, size - 1, &got, NULL)) got = 0;
+	CloseHandle(h);
+	text[got] = 0;
+	DeleteFileA(path);
+	return 1;
+}
+
+static void poll_requests(void)
+{
+	static unsigned long saves, polls;
+	char text[400], value[320], number[16];
+	const char *p;
+	int n, epoch;
+
+	/* About once a second. */
+	if (++polls % 10) return;
+	if (take_request("alut_proxy.save", text, sizeof(text))) {
+		wsprintfA(number, "%lu", ++saves);
+		set_state_env("", "SAVE", number);
+		proxy_log("bridge: launcher asks this game to save for the resync (%s)", number);
+	}
+	if (!take_request("alut_proxy.reload", text, sizeof(text)))
+		return;
+	p = find(text, "name=");
+	if (!p) { proxy_log("bridge: alut_proxy.reload without name="); return; }
+	p += 5;
+	for (n = 0; p[n] && p[n] != '\r' && p[n] != '\n' && n < 259; n++)
+		value[n] = p[n];
+	value[n] = 0;
+	epoch = net_arm_resync(value);
+	if (!epoch) return;
+	wsprintfA(text, "%d %s", epoch, value);
+	set_state_env("", "RELOAD", text);
+	proxy_log("bridge: TF3MP_RELOAD=%s", text);
+}
+
 static int handle_line(void)
 {
 	const char *hit, *p, *command;
@@ -269,7 +330,10 @@ static int handle_line(void)
 	 * Ignore mod-tagged lines here: a diagnostic or captured text is never a load notice. */
 	if (!line_cut && !find(line_buf, "[mp_probe]")) {
 		hit = find(line_buf, "Loading game from file ");
-		if (hit) { net_world_loading(hit + 23); return 1; }
+		if (hit) {
+			if (net_world_loading(hit + 23)) resync_loaded();
+			return 1;
+		}
 	}
 	command = find(line_buf, "[mp_probe]");
 	if (!command) return 1;
@@ -404,11 +468,12 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	offset.QuadPart = 0;
 	while (!stopping) {
 		Sleep(TAIL_INTERVAL_MS);
+		poll_requests();
 		refresh_peer_states();
 		drain_spool();
 		{
-			char status[1024], path[MAX_PATH]; HANDLE status_file; DWORD written;
-			net_status(status, sizeof(status));
+			char status[1280], path[MAX_PATH]; HANDLE status_file; DWORD written;
+			net_status(status, sizeof(status) - 64);
 			wsprintfA(status + lstrlenA(status), "backlog=%lu\r\n", (unsigned long)(spool_write.QuadPart - spool_read.QuadPart));
 			if (proxy_file_next_to_dll(path, "alut_proxy.status")) {
 				status_file = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);

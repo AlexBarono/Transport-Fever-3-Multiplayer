@@ -531,6 +531,60 @@ test("a train turned while driving turns in the other game; a turn at a terminal
 	local bus = mock(); bus.vehicle(40); bus.entities[40].TRANSPORT_VEHICLE.state = 1; bus.poll(); bus.poll()
 	assert(#bus.drain() == 0)
 end)
+test("cargo loaded on automatic loading is no new train set; a manual load config is (run 37)", function()
+	local source, dest = mock(), mock(); source.train(30); dest.train(90); dest.entities[90].NAME.name = "Bus 30"
+	source.poll(); dest.poll()
+	local part = source.entities[30].TRANSPORT_VEHICLE.transportVehicleConfig.vehicles[1].part
+	source.entities[30].TRANSPORT_VEHICLE.state = 2
+	part.compartment2loadConfig = { [0] = { cargoTypeId = 23, loadConfigIndex = 0 } }
+	source.poll(); assert(#source.drain() == 0, "automatic load config sent")
+	-- The same cargo slot chosen by hand travels as before.
+	source.entities[30].TRANSPORT_VEHICLE.transportVehicleConfig.vehicles[1].autoLoadConfig = { [0] = false }
+	source.poll(); local q = source.drain()
+	assert(#q == 1 and q[1].previous.config_changed == true, "manual load config not sent")
+	assert(actions.config_key(nil) == nil)
+end)
+test("a reverse clicked by the player travels also at a station, and the turn after it is not sent again (v35)", function()
+	local source, dest = mock(), mock(); source.train(30); dest.train(90); dest.entities[90].NAME.name = "Bus 30"
+	source.poll(); dest.poll()
+	local v = source.entities[30].TRANSPORT_VEHICLE; v.state = 2; source.poll(); assert(#source.drain() == 0)
+	local s = source.state:get(); actions.note_reverse(s, 30); source.state:set(s)
+	source.poll(); local q = source.drain()
+	assert(#q == 1 and q[1].events.reverse and not q[1].previous.config_changed, #q .. " actions")
+	dest.replay(q[1]); assert(names(dest) == "makeVehicleReverseCmd" and dest.sent[1].args[1] == 90)
+	-- The game turns the train now; that turn is the click and does not travel a second time.
+	v.state = 1; source.poll(); source.entities[530].CARRIAGE.reversed = true; source.poll()
+	assert(#source.drain() == 0, "the clicked turn was sent twice")
+	assert(has_log(source, "action train Bus 30: state AT_TERMINAL -> EN_ROUTE"), "train change not logged")
+	assert(not pcall(actions.note_reverse, s, "x"))
+end)
+test("a timed vehicle command finds its vehicle in both games and is not sent back (v35)", function()
+	local source, dest = mock(), mock(); source.train(30); dest.train(90); dest.entities[90].NAME.name = "Bus 30"
+	source.poll(); dest.poll()
+	local ref = actions.vehicle_ref(source.env, 30)
+	assert(ref.kind == "vehicle" and ref.key == "30" and ref.name == "Bus 30")
+	assert(actions.vehicle_target(source.env, source.state:get(), ref, true) == 30)
+	-- The other game: by name (90), by the same entity of the shared save, by an earlier binding.
+	assert(actions.vehicle_target(dest.env, dest.state:get(), ref, false) == 90)
+	dest.train(30); dest.entities[30].NAME.name = "Bus 30"
+	local ok = pcall(actions.vehicle_target, dest.env, dest.state:get(), { kind = "vehicle", key = "31", name = "Bus 30" }, false)
+	assert(not ok, "two vehicles of the same name are ambiguous")
+	assert(actions.vehicle_target(dest.env, dest.state:get(), ref, false) == 30, "same entity of the shared save")
+	local ds = dest.state:get(); ds.action_entities = { ["peer1:vehicle:30"] = 90 }
+	assert(actions.vehicle_target(dest.env, ds, ref, false) == 90, "earlier binding first")
+	assert(not pcall(actions.vehicle_target, source.env, source.state:get(), { kind = "vehicle", key = "99" }, true))
+	-- Both games stop the train at the same tick: neither poll sends it again.
+	local s = source.state:get(); actions.vehicle_command_done(s, 30, "stopped", true); source.state:set(s)
+	source.entities[30].TRANSPORT_VEHICLE.userStopped = true; source.poll()
+	assert(#source.drain() == 0, "stop sent back")
+	s = source.state:get(); actions.vehicle_command_done(s, 30, "reverse"); source.state:set(s)
+	source.entities[530].CARRIAGE.reversed = true; source.poll()
+	assert(#source.drain() == 0, "turn sent back")
+	s = source.state:get(); actions.vehicle_command_done(s, 30, "depot", false); source.state:set(s)
+	source.entities[30].TRANSPORT_VEHICLE.state = 3; source.poll()
+	assert(#source.drain() == 0, "depot order sent back")
+	actions.vehicle_command_done({}, 30, "reverse")
+end)
 test("a vehicle taken off its line while driving loses its line in the other game too (v32)", function()
 	local source, dest = mock(), mock(); source.line(20, "A"); dest.line(92, "A")
 	source.train(30, 20); dest.train(90, 92); dest.entities[90].NAME.name = "Bus 30"; source.poll(); dest.poll()

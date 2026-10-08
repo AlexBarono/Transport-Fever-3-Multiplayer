@@ -69,7 +69,7 @@ function gui.update(env, gui_state)
 	-- A clock that jumped back does not stop the steps.
 	if now < g.next_at and g.next_at - now <= gui.INTERVAL then return end
 	g.next_at = now + gui.INTERVAL
-	-- Probe v33 (hold.lua): command logger and the 'Allein testen' hold test.
+	-- hold.lua: vehicle hooks (v35), held builds (v34) and the 'Allein testen' hold test.
 	local ok_h, err_h = pcall(hold.step, env, gui_state)
 	if not ok_h and g.failures < gui.MAX_FAILURES then
 		g.failures = g.failures + 1
@@ -111,7 +111,10 @@ function gui.step(env, g, now)
 		end
 		return
 	end
+	-- v35: in-game resync. The launcher asks through the DLL; nobody has to leave the game.
+	gui.resync_load(env, g, getenv)
 	if role == "host" then gui.resync_save(env, g, getenv) end
+	gui.save_request(env, g, getenv, role)
 	-- A common-tick intent freezes simulation time at its barrier until both results exist.
 	-- Do not feed this automatic pause into the user's shared speed register.
 	local clock = sync.decode(getenv("TF3MP_OWN_CLOCK"))
@@ -170,7 +173,26 @@ function gui.resync_save(env, g, getenv)
 	local last = g.resync_ck or (done and tonumber(done.ck))
 	if last and ck >= last and ck < last + gui.RESYNC_EVERY then return end
 	g.resync_ck = ck
-	logger.info("net state resync ck=" .. ck)
+	logger.info("net state resync ck=" .. ck .. (done and done.req and (" req=" .. done.req) or ""))
+	gui.save_now(env, "at check " .. ck, "the world differs at check " .. ck)
+end
+
+--- v35: the launcher asks for a resync (TF3MP_SAVE=<n>, through the DLL), e.g. when the session
+-- stopped on a rejected action. "net state resync ... req=n" tells the partner's launcher (DLL status
+-- resync_peer=n); the host's game also saves the resync save it then sends.
+function gui.save_request(env, g, getenv, role)
+	local n = getenv("TF3MP_SAVE")
+	if type(n) ~= "string" or not n:match("^%d+$") then return end
+	local done = sync.decode(getenv("TF3MP_OWN_RESYNC"))
+	if g.save_req == n or (done and tostring(done.req) == n) then return end
+	g.save_req = n
+	logger.info("net state resync ck=" .. tostring(done and done.ck or g.resync_ck or 0) .. " req=" .. n)
+	if role == "host" then
+		gui.save_now(env, "for the launcher (request " .. n .. ")", "the launcher asks for the resync save")
+	end
+end
+
+function gui.save_now(env, label, reason)
 	local found, save = pcall(function() return env.app.saveGame end)
 	-- Run 35: TF3's bindings hand out app.saveGame as a table, which is called like a function.
 	local kind = type(save)
@@ -181,12 +203,53 @@ function gui.resync_save(env, g, getenv)
 	end
 	local name = gui.RESYNC_SAVE
 	-- Not the map editor; skipSetName keeps the player's own name for the next save.
-	local ok, err = pcall(save, name, function() logger.info("resync: saved '" .. name .. "' at check " .. ck) end, false, true)
+	local ok, err = pcall(save, name, function() logger.info("resync: saved '" .. name .. "' " .. label) end, false, true)
 	if ok then
-		logger.info("resync: the world differs at check " .. ck .. ", saving '" .. name .. "' for 'Neu abgleichen'")
+		logger.info("resync: " .. reason .. ", saving '" .. name .. "' for 'Neu abgleichen'")
 	else
 		logger.info("resync: saving '" .. name .. "' did not work: " .. tostring(err):sub(1, 200))
 	end
+end
+
+--- v35: the launcher got (client) or sent (host) the resync save and asks this game to load it
+-- while it runs: TF3MP_RELOAD="<epoch> <save name>" (DLL v13, cleared once the load began). The
+-- DLL then drops all earlier actions and both games continue from the same save. Loading works
+-- like TF3's own load page in the pause menu (gui/menu/savegame_react_util.tl).
+function gui.resync_load(env, g, getenv)
+	local value = getenv("TF3MP_RELOAD")
+	if type(value) ~= "string" then return end
+	local epoch, name = value:match("^(%d+) (.+)$")
+	if not epoch or g.reload_epoch == epoch then return end
+	g.reload_epoch = epoch
+	logger.info("resync: loading '" .. name .. "' in the running game (resync " .. epoch .. ")")
+	local ok, err = pcall(gui.load_save, env, name)
+	if not ok then
+		logger.info("resync: loading '" .. name .. "' did not work: " .. tostring(err):sub(1, 200) ..
+			"; please use 'Neu abgleichen' in the launcher")
+	end
+end
+
+function gui.load_save(env, name)
+	local app, api = env.app, env.api
+	local namespace = app.SaveGameNamespace.getSavegame()
+	local id = api.type.SavegameId.new()
+	id.saveGameNamespace, id.saveGameName, id.path = namespace, name, ""
+	-- The entry of TF3's own save list, as the load page uses it.
+	local ok, list = pcall(function() return app.findAllSavegames(namespace) end)
+	local found = false
+	if ok and type(list) == "table" then
+		for _, info in pairs(list) do
+			local ok_i, save_name, path = pcall(function() return info.saveName, info.path end)
+			if ok_i and save_name == name then
+				id.saveGameName, id.path, found = save_name, path or "", true
+				break
+			end
+		end
+	end
+	logger.info("resync: '" .. name .. "' " .. (found and "found in the save list" or
+		("not in the save list (" .. (ok and type(list) or tostring(list):sub(1, 80)) .. "), loading by name")))
+	pcall(function() app.setWaitForStartReadyGame() end)
+	app.loadGame(id, false, nil)
 end
 
 return gui

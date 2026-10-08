@@ -97,6 +97,9 @@ Kurz gesagt: Das Depot wird allein gebaut. Danach lässt der Mod das Spiel den A
 | v33-Test „Bau einmal zurückgehalten“: nichts angehalten, die Straße erschien nur als Kopie 100 m daneben (Lauf 36). | Die Bau-Ereignisse `builder.proposal…` kommen nur bei Skripten an, die sie abonniert haben. | v34: Ereignisse abonnieren (wie `company.script.tl`). |
 | „sendCommand is a table“ (Lauf 36). | `api.cmd.sendCommand` und die `make…Cmd`-Bauer sind aufrufbare Tabellen. | v34: Aufrufbarkeit über `__call` prüfen, nicht über `type(f) == "function"`. |
 | Schwarze cmd-/PowerShell-Fenster beim Launcher, X schloss nicht immer. | `Start.bat` startete PowerShell sichtbar; offene Timer hielten den Prozess am Leben. | v34: PowerShell versteckt starten, beim Schließen Timer stoppen und den Prozess beenden. |
+| Zug umgedreht, danach „Weltabweichung (Fahrzeugpositionen)“ (Lauf 37, VPN). | Das Umdrehen wurde nur erkannt, wenn der Zug bei zwei Abfragen fuhr; am Bahnhof ging es verloren. Selbst übertragen lief es auf dem anderen PC einige Spieltakte später. | v35: Die Befehle Umdrehen, Start/Stopp und Depot werden beim Klick abgefangen (`hold.lua`) und über den gemeinsamen Zeitplan auf beiden PCs zum selben Takt ausgeführt. |
+| Güterzug auf dem anderen PC ausgetauscht (Lauf 37). | Das Spiel setzt bei automatischer Ladung die Fracht der Wagen selbst; das galt als geänderte Zugzusammenstellung. | v35: Ladeeinstellungen mit automatischer Ladung zählen nicht als Änderung (`actions.config_key`). |
+| Nach einer Abweichung musste TF3 auf beiden PCs neu starten. | Die DLL kannte nur eine Sitzung pro Spielstart. | v35 / DLL v13: Neuabgleich im laufenden Spiel; der Launcher schickt den Stand, das Spiel lädt ihn mit `app.loadGame`, die DLL beginnt eine neue Runde (`epoch`). |
 
 Die Fehler aus run27 bis run29 (Übertragung, Wiederaufnahme, Bahnhofsersatz) hat ChatGPT gelöst. Sie stehen in `docs/phase4-reliable-transport.md`.
 

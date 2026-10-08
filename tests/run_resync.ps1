@@ -159,6 +159,81 @@ try {
 	}
 } finally { foreach ($name in $originalAdapters.Keys) { Set-Item "Function:\$name" $originalAdapters[$name] } }
 
+# ---------- v35: Neuabgleich im laufenden Spiel ----------
+function Live($extra) {
+	$v = @{ pid = '41'; mode = 'host'; ready = '1'; world = 'same'; world_peer = 'same'; error = ''; resync = '-'; resync_peer = ''; epoch = '0' }
+	foreach ($k in $extra.Keys) { $v[$k] = $extra[$k] }
+	return $v
+}
+Test 'live resync starts on a world difference seen by either game' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	Assert ($null -eq (Get-LiveResyncReason (Live @{}) $m $t)) 'nothing while the worlds agree'
+	$r = Get-LiveResyncReason (Live @{ world_peer = 'diff'; world_fields = 'hpos' }) $m $t
+	Assert ($r.Kind -eq 'diff' -and $r.Detail -eq 'hpos') "reason $($r.Kind)"
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'loopback'; world = 'diff' }) $m $t)) 'not in the solo test'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; ready = '0' }) $m $t)) 'not before the world is ready'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; resync = 'armed' }) $m $t)) 'not while a reload is armed'
+}
+Test 'live resync starts on a rejected action but not on a broken session' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	Assert ((Get-LiveResyncReason (Live @{ error = 'peer rejected 41-7-3' }) $m $t).Kind -eq 'error') 'peer rejected'
+	Assert ((Get-LiveResyncReason (Live @{ error = 'save reloaded with pending actions; restart' }) $m $t).Kind -eq 'error') 'pending reload'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ error = 'multiplayer package differs; use the same release' }) $m $t)) 'package differs'
+}
+Test 'live resync waits between attempts and stops after three per game' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	$diff = Live @{ world = 'diff' }
+	for ($i = 1; $i -le 3; $i++) {
+		Assert ((Get-LiveResyncReason $diff $m $t).Kind -eq 'diff') "attempt $i"
+		Register-LiveResync $m $t
+		Assert ($null -eq (Get-LiveResyncReason $diff $m $t.AddSeconds(100))) "cooldown $i"
+		$t = $t.AddSeconds($LiveResyncCooldownSeconds + 1)
+	}
+	Assert ($null -eq (Get-LiveResyncReason $diff $m $t)) 'no fourth attempt'
+	Assert ((Get-LiveResyncReason (Live @{ world = 'diff'; pid = '42' }) $m $t).Kind -eq 'diff') 'a new TF3 starts again'
+}
+Test 'a request of the partner counts once' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	$r = Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '1' }) $m $t
+	Assert ($r.Kind -eq 'peer') 'first request'
+	Register-LiveResync $m $t
+	$t = $t.AddSeconds($LiveResyncCooldownSeconds + 1)
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '1' }) $m $t)) 'same request again'
+	Assert ((Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '2' }) $m $t).Kind -eq 'peer') 'next request'
+	# Both games noticed it themselves: the partner's request inside the waiting time is used up.
+	$m2 = New-LiveResyncMemory; $t2 = [DateTime]::UtcNow
+	Assert ((Get-LiveResyncReason (Live @{ world = 'diff' }) $m2 $t2).Kind -eq 'diff') 'own difference'
+	Register-LiveResync $m2 $t2
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds(5))) 'inside the waiting time'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds($LiveResyncCooldownSeconds + 1))) 'not again later'
+}
+Test 'requests for the DLL and the reload name' {
+	$dir = Join-Path $base 'game'; New-Item -ItemType Directory -Force $dir | Out-Null
+	$path = Write-ProxyRequest $dir 'alut_proxy.reload' 'name=TF3MP-Neuabgleich'
+	Assert ((Get-Content -LiteralPath $path -Raw) -eq "name=TF3MP-Neuabgleich`r`n") 'request text'
+	Assert (-not (Test-Path -LiteralPath "$path.tmp")) 'no temp file left'
+	Assert ((Get-LiveReloadName (Join-Path $saves 'TF3MP-Neuabgleich.sav')) -eq 'TF3MP-Neuabgleich') 'name'
+	$err = ''; try { Get-LiveReloadName 'C:\x\a"b.sav' | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like '*geht nicht*') $err
+}
+Test 'the launcher waits for the reload and explains a refused one' {
+	$dir = Join-Path $base 'game'; $status = Join-Path $dir 'alut_proxy.status'
+	[IO.File]::WriteAllText($status, "mode=host`r`nepoch=1`r`nresync=-`r`n")
+	Assert (Wait-LiveReload $status 0 $tick 5) 'epoch went up'
+	[IO.File]::WriteAllText($status, "mode=host`r`nepoch=1`r`nresync=-`r`n")
+	$reload = Join-Path $dir 'alut_proxy.reload'
+	if (Test-Path $reload) { Remove-Item $reload }
+	$t0 = [DateTime]::UtcNow
+	$err = ''; try { Wait-LiveReload $status 1 $tick 30 $reload | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like '*nicht angenommen*') $err
+	Assert (([DateTime]::UtcNow - $t0).TotalSeconds -lt 10) 'refusal noticed quickly'
+	[IO.File]::WriteAllText($status, "mode=host`r`nepoch=1`r`nresync=armed`r`n")
+	$err = ''; try { Wait-LiveReload $status 1 $tick 1 | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like '*nicht geladen*') $err
+	Assert ((Read-ProxyStatusValues $status).resync -eq 'armed') 'status values'
+	Assert ((Read-ProxyStatusValues (Join-Path $dir 'fehlt')).Count -eq 0) 'missing status'
+}
+
 $resolvedBase = [IO.Path]::GetFullPath($base)
 if (-not $resolvedBase.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Test cleanup escaped TEMP.' }
 Remove-Item -LiteralPath $resolvedBase -Recurse -Force

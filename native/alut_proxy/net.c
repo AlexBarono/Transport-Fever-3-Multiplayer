@@ -1,4 +1,7 @@
-/* v12: one host-ordered remote replay across both directions, with fair FIFO arbitration.
+/* v13: in-game resync. The launcher asks both games to load the same save while running
+ * (alut_proxy.reload); when this game loads it, the replay state starts over in a new epoch and
+ * the peers exchange nothing until both are ready in the same epoch.
+ * v12: one host-ordered remote replay across both directions, with fair FIFO arbitration.
  * GOT means queued; only DONE OK releases the sender. A failure stops the queue for review.
  * Queues survive network interruptions within this process. Never replay after a game restart
  * without loading the same save on both PCs. No runtime imports: kernel32/Winsock only. */
@@ -30,7 +33,9 @@ static int world_loaded, world_initialized, world_ready, peer_ready;
 static char prepared_id[66], game_hash[66], package_hash[66], mods_hash[66], save_hash[66];
 static char expected_save[1025];
 static unsigned long next_line;
-static DWORD session_nonce;
+static DWORD session_nonce, token_nonce;
+static int resync_armed, resync_epoch, peer_epoch;
+static char resync_name[260];
 static char packet[NET_LINE_MAX + 128], state_packet[NET_STATE_MAX + NET_STATE_KEY_MAX + 32];
 static char assembling[NET_LINE_MAX], assembly_token[TOKEN_MAX];
 static int assembly_part, assembly_count, assembly_length;
@@ -300,7 +305,7 @@ int net_send_line(const char *text) {
     }
     EnterCriticalSection(&lock);
     target = mode == NET_LOOPBACK ? &inbox : &outbox;
-    wsprintfA(token, "%lu-%lu.%lu", GetCurrentProcessId(), session_nonce, next_line + 1);
+    wsprintfA(token, "%lu-%lu.%lu", GetCurrentProcessId(), token_nonce, next_line + 1);
     ok = queue_push(target, token, mode == NET_LOOPBACK ? "loop" : "net", text);
     if (ok) {
         next_line++;
@@ -390,31 +395,76 @@ void net_order_value(char *out, int size) {
     LeaveCriticalSection(&lock);
 }
 void net_status(char *out, int size) {
-    struct entry *e; struct state_slot *own, *peer;
-    char text[1024], world[16], peer_world[16], fields[97], ck[24];
+    struct entry *e; struct state_slot *own, *peer, *peer_resync;
+    char text[1100], world[16], peer_world[16], fields[97], ck[24], peer_req[24];
     EnterCriticalSection(&lock); e = queue_head(&outbox);
     own = state_slot(own_states, "health", 0); peer = state_slot(peer_states, "health", 0);
+    /* v13: the partner's launcher asked for a resync (its mod logs "net state resync ... req=n"). */
+    peer_resync = state_slot(peer_states, "resync", 0);
+    state_field(peer_resync ? peer_resync->text : "", "req", peer_req, sizeof(peer_req), "");
     state_field(own ? own->text : "", "status", world, sizeof(world), "unknown");
     state_field(peer ? peer->text : "", "status", peer_world, sizeof(peer_world), "unknown");
     state_field(own ? own->text : "", "fields", fields, sizeof(fields), "");
     state_field(own ? own->text : "", "ck", ck, sizeof(ck), "");
-    wsprintfA(text, "pid=%lu\r\nversion=" PROXY_VERSION "\r\nmode=%s\r\nconnected=%d\r\noutbox=%d\r\ninbox=%d\r\nblocked=%d\r\nerror=%s\r\nprotocol=%d\r\nprepared=%d\r\ncompatible=%d\r\nready=%d\r\npeer_ready=%d\r\nworld=%s\r\nworld_peer=%s\r\nworld_fields=%s\r\nworld_ck=%s\r\nordering=%d\r\norder_seq=%lu\r\norder_side=%c\r\norder_phase=%s\r\norder_token=%s\r\n",
+    wsprintfA(text, "pid=%lu\r\nversion=" PROXY_VERSION "\r\nmode=%s\r\nconnected=%d\r\noutbox=%d\r\ninbox=%d\r\nblocked=%d\r\nerror=%s\r\nprotocol=%d\r\nprepared=%d\r\ncompatible=%d\r\nready=%d\r\npeer_ready=%d\r\nworld=%s\r\nworld_peer=%s\r\nworld_fields=%s\r\nworld_ck=%s\r\nordering=%d\r\norder_seq=%lu\r\norder_side=%c\r\norder_phase=%s\r\norder_token=%s\r\nepoch=%d\r\nresync=%s\r\nresync_peer=%s\r\n",
         GetCurrentProcessId(), net_mode_name(), link_connected, outbox.count, inbox.count,
         game_blocked || session_changed || compatibility_failed || (e ? e->failed : 0), error_text,
         protocol, prepared, peer_compatible, world_ready, peer_ready, world, peer_world, fields, ck,
-        ordered(), order_seq, order_side ? order_side : '-', order_phase_name(), order_token);
+        ordered(), order_seq, order_side ? order_side : '-', order_phase_name(), order_token,
+        resync_epoch, resync_armed ? "armed" : "-", peer_req);
     if (size > 0) lstrcpynA(out, text, size);
     LeaveCriticalSection(&lock);
 }
-void net_world_loading(const char *name) {
-    int previous;
-    if (local_test || mode == NET_OFF) return;
+/* v13: everything of the replay before the in-game resync is void: queues, partial lines, the
+ * host's order, results and states. Tokens get a new nonce so no old result can answer them. Call
+ * under lock. */
+static void reset_for_resync(void) {
+    int i;
+    while (inbox.count) queue_pop(&inbox);
+    while (outbox.count) queue_pop(&outbox);
+    assembly_part = assembly_count = assembly_length = 0; assembly_token[0] = 0;
+    for (i = 0; i < QUEUE_SIZE; i++) history[i].token[0] = history[i].result[0] = 0;
+    history_next = 0;
+    order_seq = released_seq = client_want_serial = client_done_serial = active_client_serial = 0;
+    order_side = released_side = 0; order_phase = ORDER_IDLE; last_order_side = 'C';
+    order_token[0] = released_token[0] = client_want_token[0] = 0;
+    last_order_send = last_want_send = 0;
+    next_line = 0; token_nonce = GetTickCount() ^ (DWORD)(resync_epoch + 1) * 2654435761UL;
+    if (token_nonce == session_nonce) token_nonce++;
+    for (i = 0; i < NET_STATE_KEYS; i++) if (own_states[i].text[0]) { own_states[i].text[0] = 0; own_states[i].changed = 1; }
+    game_blocked = 0; if (!compatibility_failed) error_text[0] = 0;
+    world_loaded = 1; world_initialized = 0; world_ready = 0;
+    link_connected = 0; peer_ready = 0; resync_armed = 0; resync_epoch++;
+}
+/* v13: the launcher received or sent the resync save; the next load of exactly that save is the
+ * in-game resync. Returns the epoch it will start, 0 if refused. */
+int net_arm_resync(const char *name) {
+    const char *p; int n = 0;
+    if (local_test || !ordered() || !*name || lstrlenA(name) >= (int)sizeof(resync_name)) return 0;
+    for (p = name; *p; p++) if (*p == '/' || *p == '\\' || *p == ':' || *p == '"' || (unsigned char)*p < ' ') return 0;
     EnterCriticalSection(&lock);
-    previous = world_loaded || world_initialized; world_loaded = 1; world_ready = 0;
+    if (world_initialized && !compatibility_failed) { lstrcpyA(resync_name, name); resync_armed = 1; n = resync_epoch + 1; }
     LeaveCriticalSection(&lock);
+    if (n) proxy_log("net: in-game resync %d armed; waiting for the game to load %s", n, name);
+    else proxy_log("net: in-game resync of %s refused (world not initialized or session blocked)", name);
+    return n;
+}
+int net_world_loading(const char *name) {
+    int previous, epoch = 0;
+    if (local_test || mode == NET_OFF) return 0;
+    EnterCriticalSection(&lock);
+    if (resync_armed && !lstrcmpiA(name, resync_name)) { reset_for_resync(); epoch = resync_epoch; previous = 0; }
+    else { previous = world_loaded || world_initialized; world_loaded = 1; world_ready = 0; }
+    LeaveCriticalSection(&lock);
+    if (epoch) {
+        clear_peer_states();
+        proxy_log("net: in-game resync %d: %s loaded; earlier actions dropped, waiting for both worlds", epoch, name);
+        return epoch;
+    }
     if (previous) fail_compatibility("save loaded again; prepare a new shared session and restart both games");
     else if (lstrcmpA(name, expected_save)) fail_compatibility("wrong save loaded; load the prepared shared save and restart both games");
     else proxy_log("net: expected source save loaded; waiting for world initialization");
+    return 0;
 }
 int net_game_reload(void) {
     struct entry *e; char token[TOKEN_MAX]; int pending;
@@ -650,7 +700,7 @@ static int same_address(const struct sockaddr_in *a, const struct sockaddr_in *b
 static int receive_hello(const char *rest) {
     char role[16], word[96], runtime[64], sid[66], game[66], package[66], mods[66], save[66];
     const char *scan, *end; int seen = 0, remote_protocol = 0, ready = -1, ordering = 0, bit, invalid = 0;
-    char *target; int size;
+    char *target; int size, epoch = 0;
     runtime[0] = sid[0] = game[0] = package[0] = mods[0] = save[0] = 0;
     scan = take_word(rest, role, sizeof(role));
     while (*scan) {
@@ -666,6 +716,7 @@ static int receive_hello(const char *rest) {
         else if (starts_with(word, "save=")) { bit = 64; target = save; size = sizeof(save); }
         else if (starts_with(word, "ready=")) { bit = 128; ready = number(word + 6); }
         else if (starts_with(word, "order=")) { bit = 256; ordering = number(word + 6); }
+        else if (starts_with(word, "epoch=")) { bit = 512; epoch = number(word + 6); }
         if (bit && (seen & bit)) { invalid = 1; break; }
         seen |= bit;
         if (target) {
@@ -682,7 +733,7 @@ static int receive_hello(const char *rest) {
     if (!local_test) {
         if (compatibility_failed) return 0;
         if (!(seen & 256) || ordering != 1) { fail_compatibility("peer replay ordering unavailable; update both PCs"); return 0; }
-        if (seen != 511 || !*runtime || (ready != 0 && ready != 1) ||
+        if ((seen & 511) != 511 || epoch < 0 || !*runtime || (ready != 0 && ready != 1) ||
             (lstrcmpA(role, mode == NET_HOST ? "client" : "host"))) {
             fail_compatibility("peer session metadata missing or invalid; prepare both PCs again"); return 0;
         }
@@ -699,7 +750,13 @@ static int receive_hello(const char *rest) {
         }
         lstrcpyA(peer_session, runtime);
     }
-    peer_protocol = remote_protocol; peer_compatible = 1; peer_ready = local_test || ready;
+    /* v13: a peer in another resync epoch is still loading (or not yet) the resync save. */
+    if (!local_test && epoch != peer_epoch) {
+        peer_epoch = epoch;
+        proxy_log("net: peer in resync epoch %d, this game in %d", epoch, resync_epoch);
+    }
+    peer_protocol = remote_protocol; peer_compatible = 1;
+    peer_ready = local_test || (ready && epoch == resync_epoch);
     return 1;
 }
 static DWORD WINAPI net_thread(LPVOID arg) {
@@ -728,9 +785,9 @@ static DWORD WINAPI net_thread(LPVOID arg) {
         now = GetTickCount();
         if (have_peer && now - last_hello >= HELLO_INTERVAL_MS) {
             if (local_test) n = wsprintfA(hello, "TF3MP/1 HELLO %s pid=%lu proto=2 session=%lu-%lu", is_host ? "host" : "client", GetCurrentProcessId(), GetCurrentProcessId(), session_nonce);
-            else n = wsprintfA(hello, "TF3MP/1 HELLO %s pid=%lu proto=3 session=%lu-%lu sid=%s game=%s package=%s mods=%s save=%s ready=%d order=1",
+            else n = wsprintfA(hello, "TF3MP/1 HELLO %s pid=%lu proto=3 session=%lu-%lu sid=%s game=%s package=%s mods=%s save=%s ready=%d order=1 epoch=%d",
                 is_host ? "host" : "client", GetCurrentProcessId(), GetCurrentProcessId(), session_nonce,
-                prepared_id, game_hash, package_hash, mods_hash, save_hash, world_ready && !compatibility_failed);
+                prepared_id, game_hash, package_hash, mods_hash, save_hash, world_ready && !compatibility_failed, resync_epoch);
             sendto(s, hello, n, 0, (struct sockaddr *)&peer, sizeof(peer)); last_hello = now;
         }
         if (have_peer && peer_protocol == protocol && peer_compatible && world_ready && peer_ready &&
@@ -779,7 +836,7 @@ static DWORD WINAPI net_thread(LPVOID arg) {
     closesocket(s); WSACleanup(); return 0;
 }
 void net_start(void) {
-    InitializeCriticalSection(&lock); session_nonce = GetTickCount(); read_config();
+    InitializeCriticalSection(&lock); session_nonce = token_nonce = GetTickCount(); read_config();
     if (mode == NET_OFF || mode == NET_LOOPBACK) { proxy_log("net: %s", net_mode_name()); return; }
     if (compatibility_failed) return;
     thread=CreateThread(NULL,0,net_thread,NULL,0,NULL);

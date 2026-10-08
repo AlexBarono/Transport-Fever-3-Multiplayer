@@ -760,6 +760,78 @@ test("app.saveGame as a callable table (run 35) is called like a function", func
 	assert(has(host.logs, "resync: saved 'TF3MP-Neuabgleich' at check 4") and not has(host.logs, "save by hand"))
 end)
 
+--- app as TF3's load page uses it (gui/menu/savegame_react_util.tl).
+local function loader(g, saves)
+	g.loads, g.waits = {}, 0
+	g.env.app = { saveGame = g.env.app and g.env.app.saveGame,
+		SaveGameNamespace = { getSavegame = function() return "ns" end },
+		findAllSavegames = function(ns) assert(ns == "ns"); return saves or {} end,
+		setWaitForStartReadyGame = function() g.waits = g.waits + 1 end,
+		loadGame = function(id, editor, extra) g.loads[#g.loads + 1] = { id = id, editor = editor, extra = extra } end }
+	g.api.type.SavegameId = { new = function() return {} end }
+end
+
+test("v35: the launcher's reload request loads the save in the running game, once per resync", function()
+	local client = game("client")
+	loader(client, { { saveName = "Andere", path = "x" }, { saveName = "TF3MP-Neuabgleich", path = "C:/saves/TF3MP-Neuabgleich.sav" } })
+	client.gui()
+	assert(#client.loads == 0, "nothing without a request")
+	client.vars.TF3MP_RELOAD = "1 TF3MP-Neuabgleich"
+	client.gui(); client.gui()
+	assert(#client.loads == 1 and client.waits == 1, "one load")
+	local id = client.loads[1].id
+	assert(id.saveGameNamespace == "ns" and id.saveGameName == "TF3MP-Neuabgleich" and id.path == "C:/saves/TF3MP-Neuabgleich.sav")
+	assert(client.loads[1].editor == false)
+	assert(has(client.logs, "found in the save list"))
+	-- The next resync has a new epoch.
+	client.vars.TF3MP_RELOAD = "2 TF3MP-Neuabgleich"
+	client.gui()
+	assert(#client.loads == 2)
+	-- Not in the save list yet: loads by name.
+	local host = game("host")
+	loader(host)
+	host.vars.TF3MP_RELOAD = "1 TF3MP-Neuabgleich"
+	host.gui()
+	assert(#host.loads == 1 and host.loads[1].id.saveGameName == "TF3MP-Neuabgleich" and host.loads[1].id.path == "")
+	assert(has(host.logs, "loading by name"))
+end)
+
+test("v35: a failed in-game load points to 'Neu abgleichen' and the GUI keeps running", function()
+	local client = game("client")
+	loader(client)
+	client.env.app.loadGame = function() error("not now") end
+	client.vars.TF3MP_RELOAD = "1 TF3MP-Neuabgleich"
+	client.gui(); client.gui()
+	assert(count(client.logs, "did not work: ") == 1 and has(client.logs, "'Neu abgleichen'"))
+	assert(not has(client.logs, "gui sync failed"))
+	-- Reload requests are ignored outside a session.
+	local solo = game("loopback")
+	loader(solo)
+	solo.vars.TF3MP_RELOAD = "1 TF3MP-Neuabgleich"
+	solo.gui()
+	assert(#solo.loads == 0)
+end)
+
+test("v35: a launcher save request saves on the host and tells the partner on both", function()
+	local host, client = pair()
+	saver(host); saver(client)
+	host.vars.TF3MP_SAVE = "1"
+	host.gui(); host.gui()
+	assert(#host.saves == 1 and host.saves[1].name == gui.RESYNC_SAVE, "the host saves once")
+	assert(client.vars.TF3MP_PEER_RESYNC == "ck=0 req=1", tostring(client.vars.TF3MP_PEER_RESYNC))
+	-- A Lua state without memory does not save the same request again.
+	host.env = { api = host.api, os = host.os, app = host.env.app }
+	host.gui()
+	assert(#host.saves == 1)
+	client.vars.TF3MP_SAVE = "1"
+	client.gui(); client.gui()
+	assert(#client.saves == 0, "the client never saves")
+	assert(host.vars.TF3MP_PEER_RESYNC == "ck=0 req=1", "but tells the host")
+	host.vars.TF3MP_SAVE = "2"
+	host.gui()
+	assert(#host.saves == 2 and client.vars.TF3MP_PEER_RESYNC == "ck=0 req=2")
+end)
+
 test("moving-world hashes are comparable only at identical actual simulation ticks", function()
 	local own = { gt = 60000, wgt = 60000, hpos = "h2_0000000000000001", hcargo = "h2_0000000000000003", htown = "h2_0000000000000005" }
 	local peer = copy(own); peer.hpos = "h2_0000000000000002"

@@ -193,11 +193,14 @@ function Get-SessionStatus($gameDir) {
 	$path = Join-Path $gameDir 'alut_proxy.status'
 	if (-not (Test-GameRunning)) { return @{ Text='Bereit zum Einrichten'; Color='idle' } }
 	if (-not (Test-Path $path) -or (Get-Item $path).LastWriteTime -lt (Get-Date).AddSeconds(-8)) { return @{ Text='Spiel gestartet - warte auf Multiplayer'; Color='idle' } }
-	$values=@{}
-	foreach ($line in Get-Content $path) { if ($line -match '^(\w+)=(.*)$') { $values[$matches[1]]=$matches[2] } }
+	$values = Read-ProxyStatusValues $path
+	if ($values.resync -eq 'armed') { return @{ Text='Neuabgleich: TF3 lädt den gemeinsamen Spielstand ...'; Color='idle' } }
 	if ($values.blocked -eq '1' -or $values.error) { return @{ Text="Abgleich erforderlich: $($values.error)"; Color='error' } }
 	if ($values.world -eq 'diff' -or $values.world_peer -eq 'diff') {
-		return @{ Text="Weltabweichung erkannt ($(Get-WorldDifferenceText $values.world_fields)). Bitte auf beiden PCs 'Neu abgleichen' klicken."; Color='error' }
+		return @{ Text="Weltabweichung erkannt ($(Get-WorldDifferenceText $values.world_fields)). Der Launcher gleicht gleich im laufenden Spiel neu ab."; Color='error' }
+	}
+	if ($values.epoch -match '^[1-9]' -and $values.connected -ne '1' -and $values.mode -in 'host','client') {
+		return @{ Text='Neu geladen - warte, bis der Mitspieler auch neu geladen hat ...'; Color='idle' }
 	}
 	$pending=[int]$values.outbox + [int]$values.inbox
 	$disk = if ([int64]$values.backlog -gt 0) { " + weitere auf Datenträger" } else { "" }
@@ -654,14 +657,101 @@ $copyAddress.Add_Click({
 		$out.Text='Beitrittsadresse kopiert. Teile sie mit deinem Mitspieler im gemeinsamen VPN.'
 	}
 })
+# v35: Neuabgleich im laufenden Spiel. Bei einer Weltabweichung oder einem abgelehnten Bau schickt der
+# Gastgeber den Stand, den sein Spiel gerade gespeichert hat, der Mitspieler holt ihn, und beide Spiele
+# laden ihn, ohne dass TF3 beendet wird (tools\resync.ps1, DLL v13, gui.lua).
+$script:liveMemory = New-LiveResyncMemory
+$script:liveBusy = $false
+
+function Invoke-LiveResync($values, $reason) {
+	$script:liveBusy = $true
+	$gameDir = $gameBox.Text.Trim()
+	$others = @($install, $startGame, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox)
+	$why = switch ($reason.Kind) {
+		'diff' { "Weltabweichung ($(Get-WorldDifferenceText $reason.Detail))" }
+		'error' { "Fehler: $($reason.Detail)" }
+		default { 'dein Mitspieler hat einen Fehler gemeldet' }
+	}
+	Register-LiveResync $script:liveMemory ([DateTime]::UtcNow)
+	$script:transferHint = "`r`n`r`nNeuabgleich im laufenden Spiel ($($script:liveMemory.Count) von $LiveResyncMax), Grund: $why.`r`nTF3 bleibt offen und lädt gleich den gemeinsamen Spielstand."
+	$statusLabel.Text = 'Neuabgleich im laufenden Spiel ...'; $statusLabel.ForeColor = $Muted
+	$tick = {
+		param($text, $done, $total)
+		$mb = if ($total -gt 0) { " ($([Math]::Round($done / 1MB, 1)) von $([Math]::Round($total / 1MB, 1)) MB)" } else { '' }
+		$out.Text = "$text$mb$($script:transferHint)`r`n`r`nAbbrechen: auf 'Abbrechen' klicken."
+		[System.Windows.Forms.Application]::DoEvents()
+		return $script:transferCancel
+	}
+	Enter-TransferBusy $others
+	$transfer.Enabled = $true
+	try {
+		$cfg = Read-Ini (Join-Path $gameDir 'alut_proxy.ini')
+		$port = [int]$cfg.port
+		$saveDir = Get-SaveFolder $steam
+		if (-not $saveDir) { throw 'Kein Spielstandordner gefunden.' }
+		$statusPath = Join-Path $gameDir 'alut_proxy.status'
+		$epochBefore = if ($values.epoch -match '^\d+$') { [int]$values.epoch } else { 0 }
+		if ($values.mode -eq 'host') {
+			$file = $null
+			# Bei einer Abweichung hat das Spiel selbst gespeichert ('TF3MP-Neuabgleich', gui.lua).
+			if ($reason.Kind -eq 'diff') {
+				$until = [DateTime]::UtcNow.AddSeconds(20)
+				while (-not $file -and [DateTime]::UtcNow -lt $until) {
+					$file = Find-ResyncSave $saveDir ([DateTime]::UtcNow.AddSeconds(-90))
+					if (-not $file) { if (& $tick 'Warte auf den Spielstand, den das Spiel bei der Abweichung speichert ...' 0 0) { throw 'Abgebrochen.' }; Start-Sleep -Milliseconds 250 }
+				}
+			}
+			if (-not $file) {
+				# Bittet das Spiel zu speichern; das sagt auch dem Mitspieler Bescheid (resync_peer).
+				$since = [DateTime]::UtcNow.AddSeconds(-1)
+				Write-ProxyRequest $gameDir 'alut_proxy.save' 'save' | Out-Null
+				$file = Wait-NewSave $saveDir $since $tick -timeoutSeconds 90
+			}
+			$file = Wait-SaveWritten $file $tick
+			$savePath = Assert-LauncherSavePath $file.FullName $saveDir
+			$manifest = Get-LauncherManifest $gameDir $steam $tick
+			$session = New-MultiplayerSession -Manifest $manifest -SavePath $savePath
+			$result = Send-Savegame $savePath $port $tick 150 -Session $session
+		} else {
+			# Nur dieser PC hat den Fehler gesehen: dem Gastgeber Bescheid sagen (resync_peer).
+			if ($reason.Kind -eq 'error') { Write-ProxyRequest $gameDir 'alut_proxy.save' 'save' | Out-Null }
+			if (-not $cfg.host) { throw 'In alut_proxy.ini fehlt die Adresse des Gastgebers.' }
+			$manifest = Get-LauncherManifest $gameDir $steam $tick
+			$result = Receive-Savegame $cfg.host $port $saveDir $tick { param($question) $true } -LocalManifest $manifest -WaitSeconds 150
+		}
+		Save-PreparedSession -Path (Join-Path $gameDir 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
+		$name = Get-LiveReloadName $result.SavePath
+		$reloadPath = Write-ProxyRequest $gameDir 'alut_proxy.reload' "name=$name"
+		Wait-LiveReload $statusPath $epochBefore $tick 120 $reloadPath | Out-Null
+		$out.Text = "Neuabgleich im laufenden Spiel: '$name' ist geladen.`r`nSobald beide PCs ihn geladen haben, verbinden sie sich wieder. Dann gemeinsam weiterspielen (Pause aufheben)." +
+			"`r`nGrund war: $why."
+	} catch {
+		$out.Text = "Neuabgleich im laufenden Spiel hat nicht geklappt: $($_.Exception.Message)`r`n`r`n" +
+			"Dann bitte auf beiden PCs 'Neu abgleichen' klicken (TF3 startet dabei neu)."
+	} finally {
+		$script:transferBusy = $false
+		$script:transferHint = ''
+		foreach ($b in $others) { $b.Enabled = $true }
+		Update-Fields
+		$script:liveBusy = $false
+	}
+}
+
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval=2000
 $timer.Add_Tick({
+	if ($script:liveBusy) { return }
 	try {
 		$status = Get-SessionStatus $gameBox.Text.Trim()
 		$statusLabel.Text=$status.Text
 		$statusLabel.ForeColor = if ($status.Color -eq 'error') { [System.Drawing.ColorTranslator]::FromHtml('#FF8990') } elseif ($status.Color -eq 'ok') { $Accent } else { $Muted }
 	} catch { $statusLabel.Text='Verbindungsstatus wird aktualisiert ...' }
+	if ($Preview -or $script:transferBusy -or -not (Test-GameRunning)) { return }
+	try {
+		$values = Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
+		$reason = Get-LiveResyncReason $values $script:liveMemory ([DateTime]::UtcNow)
+		if ($reason) { Invoke-LiveResync $values $reason }
+	} catch { $script:liveBusy = $false }
 })
 $form.Add_Shown({ $timer.Start() })
 # v34: das normale X schließt den Launcher immer, auch während einer Übertragung. Laufende Schritte
