@@ -2734,6 +2734,17 @@ test("a road depot from the other PC is built, joined and confirmed while paused
 			assert(contains(logged, "weld check later: construction 114736: gate -> WELDED"), all)
 			assert(contains(logged, "net result 40780-5464828.1 OK"), all)
 			assert(#t.events == 0 and #t.sent == 2, "nothing is built twice")
+			-- Run 34: the receipt was given in update(), but update() put the open action back, so
+			-- it was confirmed on every update and the other PC's next action (a line) waited for good.
+			for _ = 1, 5 do main.update(nil, state, 0) end
+			local results = 0
+			for _, text in ipairs(logged) do if text:find("net result 40780-5464828.1", 1, true) then results = results + 1 end end
+			s = state:get()
+			assert(results == 1 and not s.network_work and s.network_done.result == "OK", "confirmed " .. results .. " times")
+			logged = {}
+			main.handleEvent(nil, state, "mp_probe", main.REPLAY_EVENT, main.REPLAY_EVENT,
+				{ line = build.serialize(run5_street()), number = "40780-5464828.2", source = "net", offset = 0 })
+			assert(contains(logged, "net result 40780-5464828.2 OK"), "the next action is built: " .. table.concat(logged, "\n"))
 		end)
 		world.find_construction, weld.status = saved_find, saved_status
 		assert(ok, err)
@@ -2749,6 +2760,71 @@ test("a continuation that crosses an outstanding command waits and can be asked 
 	main.network_continue({}, state)
 	local s = state:get()
 	assert(s.network_followup.phase == "finish" and not s.network_followup.requested and #logged == 0)
+end)
+
+test("a confirmed world difference sends this game's records; the other game logs both sides' extra ones", function()
+	local main, state = fresh_main(), mock_state()
+	local fingerprint = require("/mp_probe/fingerprint.lua")
+	local saved = fingerprint.list
+	local mine, theirs = {}, {}
+	for i = 1, 200 do
+		local r = { h = string.format("%016x", i), d = "street " .. i .. " at " .. i .. ".000,0.000,0.000" }
+		mine[i], theirs[i] = r, r
+	end
+	mine[201] = { h = "ffffffffffffff01", d = "entrance_new.street_template/town_new.street 1.000,2.000,3.000 > 4.000,5.000,6.000" }
+	theirs[201] = { h = "ffffffffffffff02", d = "entrance_new.street_template/town_new.street 1.000,2.000,3.000 > 4.000,5.000,6.500" }
+	local ok, err = pcall(function()
+		fingerprint.list = function(_, kind) assert(kind == "edge"); return theirs end
+		logged = {}
+		local ss = {}
+		main.world_send({}, ss, { hedge = "h1_aaaa" }, { "hedge" })
+		local lines = {}
+		for _, text in ipairs(logged) do
+			local line = text:match("net send (W1 .*)$")
+			if line then lines[#lines + 1] = line; assert(#line <= 6000, #line) end
+		end
+		assert(#lines >= 2, "large lists go in parts that each fit one bridge line: " .. #lines)
+		assert(contains(logged, "world list hedge: 201 records sent to the other game in " .. #lines .. " part(s)"))
+		logged = {}
+		main.world_send({}, ss, { hedge = "h1_aaaa" }, { "hedge" })
+		assert(#logged == 0, "the same list is not sent twice")
+		-- The receiving game (its own records are `mine`).
+		fingerprint.list = function() return mine end
+		logged = {}
+		for i, line in ipairs(lines) do
+			local applied = main.replay_line({}, line, "w." .. i, state, 0)
+			assert(applied == true)
+		end
+		assert(contains(logged, "world diff hedge only in the other game: entrance_new.street_template/town_new.street " ..
+			"1.000,2.000,3.000 > 4.000,5.000,6.500"), table.concat(logged, "\n"))
+		assert(contains(logged, "world diff hedge only in this game: entrance_new.street_template/town_new.street " ..
+			"1.000,2.000,3.000 > 4.000,5.000,6.000"), table.concat(logged, "\n"))
+		assert(contains(logged, "world diff hedge: 1 only here, 1 only in the other game (there 201 records, here 201)"),
+			table.concat(logged, "\n"))
+		assert(not (state:get().world_rx or {}).hedge, "nothing is kept once the list is complete")
+	end)
+	fingerprint.list = saved
+	assert(ok, err)
+end)
+
+test("the world lists go out when a checkpoint confirms a difference, not before", function()
+	local main = fresh_main()
+	local sent = {}
+	main.world_send = function(_, _, own, fields) sent[#sent + 1] = table.concat(fields, ",") .. "@" .. own.hedge end
+	local ss = { own = {}, peer = {} }
+	local base = { con = 1, lines = 1, st = 23, veh = 0, money = 100, loan = 0, date = "1900-01-01",
+		hcon = "h1_00000000000000c0", hline = "h1_00000000000000d0", hveh = "h1_00000000000000e0" }
+	for k = 3, 5 do
+		local own, peer = {}, {}
+		for f, v in pairs(base) do own[f], peer[f] = v, v end
+		own.hedge, peer.hedge, own.ck, peer.ck = string.format("h1_%016x", k), string.format("h1_%016x", 100 + k), k, k
+		ss.own[#ss.own + 1] = { k = k, v = own }
+		ss.peer[#ss.peer + 1] = { k = k, v = peer }
+		logged = {}
+		main.sync_compare({}, ss, "host", k * 60000)
+		if k == 3 then assert(#sent == 0, "a first difference is only being checked") end
+	end
+	assert(#sent >= 1 and sent[1] == "hedge@" .. string.format("h1_%016x", 4), table.concat(sent, " "))
 end)
 
 test("a received action still waiting says what for, once per bridge tick", function()

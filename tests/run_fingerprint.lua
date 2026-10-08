@@ -283,5 +283,23 @@ test("the compact digest fields fit the native checkpoint state limit", function
 	same(values, sync.decode(text))
 end)
 
+test("the record list names the records and the field two games differ in", function()
+	local a, b = mock(), mock(10000, true)
+	b.entities[b.edgeid].BASE_EDGE.tangent1.y = -5.2
+	local la, lb = fingerprint.list(a.env, "edge"), fingerprint.list(b.env, "edge")
+	assert(#la == 1 and #lb == 1 and la[1].h ~= lb[1].h)
+	assert(la[1].d == "standard.track_template/catenary.track_style 0.000,30.000,0.000 > 100.000,35.000,0.000 " ..
+		"tangents 100.000,10.000,0.000 / 100.000,-5.000,0.000", la[1].d)
+	assert(lb[1].d:find("100.000,-5.200,0.000", 1, true), lb[1].d)
+	-- The same records give the same hashes, whatever their ids.
+	local ca, cb = fingerprint.list(a.env, "construction"), fingerprint.list(mock(10000, true).env, "construction")
+	assert(#ca == 2 and ca[1].h == cb[1].h and ca[2].h == cb[2].h)
+	assert(ca[1].d:find("station.con at ", 1, true) and ca[1].d:find(" params ", 1, true), ca[1].d)
+	for _, kind in ipairs({ "line", "vehicle" }) do
+		local l = fingerprint.list(a.env, kind)
+		assert(#l == 1 and not l[1].d:find("unreadable", 1, true), kind .. ": " .. tostring(l[1] and l[1].d))
+	end
+end)
+
 print(string.format("%d fingerprint tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

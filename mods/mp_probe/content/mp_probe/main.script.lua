@@ -14,6 +14,7 @@ local nodecfg = require("/mp_probe/nodecfg.lua")
 local sync = require("/mp_probe/sync.lua")
 local gui = require("/mp_probe/gui.lua")
 local transport = require("/mp_probe/transport.lua")
+local fingerprint = require("/mp_probe/fingerprint.lua")
 
 local main = {}
 
@@ -163,7 +164,7 @@ function main.bridge_tick(env, seq, s, state, quiet)
 	if not quiet then logger.info("bridge out seq=" .. seq) end
 	local outgoing = s and actions.next_line(s)
 	if outgoing then transport.send(outgoing, s, logger.info) end
-	if state then state:set(s) end
+	if state then main.store(state, s) end
 	local getenv = env.os and env.os.getenv
 	if not getenv then return end
 	local ok, value = pcall(getenv, main.BRIDGE_ENV)
@@ -188,7 +189,7 @@ end
 -- built only once (the token is kept in the savegame state) but acknowledged every time.
 function main.receive_line(env, s, value, state)
 	value = transport.receive(s, value, logger.info)
-	if state then state:set(s) end
+	if state then main.store(state, s) end
 	if not value then return end
 	local token, kind, line = string.match(value, "^line (%S+) (%a+) (.+)$")
 	if not token then return end
@@ -200,7 +201,7 @@ function main.receive_line(env, s, value, state)
 		return
 	end
 	s.last_line_token = token
-	if state then state:set(s) end
+	if state then main.store(state, s) end
 	local offset = kind == "loop" and main.REPLAY_SIDE_OFFSET or 0
 	local param = { line = line, number = token, offset = offset, source = kind }
 	if main.send_replay_event(env, param) then
@@ -346,6 +347,7 @@ function main.replay_line(env, line, number, state, distance)
 		logger.info("replay: no line in the request")
 		return false, "missing replay line"
 	end
+	if line:sub(1, 3) == "W1 " then return main.world_receive(env, line, state) end
 	if line:sub(1, 1) == "A" then
 		local action, err = actions.decode(line)
 		if not action then logger.info("action replay: bad line (" .. tostring(err) .. ")"); return false, err end
@@ -658,7 +660,10 @@ function main.weld_copy(env, data, state, player)
 end
 
 --- The later check of main.weld_copy, from update().
-function main.recheck_welds(env, s)
+-- @param fail function|nil receives the reason when an entrance is not confirmed (transport.fail
+--   on the live state; update()'s own copy of the receipt is never written back)
+function main.recheck_welds(env, s, fail)
+	fail = fail or function() end
 	local now = main.game_time(env)
 	if not now or not s.weld_checks or #s.weld_checks == 0 then return end
 	local waiting = {}
@@ -669,10 +674,10 @@ function main.recheck_welds(env, s)
 			if id then
 				local status = weld.status(env, id, c.gates or {})
 				logger.info("weld check later: " .. status.text)
-				if s.network_work and status.welded ~= true then s.network_work.error = "construction entrance not confirmed: " .. status.text end
+				if status.welded ~= true then fail("construction entrance not confirmed: " .. status.text) end
 			else
 				logger.info("weld check later: the copied construction is gone")
-				if s.network_work then s.network_work.error = "copied construction missing after build" end
+				fail("copied construction missing after build")
 			end
 		else
 			waiting[#waiting + 1] = c
@@ -681,24 +686,16 @@ function main.recheck_welds(env, s)
 	s.weld_checks = waiting
 end
 
---- Two PCs, 8 Oct: the copy of a depot stopped after the depot was built (no entrance check, no
--- execution receipt, both sides' queues stuck). The command callbacks and handleEvent write the
--- script state from another Lua state while update() runs; update() then wrote back its own older
--- copy of the whole state, and the callback's countdown (or the cleared continuation request)
--- was lost for good. The execution receipt fields belong to those writers: every write from
--- update() takes them from the live state, keeping only what update() itself adds (an entrance
--- check's error, the request for the next stage).
-function main.adopt_live_transport(live, s)
-	local mine_work, mine_follow = s.network_work, s.network_followup
+--- Writes update()'s copy of the script state, keeping the execution receipt as it is now. Only
+-- the event state, the command callbacks and the transport functions (each reads, changes and
+-- writes the live state at once) change the receipt; update()'s copy is older (two PCs, 8 Oct).
+-- bdc8cd3 instead put back the live receipt on every write through update()'s state, also on
+-- transport.check's own write from update(), so a confirmed action stayed open for good and every
+-- later action from the other PC waited behind it (run 34: "1 Vorgang wartet").
+function main.store(state, s)
+	local live = state:get() or {}
 	s.network_work, s.network_done, s.network_followup = live.network_work, live.network_done, live.network_followup
-	local work = s.network_work
-	if mine_work and mine_work.error and work and work.token == mine_work.token and not work.error then
-		work.error = mine_work.error
-	end
-	local follow = s.network_followup
-	if mine_follow and mine_follow.requested and follow and follow.phase == mine_follow.phase and not follow.requested then
-		follow.requested = true
-	end
+	state:set(s)
 end
 
 --- Once per bridge tick while a received action is not confirmed yet: what it still waits for, so a
@@ -713,22 +710,7 @@ function main.log_network_wait(s)
 		w.error and (", error " .. tostring(w.error):sub(1, 120)) or ""))
 end
 
-function main.guard_state(state)
-	local guarded = {}
-	function guarded.get(_) return state:get() end
-	function guarded.set(_, v)
-		if type(v) == "table" then main.adopt_live_transport(state:get() or {}, v) end
-		return state:set(v)
-	end
-	return setmetatable(guarded, { __index = function(_, k)
-		local f = state[k]
-		if type(f) ~= "function" then return f end
-		return function(_, ...) return f(state, ...) end
-	end })
-end
-
 function main.update(_user_params, state, _dt)
-	state = main.guard_state(state)
 	local s = state:get() or {}
 	-- Reset observation baseline on upgrade; never send an existing save as new actions.
 	if s.actions_version ~= main.PROBE_VERSION then
@@ -773,12 +755,10 @@ function main.update(_user_params, state, _dt)
 
 	s.updates = (s.updates or 0) + 1
 	if s.weld_checks and #s.weld_checks > 0 then
-		local ok, err = pcall(main.recheck_welds, _G, s)
+		local ok, err = pcall(main.recheck_welds, _G, s, function(text) transport.fail(state, text) end)
 		if not ok then
 			s.weld_checks = nil
-			if s.network_work then
-				s.network_work.error = s.network_work.error or ("construction entrance check unreadable: " .. tostring(err):sub(1, 180))
-			end
+			transport.fail(state, "construction entrance check unreadable: " .. tostring(err):sub(1, 180))
 			logger.info("weld check later failed: " .. tostring(err):sub(1, 200))
 		end
 	end
@@ -793,7 +773,7 @@ function main.update(_user_params, state, _dt)
 	local bridge_now = s.updates % main.BRIDGE_EVERY == 0
 	if bridge_now or (s.updates % main.INBOX_EVERY == 0 and main.bridge_has_work(_G, s)) then
 		-- Store the baseline before dispatching an event that can update replay mappings.
-		state:set(s)
+		main.store(state, s)
 		local ok, err = pcall(main.bridge_tick, _G, s.updates / main.BRIDGE_EVERY, s, state, not bridge_now)
 		if not ok then logger.info("bridge tick failed: " .. tostring(err):sub(1, 200)) end
 		-- An immediate event/callback may already have refreshed parts of the baseline.
@@ -818,9 +798,11 @@ function main.update(_user_params, state, _dt)
 		end
 		logger.info("snapshot update=" .. s.updates .. " " .. probe.format_snapshot(snap))
 	end
-	state:set(s)
-	if s.network_followup and s.network_work and not s.network_work.error and s.network_work.pending == 0 and not s.network_followup.requested then
-		s.network_followup.requested = true; state:set(s)
+	main.store(state, s)
+	local live = state:get() or {}
+	local follow, work = live.network_followup, live.network_work
+	if follow and work and not work.error and (work.pending or 0) == 0 and not follow.requested then
+		follow.requested = true; state:set(live)
 		if not main.send_replay_event(_G, { network_continue = true }) then
 			transport.fail(state, "build continuation event unavailable")
 		end
@@ -912,6 +894,10 @@ function main.sync_compare(env, ss, role, gt)
 				end
 				logger.info(main.STATE_MARKER .. "health ck=" .. p.k .. " status=" .. world_status ..
 					" fields=" .. (#world_fields > 0 and table.concat(world_fields, ",") or "none"))
+				if world_status == "diff" then
+					local ok_w, err_w = pcall(main.world_send, env, ss, own, world_fields)
+					if not ok_w then logger.info("world list failed: " .. tostring(err_w):sub(1, 200)) end
+				end
 				main.sync_correct(ss, out.fix, gt)
 			elseif ss.own_k and ss.own_k > p.k then
 				-- This game has no checkpoint with that number (loaded later); it is skipped.
@@ -919,6 +905,86 @@ function main.sync_compare(env, ss, role, gt)
 			end
 		end
 	end
+end
+
+--- Run 34 (two PCs): both launchers said "Weltabweichung (hcon,hedge)", but the log only had the
+-- two digests, not which buildings or roads differ. Once a difference is confirmed, each game sends
+-- the other its records of that category (W1 lines: hash and a readable description each); the
+-- receiver logs which records only it has and which only the other game has (main.world_receive),
+-- so one log names both sides. Sent once per category and own digest.
+main.WORLD_PART_BYTES = 5800
+
+function main.world_send(env, ss, own, fields)
+	ss.world_sent = ss.world_sent or {}
+	for _, field in ipairs(fields) do
+		local digest = own[field]
+		local kind
+		for k, f in pairs(fingerprint.FIELDS) do if f == field then kind = k end end
+		if kind and digest and ss.world_sent[field] ~= digest then
+			ss.world_sent[field] = digest
+			local list = fingerprint.list(env, kind)
+			local parts, current = {}, {}
+			local size = 0
+			for _, r in ipairs(list) do
+				local item = r.h .. ":" .. build.escape(r.d)
+				if size + #item + 1 > main.WORLD_PART_BYTES and #current > 0 then
+					parts[#parts + 1] = current; current, size = {}, 0
+				end
+				current[#current + 1] = item; size = size + #item + 1
+			end
+			parts[#parts + 1] = current
+			for i, items in ipairs(parts) do
+				transport.send(string.format("W1 %s %d %d %s %d %s", field, i, #parts, tostring(digest), #list,
+					#items > 0 and table.concat(items, " ") or "-"), {}, logger.info)
+			end
+			logger.info(string.format("world list %s: %d records sent to the other game in %d part(s)", field, #list, #parts))
+		end
+	end
+end
+
+--- Handles a W1 line from the other game (main.world_send): logs the records that differ.
+function main.world_receive(env, line, state)
+	local field, index, count, digest, total, rest = line:match("^W1 (%a+) (%d+) (%d+) (%S+) (%d+) (.*)$")
+	if not field then logger.info("world list: bad line"); return true end
+	index, count = tonumber(index), tonumber(count)
+	local kind
+	for k, f in pairs(fingerprint.FIELDS) do if f == field then kind = k end end
+	if not kind then logger.info("world list: unknown category " .. field); return true end
+	local own = fingerprint.list(env, kind)
+	local here = {}
+	for _, r in ipairs(own) do here[r.h] = r.d end
+	local s = state and (state:get() or {}) or {}
+	s.world_rx = s.world_rx or {}
+	local rx = s.world_rx[field]
+	if not rx or rx.digest ~= digest or rx.count ~= count then
+		rx = { digest = digest, count = count, got = 0, there = 0, hashes = {} }
+		s.world_rx[field] = rx
+	end
+	rx.got = rx.got + 1
+	for item in rest:gmatch("%S+") do
+		local h, d = item:match("^([^:]+):(.*)$")
+		if h then
+			rx.hashes[h] = true
+			if not here[h] then
+				rx.there = rx.there + 1
+				logger.info("world diff " .. field .. " only in the other game: " .. build.unescape(d))
+			end
+		end
+	end
+	if rx.got >= count then
+		local only_here = 0
+		for _, r in ipairs(own) do
+			if not rx.hashes[r.h] then
+				only_here = only_here + 1
+				logger.info("world diff " .. field .. " only in this game: " .. r.d)
+			end
+		end
+		logger.info(string.format("world diff %s: %d only here, %d only in the other game (there %s records, here %d)",
+			field, only_here, rx.there, total, #own))
+		s.world_rx[field] = nil
+	end
+	if state then state:set(s) end
+	return true
 end
 
 --- Client: takes over the host's loan, money and date. Run 25: in update() the game refuses commands
@@ -947,7 +1013,7 @@ function main.sync_send_fix(env, state, s)
 	if not fix then return end
 	ss.pending_fix = nil
 	-- Stored before dispatching: the game can handle the event right away and note the result.
-	state:set(s)
+	main.store(state, s)
 	-- Flat, only numbers and a flag, like the other event parameters that are known to arrive.
 	local sent = main.send_replay_event(env, { sync_fix = true, fix_loan = fix.loan, fix_money = fix.money,
 		fix_date = fix.date, fix_gt = fix.gt })

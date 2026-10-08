@@ -188,6 +188,56 @@ function fingerprint.digest(kind, records)
 	return "h" .. fingerprint.VERSION .. "_" .. hash(kind .. ":" .. #values .. ":" .. table.concat(values, ":"))
 end
 
+local function short(path)
+	return (tostring(path):match("([^/]+)$")) or tostring(path)
+end
+
+local function v3(v)
+	return string.format("%.3f,%.3f,%.3f", rounded(v.x), rounded(v.y), rounded(v.z))
+end
+
+local function part(value)
+	return hash(fingerprint.canonical(value)):sub(1, 8)
+end
+
+--- One readable line per normalized record, enough to see which of its fields two games disagree
+-- on; fields too long for a line appear as the first 8 digits of their own hash.
+function fingerprint.describe(kind, n)
+	if kind == "construction" then
+		local m = n.transf
+		return string.format("%s at %s name %s params %s turn %s", short(n.fileName), v3(m[4]), n.name,
+			part(n.params), part({ m[1], m[2], m[3] }))
+	elseif kind == "edge" then
+		return string.format("%s/%s %s > %s tangents %s / %s", short(n.roadTemplate), short(n.roadStyle),
+			v3(n.position0), v3(n.position1), v3(n.tangent0), v3(n.tangent1))
+	elseif kind == "line" then
+		return string.format("%s, %d stops %s, color %s, rest %s", n.name, #n.stops, part(n.stops), v3(n.color),
+			part({ n.customFilters, n.reservationPriority }))
+	elseif kind == "vehicle" then
+		return string.format("%s on %s, config %s, stopped %s, auto %s", n.name, n.line and tostring(n.line.name) or "-",
+			part(n.config), tostring(n.userStopped), tostring(n.autoDeparture))
+	end
+	return kind
+end
+
+--- The records of one category as { h = record hash (as in fingerprint.digest), d = description },
+-- sorted by hash. For finding out which records two games disagree on (main.world_send).
+function fingerprint.list(env, kind)
+	local out = {}
+	local records = actions.snapshot(env, kind)
+	for _, record in pairs(records) do
+		local ok, n = pcall(fingerprint.normalize, kind, record)
+		if ok then
+			local ok_d, d = pcall(fingerprint.describe, kind, n)
+			out[#out + 1] = { h = hash(fingerprint.canonical(n)), d = ok_d and d or ("description unreadable: " .. tostring(d):sub(1, 60)) }
+		else
+			out[#out + 1] = { h = "unreadable", d = tostring(n):sub(1, 80) }
+		end
+	end
+	table.sort(out, function(a, b) return a.h < b.h end)
+	return out
+end
+
 function fingerprint.values(env)
 	local out, failed = {}, {}
 	for _, kind in ipairs(actions.KINDS) do

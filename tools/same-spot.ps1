@@ -79,7 +79,8 @@ function Get-SameSpotRecording($lines) {
 				if ($index -eq $count - 1) { [void]$current.Lines.Add($uploads[$id].ToString()); $uploads.Remove($id) }
 			}
 		} elseif ($current -and $line -match '\[mp_probe\]net send (.+?)\s*$') {
-			[void]$current.Lines.Add($matches[1])
+			# W1 lines are world lists for finding a difference, not builds.
+			if (-not $matches[1].StartsWith('W1 ')) { [void]$current.Lines.Add($matches[1]) }
 		}
 	}
 	if ($sessions.Count -lt 2) {
