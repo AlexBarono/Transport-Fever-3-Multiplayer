@@ -1,0 +1,41 @@
+2026-10-08 16:33:55 [47488] alut proxy v11 loaded
+2026-10-08 16:33:55 [47488] bridge: ucrtbase _putenv_s found
+2026-10-08 16:33:55 [47488] bridge: TF3MP_IN=hello (ok)
+2026-10-08 16:33:55 [47488] bridge: TF3MP_ROLE=host
+2026-10-08 16:33:55 [47488] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-08 16:33:55 [47488] net: host listening on UDP 47800, protocol fragments+results v3
+2026-10-08 16:34:11 [47488] net: expected source save loaded; waiting for world initialization
+2026-10-08 16:34:17 [47488] net: prepared source world initialized; ready for matching peer
+2026-10-08 16:34:17 [47488] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-08 16:34:27 [47488] bridge: first state gui of the mod: by=host gt=168200 hb=1 run=0 speed=0 src=gui tg=0 ver=0
+2026-10-08 16:34:33 [47488] bridge: TF3MP_IN=ack 64 (ok)
+2026-10-08 16:34:43 [47488] bridge: TF3MP_IN=ack 65 (ok)
+2026-10-08 16:34:43 [47488] net: connected to partner, port 57433
+2026-10-08 16:34:53 [47488] bridge: TF3MP_IN=ack 66 (ok)
+2026-10-08 16:34:55 [47488] net: state gui from the peer (1 so far): by=client gt=168200 hb=1 run=0 speed=0 src=gui tg=0 ver=0
+2026-10-08 16:35:03 [47488] bridge: TF3MP_IN=ack 67 (ok)
+2026-10-08 16:35:07 [47488] net: line 40852-3324906.1 received from the peer (1667 bytes, 3 fragments)
+2026-10-08 16:35:07 [47488] bridge: TF3MP_IN=part 40852-3324906.1 net 0 1 B5 n-1;7386.471,0.758,8.802 n-2;7380.92,16.551,8.80... (ok)
+2026-10-08 16:35:07 [47488] bridge: TF3MP_IN=ack 67 (ok)
+2026-10-08 16:35:07 [47488] bridge: the mod has line 40852-3324906.1
+2026-10-08 16:35:07 [47488] bridge: TF3MP_IN=ack 67 (ok)
+2026-10-08 16:35:08 [47488] net: game result 40852-3324906.1 FAIL
+2026-10-08 16:35:08 [47488] bridge: TF3MP_IN=ack 67 (ok)
+2026-10-08 16:35:13 [47488] bridge: TF3MP_IN=ack 68 (ok)
+2026-10-08 16:35:23 [47488] bridge: TF3MP_IN=ack 69 (ok)
+2026-10-08 16:35:33 [47488] bridge: TF3MP_IN=ack 70 (ok)
+2026-10-08 16:35:43 [47488] bridge: TF3MP_IN=ack 71 (ok)
+2026-10-08 16:35:53 [47488] bridge: TF3MP_IN=ack 72 (ok)
+2026-10-08 16:36:03 [47488] bridge: TF3MP_IN=ack 73 (ok)
+2026-10-08 16:36:13 [47488] bridge: TF3MP_IN=ack 74 (ok)
+2026-10-08 16:36:23 [47488] bridge: TF3MP_IN=ack 75 (ok)
+2026-10-08 16:36:33 [47488] bridge: TF3MP_IN=ack 76 (ok)
+2026-10-08 16:36:43 [47488] bridge: TF3MP_IN=ack 77 (ok)
+2026-10-08 16:36:53 [47488] bridge: TF3MP_IN=ack 78 (ok)
+2026-10-08 16:37:03 [47488] bridge: TF3MP_IN=ack 79 (ok)
+2026-10-08 16:37:13 [47488] bridge: TF3MP_IN=ack 80 (ok)
+2026-10-08 16:37:23 [47488] bridge: TF3MP_IN=ack 81 (ok)
+2026-10-08 16:37:33 [47488] bridge: TF3MP_IN=ack 82 (ok)
+2026-10-08 16:37:43 [47488] bridge: TF3MP_IN=ack 83 (ok)
+2026-10-08 16:37:53 [47488] bridge: TF3MP_IN=ack 84 (ok)
+2026-10-08 16:38:03 [47488] bridge: TF3MP_IN=ack 85 (ok)

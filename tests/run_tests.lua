@@ -2295,6 +2295,66 @@ test("node configurations are placed on the node all their segments end at, repl
 	assert(all:find("node configs result: 2/3 placed, 1 not found here", 1, true), all)
 end)
 
+test("a depot's left-out entrance takes its node configurations along (two PCs, 8 Oct: game rejected)", function()
+	-- The joining player's road depot: the host built the split road, then failed the whole action
+	-- with "node configurations could not all be resolved" because two configurations named the
+	-- entrance the construction lays itself (one on its far node, one connection on the split node).
+	local road = run5_street().addedSegments[1]
+	local function seg(entity, a, b, template)
+		local s = { entity = entity, type = 0, comp = {} }
+		for k, v in pairs(road.comp) do s.comp[k] = v end
+		s.comp.node0, s.comp.node1 = a, b
+		if template then s.comp.roadTemplate = template end
+		s.params, s.streetEdge = road.params, road.streetEdge
+		return s
+	end
+	local line = build.serialize({
+		addedNodes = {
+			{ entity = 101, comp = { position = { x = -2861.231, y = -3962.21, z = 2.673 } } },
+			{ entity = 102, comp = { position = { x = -2866.509, y = -3979.147, z = 2.673 } } },
+		},
+		frozenNodes = { 1 },
+		addedSegments = {
+			seg(201, 101, 102, "::/infrastructure/street/constructions/entrance_new.street_template"),
+			seg(202, 11, 101), seg(203, 101, 12),
+		},
+		removedSegments = { { entity = 300, type = 0, comp = { node0 = 11, node1 = 12,
+			position0 = { x = -2903.335, y = -3949.088, z = 2.071 }, position1 = { x = -2821.038, y = -3974.736, z = 2.964 } } } },
+	}, {
+		node_position = function(id)
+			return ({ [11] = { x = -2903.335, y = -3949.088, z = 2.071 }, [12] = { x = -2821.038, y = -3974.736, z = 2.964 } })[id]
+		end,
+		to_add = { { fileName = "::/depots/road/road_depot/road_depot.con", name = "Depot", params = { seed = 0 },
+			transf = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -2872.5, -3998.5, 2.67, 1 } } },
+	})
+	line = line .. " e1;-2861.231,-3962.21,2.673;-2866.509,-3979.147,2.673" ..
+		" e2;-2903.335,-3949.088,2.071;-2861.231,-3962.21,2.673 e3;-2861.231,-3962.21,2.673;-2821.038,-3974.736,2.964" ..
+		" k;-2861.231,-3962.21,2.673;-;2;-1;2:1:3:1:r,2:1:1:1:r;1,2,3;- k;-2866.509,-3979.147,2.673;-;2;-1;-;1;-"
+	local data = assert(build.deserialize(line))
+	build.drop_access(data)
+	assert(data.entrance_refs[1] and not data.entrance_refs[2] and not data.entrance_refs[3], "only the entrance is left to the depot")
+	assert(#data.entrance_nodes == 1 and math.abs(data.entrance_nodes[1].y - -3979.147) < 0.01, "its far node too")
+
+	-- On a world with the split road: the split node's configuration keeps its road connections and
+	-- counts as placed; the entrance node's configuration is left to the depot.
+	local nodecfg, world = require("/mp_probe/nodecfg.lua"), require("/mp_probe/world.lua")
+	local w = config_world()
+	w.data = assert(build.deserialize("B5 e1;0,0,0;100,0,0 e2;100,0,0;200,0,0 e3;100,0,0;100,20,0 " ..
+		"k;100,0,0;-;2;-1;1:1:2:2:r,1:1:3:1:r;1,2,3;- k;100,20,0;-;2;-1;-;3;-"))
+	w.data.entrance_refs = { [3] = true }
+	w.data.entrance_nodes = { { x = 100, y = 20, z = 0 } }
+	local resolved, notes, skipped = nodecfg.resolve(w.env, w.data, world.node_index(w.env))
+	local all = table.concat(notes, "\n")
+	assert(#resolved == 1 and skipped == 1 and resolved[1].partial == nil, all)
+	assert(resolved[1].node == 2 and #resolved[1].config.conns == 1 and #resolved[1].config.walks == 2, all)
+	assert(all:find("node config near 100.0,20.0 left to the construction's own entrance", 1, true), all)
+	local logs = {}
+	local placed, total = nodecfg.apply(w.env, w.data, { log = function(text) logs[#logs + 1] = text end })
+	all = table.concat(logs, "\n")
+	assert(placed == 1 and total == 2, all)
+	assert(all:find("node configs result: 1/2 placed, 0 not found here, 1 left to the entrance", 1, true), all)
+end)
+
 test("node configurations the game refuses together are sent one node at a time", function()
 	local nodecfg = require("/mp_probe/nodecfg.lua")
 	local w = config_world({ refuse_several = true })

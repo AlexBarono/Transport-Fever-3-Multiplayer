@@ -1859,18 +1859,50 @@ function build.old2new(data)
 	return map
 end
 
+--- Whether two positions are the same point of a line (horizontal distance, 0.5 m).
+function build.near(p, q)
+	local dx, dy = p.x - q.x, p.y - q.y
+	return dx * dx + dy * dy <= 0.25
+end
+
 --- Removes the segments that join a construction to the network, and nodes only they used.
 function build.drop_access(data)
-	local segments, used = {}, {}
+	local segments, used, dropped = {}, {}, {}
 	for _, seg in ipairs(data.segments) do
 		if not data.access[seg.id] then
 			segments[#segments + 1] = seg
 			used[seg.node0], used[seg.node1] = true, true
+		else
+			dropped[#dropped + 1] = seg
 		end
 	end
-	local nodes = {}
+	local nodes, position_of = {}, {}
 	for _, node in ipairs(data.nodes) do
+		position_of[node.id] = node.position
 		if used[node.id] then nodes[#nodes + 1] = node end
+	end
+	-- Run 8.10. (two PCs, road depot): the node configurations still named the left-out entrance
+	-- and the node at its far end. Those belong to the construction, which lays the entrance and
+	-- its configurations itself; nodecfg.resolve leaves them out instead of failing the build.
+	data.entrance_refs, data.entrance_nodes = data.entrance_refs or {}, data.entrance_nodes or {}
+	local function pos(ref)
+		if type(ref) == "string" then return data.foreign[ref] end
+		return position_of[ref]
+	end
+	for _, seg in ipairs(dropped) do
+		local a, b = pos(seg.node0), pos(seg.node1)
+		if a and b then
+			for k, e in pairs(data.config_segments or {}) do
+				if (build.near(e.p0, a) and build.near(e.p1, b)) or (build.near(e.p0, b) and build.near(e.p1, a)) then
+					data.entrance_refs[k] = true
+				end
+			end
+		end
+		for _, ref in ipairs({ seg.node0, seg.node1 }) do
+			if type(ref) == "number" and not used[ref] and position_of[ref] then
+				data.entrance_nodes[#data.entrance_nodes + 1] = position_of[ref]
+			end
+		end
 	end
 	data.segments, data.nodes, data.access, data.gates = segments, nodes, {}, {}
 	-- Placeholders stay dense: -1, -2, ... for segments and for nodes (node_entity moves the nodes

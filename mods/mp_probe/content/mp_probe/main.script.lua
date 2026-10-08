@@ -546,8 +546,8 @@ end
 function main.verify_node_configs(env, data, state)
 	local total = #(data.configs or {})
 	if total == 0 then return end
-	local resolved = nodecfg.resolve(env, data, world.node_index(env))
-	if #resolved < total then transport.fail(state, "node configurations could not all be resolved"); return end
+	local resolved, _, skipped = nodecfg.resolve(env, data, world.node_index(env))
+	if #resolved + (skipped or 0) < total then transport.fail(state, "node configurations could not all be resolved"); return end
 	for _, entry in ipairs(resolved) do
 		if not world.node_construction(env, entry.node) and not world.has_node_config(env, entry.node) then
 			transport.fail(state, "node configuration missing after execution: " .. tostring(entry.node))

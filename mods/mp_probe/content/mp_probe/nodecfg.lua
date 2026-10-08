@@ -62,13 +62,36 @@ end
 -- connections among those, so traffic along the road still passes and the junction window works.
 -- @param index table world.node_index made after the build
 -- @return list of { node, config, segments = {[e number] = edge id}, partial = nil or
---   "k of n connections" }, list of notes
+--   "k of n connections" }, list of notes, number of configurations left to a construction's entrance
 function nodecfg.resolve(env, data, index)
 	local candidates = {}
 	for k, s in pairs(data.config_segments or {}) do candidates[k] = edges_between(env, index, s.p0, s.p1) end
-	local resolved, notes = {}, {}
-	for _, c in ipairs(data.configs or {}) do
+	local resolved, notes, skipped = {}, {}, 0
+	local entrance = data.entrance_refs or {}
+	for _, original in ipairs(data.configs or {}) do
+		local c = original
 		local refs = build.config_refs(c)
+		-- A construction's entrance was left out of the build (build.drop_access): the construction
+		-- lays it with its configurations. Its far-end node is the construction's own, and the
+		-- connections to it come with it; only the rest of a configuration is ours to place.
+		local at_entrance = false
+		for _, p in ipairs(data.entrance_nodes or {}) do
+			if build.near(p, c.position) then at_entrance = true end
+		end
+		local named = 0
+		for k in pairs(refs) do
+			if entrance[k] then refs[k] = nil; named = named + 1 end
+		end
+		if named > 0 and not at_entrance then
+			local keep = {}
+			for k in pairs(refs) do keep[k] = true end
+			c = reduce(c, keep)
+		end
+		if at_entrance or (named > 0 and next(refs) == nil) then
+			skipped = skipped + 1
+			notes[#notes + 1] = string.format("node config near %s left to the construction's own entrance", fmt(c.position))
+			goto continue
+		end
 		local wanted = count_keys(refs)
 		local best, best_count = nil, -1
 		for _, n in ipairs(world.nodes_near(index, c.position, nodecfg.RADIUS)) do
@@ -110,8 +133,9 @@ function nodecfg.resolve(env, data, index)
 			notes[#notes + 1] = string.format("node config near %s not placed (%d segments named%s)", fmt(c.position),
 				wanted, why)
 		end
+		::continue::
 	end
-	return resolved, notes
+	return resolved, notes, skipped
 end
 
 --- Whether the lane connections comp holds now are the wanted ones.
@@ -306,7 +330,7 @@ function nodecfg.apply(env, data, opts)
 	local total = #(data.configs or {})
 	if total == 0 then return 0, 0 end
 	local index = world.node_index(env)
-	local found, notes = nodecfg.resolve(env, data, index)
+	local found, notes, skipped = nodecfg.resolve(env, data, index)
 	for _, note in ipairs(notes) do opts.log("node configs: " .. note) end
 	-- v23 (run 22): a configuration set again on the node a depot's entrance meets made the game
 	-- assert (TransportNetworkSystem EntityToBeRemoved) and left a street without its transport
@@ -341,8 +365,8 @@ function nodecfg.apply(env, data, opts)
 			end
 		end
 	end
-	opts.log(string.format("node configs result: %d/%d placed%s, %d not found here", have, total, left,
-		total - #found))
+	opts.log(string.format("node configs result: %d/%d placed%s, %d not found here%s", have, total, left,
+		total - #found - skipped, skipped > 0 and string.format(", %d left to the entrance", skipped) or ""))
 	return have, total
 end
 
