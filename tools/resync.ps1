@@ -166,7 +166,8 @@ function Write-ProxyRequest([string]$GameDir, [string]$Name, [string]$Text = '')
 
 # Name des Spielstands für alut_proxy.reload: so, wie TF3 ihn beim Laden ins Protokoll schreibt.
 function Get-LiveReloadName([string]$SavePath) {
-	$name = [IO.Path]::GetFileNameWithoutExtension($SavePath)
+	# Windows PowerShell 5 wirft bei unerlaubten Zeichen schon hier.
+	try { $name = [IO.Path]::GetFileNameWithoutExtension($SavePath) } catch { $name = '' }
 	if (-not $name -or $name -match '[\\/:"]' -or $name -match '[\x00-\x1f]' -or $name.Length -gt 250) { throw "Dieser Spielstandname geht nicht für das Neuladen im Spiel: '$name'" }
 	return $name
 }
