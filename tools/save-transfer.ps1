@@ -92,40 +92,39 @@ function Test-SaveFileName($name, $base) {
 	return [System.IO.Path]::GetFileNameWithoutExtension($name) -eq $base
 }
 
-# Gastgeber: wartet bis zu $waitSeconds auf den Mitspieler und schickt ihm den Spielstand.
-# $tick wird regelmäßig aufgerufen (Text, erledigte Bytes, Gesamtbytes) und gibt $true zurück,
-# wenn abgebrochen werden soll. Mit -Session kommt {Text, Session, SavePath} zurück, sonst Text.
-function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Session = $null) {
-	$files = Get-SaveFiles $savPath
-	$name = [System.IO.Path]::GetFileNameWithoutExtension($savPath)
-	if ($Session) {
-		Assert-SessionMetadata $Session
-		if ($Session.SaveName -cne $name -or $Session.SaveHash -ne (Get-SessionFileHash $savPath)) { throw 'Der angebotene Spielstand passt nicht mehr zur Sitzung. Bitte erneut vorbereiten.' }
-		$metadata = [Text.Encoding]::UTF8.GetBytes(($Session | ConvertTo-Json -Depth 6 -Compress))
-		if ($metadata.Length -gt 1MB) { throw 'Die Sitzungsbeschreibung ist zu groß.' }
+# Netzwerkfehler (Abbruch, Zeitüberschreitung, getrennte Verbindung) dürfen neu versucht werden.
+# PowerShell verpackt sie in "Ausnahme beim Aufrufen von ..."; hier zählt die eigentliche Ursache.
+function Get-TransferNetworkError($exception) {
+	for ($e = $exception; $e; $e = $e.InnerException) {
+		if ($e -is [System.IO.IOException] -or $e -is [System.Net.Sockets.SocketException] -or $e -is [System.IO.EndOfStreamException] -or $e -is [System.ObjectDisposedException]) { return $e }
 	}
-	$total = [int64]0
-	foreach ($f in $files) { $total += $f.Length }
-	$hashes = @{}
-	foreach ($f in $files) { $hashes[$f.Name] = Get-FileSha256 $f.FullName }
+	return $null
+}
 
-	$listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $port)
-	$listener.Start()
-	$client = $null
+function New-TransferBreak($text) { return New-Object System.IO.IOException($text) }
+
+$SaveRetryHint = 'Häufige Gründe: VPN kurz getrennt, Launcher des Mitspielers geschlossen oder abgebrochen, Firewall/Virenschutz.'
+
+# Gastgeber: Hat der Mitspieler mitten in der Übertragung etwas geschickt, ist es seine Absage (Byte 0 + Grund).
+function Read-ReceiverAbort($client, $reader, [int]$waitMs) {
 	try {
-		$deadline = [DateTime]::UtcNow.AddSeconds($waitSeconds)
-		while (-not $listener.Pending()) {
-			if ([DateTime]::UtcNow -gt $deadline) { throw "Der Mitspieler hat sich nicht gemeldet ($waitSeconds Sekunden)." }
-			if (& $tick "Warte auf den Mitspieler (Port $port) ..." 0 $total) { throw 'Abgebrochen.' }
-			Start-Sleep -Milliseconds 100
-		}
-		$client = $listener.AcceptTcpClient()
-		$client.SendTimeout = 30000
-		# Der Mitspieler kann noch gefragt werden, ob er einen gleichnamigen Spielstand ersetzen will.
-		$client.ReceiveTimeout = 600000
-		$stream = $client.GetStream()
-		$writer = New-Object System.IO.BinaryWriter($stream, [System.Text.Encoding]::UTF8)
-		$reader = New-Object System.IO.BinaryReader($stream, [System.Text.Encoding]::UTF8)
+		$client.ReceiveTimeout = $waitMs
+		$ok = $reader.ReadByte()
+		$text = $reader.ReadString()
+		if ($ok -eq 0 -and $text) { return $text }
+	} catch {}
+	return $null
+}
+
+# Gastgeber: ein einzelner Übertragungsversuch über eine angenommene Verbindung.
+function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes, [int64]$total, $tick) {
+	$client.SendTimeout = 30000
+	# Der Mitspieler kann noch gefragt werden, ob er einen gleichnamigen Spielstand ersetzen will.
+	$client.ReceiveTimeout = 600000
+	$stream = $client.GetStream()
+	$writer = New-Object System.IO.BinaryWriter($stream, [System.Text.Encoding]::UTF8)
+	$reader = New-Object System.IO.BinaryReader($stream, [System.Text.Encoding]::UTF8)
+	try {
 		if ($Session) {
 			$writer.Write($SaveSessionMagic)
 			$writer.Write([int]$metadata.Length); $writer.Write([byte[]]$metadata); $writer.Flush()
@@ -146,30 +145,109 @@ function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Se
 				while (($n = $in.Read($buffer, 0, $buffer.Length)) -gt 0) {
 					$writer.Write($buffer, 0, $n)
 					$done += $n
+					# Vor dem Ende antwortet der Mitspieler nur, wenn er abbricht.
+					if ($stream.DataAvailable) {
+						$reason = Read-ReceiverAbort $client $reader 5000
+						if ($reason) { throw "Der Mitspieler hat die Übertragung abgebrochen: $reason" }
+						throw (New-TransferBreak 'Unerwartete Antwort des Mitspielers während der Übertragung.')
+					}
 					if (& $tick "Schicke '$name' ..." $done $total) { throw 'Abgebrochen.' }
 				}
 			} finally { $in.Dispose() }
 		}
 		$writer.Flush()
-		& $tick "Warte auf die Bestätigung des Mitspielers ..." $done $total | Out-Null
+	} catch {
+		# Schreibfehler: Meist hat der Mitspieler die Verbindung geschlossen. Seine Begründung steht dann noch im Empfangspuffer.
+		if (Get-TransferNetworkError $_.Exception) {
+			$reason = Read-ReceiverAbort $client $reader 3000
+			if ($reason) { throw "Der Mitspieler hat die Übertragung abgebrochen: $reason" }
+			throw (New-TransferBreak "Die Verbindung zum Mitspieler ist während der Übertragung abgebrochen. $SaveRetryHint")
+		}
+		throw
+	}
+	& $tick "Warte auf die Bestätigung des Mitspielers ..." $done $total | Out-Null
+	try {
 		$ok = $reader.ReadByte()
 		$text = $reader.ReadString()
-		if ($ok -ne 1) { throw "Der Mitspieler hat den Spielstand nicht gespeichert: $text" }
-		if ($Session) { return [pscustomobject]@{ Text = $text; Session = $Session; SavePath = [IO.Path]::GetFullPath($savPath) } }
-		return $text
+	} catch {
+		if (Get-TransferNetworkError $_.Exception) { throw (New-TransferBreak "Der Mitspieler hat den Empfang nicht bestätigt, die Verbindung ist abgebrochen. $SaveRetryHint") }
+		throw
+	}
+	if ($ok -ne 1) { throw "Der Mitspieler hat den Spielstand nicht gespeichert: $text" }
+	return $text
+}
+
+# Gastgeber: wartet bis zu $waitSeconds auf den Mitspieler und schickt ihm den Spielstand.
+# $tick wird regelmäßig aufgerufen (Text, erledigte Bytes, Gesamtbytes) und gibt $true zurück,
+# wenn abgebrochen werden soll. Mit -Session kommt {Text, Session, SavePath} zurück, sonst Text.
+# Reißt die Verbindung ab, wartet der Gastgeber weiter; der Mitspieler versucht es selbst erneut.
+function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Session = $null, [int]$MaxAttempts = 5) {
+	$files = Get-SaveFiles $savPath
+	$name = [System.IO.Path]::GetFileNameWithoutExtension($savPath)
+	$metadata = $null
+	if ($Session) {
+		Assert-SessionMetadata $Session
+		if ($Session.SaveName -cne $name -or $Session.SaveHash -ne (Get-SessionFileHash $savPath)) { throw 'Der angebotene Spielstand passt nicht mehr zur Sitzung. Bitte erneut vorbereiten.' }
+		$metadata = [Text.Encoding]::UTF8.GetBytes(($Session | ConvertTo-Json -Depth 6 -Compress))
+		if ($metadata.Length -gt 1MB) { throw 'Die Sitzungsbeschreibung ist zu groß.' }
+	}
+	$total = [int64]0
+	foreach ($f in $files) { $total += $f.Length }
+	$hashes = @{}
+	foreach ($f in $files) { $hashes[$f.Name] = Get-FileSha256 $f.FullName }
+
+	$listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $port)
+	$listener.Start()
+	try {
+		$waitText = "Warte auf den Mitspieler (Port $port) ..."
+		$lastBreak = ''
+		for ($attempt = 1; ; $attempt++) {
+			$deadline = [DateTime]::UtcNow.AddSeconds($waitSeconds)
+			while (-not $listener.Pending()) {
+				if ([DateTime]::UtcNow -gt $deadline) {
+					if ($lastBreak) { throw "$lastBreak`r`nDer Mitspieler hat sich danach nicht erneut gemeldet ($waitSeconds Sekunden)." }
+					throw "Der Mitspieler hat sich nicht gemeldet ($waitSeconds Sekunden)."
+				}
+				if (& $tick $waitText 0 $total) { throw 'Abgebrochen.' }
+				Start-Sleep -Milliseconds 100
+			}
+			$client = $listener.AcceptTcpClient()
+			try {
+				$text = Send-SaveToClient $client $Session $metadata $name $files $hashes $total $tick
+				if ($Session) { return [pscustomobject]@{ Text = $text; Session = $Session; SavePath = [IO.Path]::GetFullPath($savPath) } }
+				return $text
+			} catch {
+				$break = Get-TransferNetworkError $_.Exception
+				if (-not $break -or $attempt -ge $MaxAttempts) { if ($break) { throw $break.Message }; throw }
+				$lastBreak = $break.Message
+				$waitText = "$lastBreak`r`nWarte auf den nächsten Versuch des Mitspielers (Port $port, Versuch $($attempt + 1) von $MaxAttempts) ..."
+			} finally { $client.Close() }
+		}
 	} finally {
-		if ($client) { $client.Close() }
 		$listener.Stop()
 	}
 }
 
-# Mitspieler: holt den Spielstand vom Gastgeber und legt ihn in $saveDir ab.
-# $confirm (Text) gibt $true zurück, wenn ein anderer Spielstand mit demselben Namen ersetzt werden darf.
-# -LocalManifest verlangt Version 2 und liefert {Text, Session, SavePath} erst nach dem Speichern.
-function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest = $null) {
+# Mitspieler: Absage an den Gastgeber schicken und dabei die Verbindung sauber schließen. Ohne das
+# Leerlesen setzt Windows die Verbindung hart zurück und der Gastgeber sieht nur einen Schreibfehler.
+function Send-ReceiverAbort($client, $writer, $text) {
+	try {
+		$client.SendTimeout = 3000
+		$writer.Write([byte]0); $writer.Write([string]$text); $writer.Flush()
+		$client.Client.Shutdown([System.Net.Sockets.SocketShutdown]::Send)
+		$client.ReceiveTimeout = 500
+		$stream = $client.GetStream()
+		$drain = New-Object byte[] 65536
+		$until = [DateTime]::UtcNow.AddSeconds(3)
+		while ([DateTime]::UtcNow -lt $until) {
+			try { if ($stream.Read($drain, 0, $drain.Length) -le 0) { break } } catch { break }
+		}
+	} catch {}
+}
+
+# Mitspieler: ein Übertragungsversuch. Netzwerkfehler kommen als IOException zurück, alles andere ist endgültig.
+function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest, $partsRef) {
 	$client = New-Object System.Net.Sockets.TcpClient
-	$parts = @()
-	$stream = $null
 	$writer = $null
 	$session = $null
 	try {
@@ -179,8 +257,9 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			if ([DateTime]::UtcNow -gt $deadline) { throw "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt?" }
 			if (& $tick "Verbinde mit $($hostIp):$port ..." 0 0) { throw 'Abgebrochen.' }
 		}
-		$client.EndConnect($async)
-		$client.ReceiveTimeout = 30000
+		# Keine Verbindung ist endgültig: Der Gastgeber wartet nicht oder die Adresse stimmt nicht.
+		try { $client.EndConnect($async) } catch { throw "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt? ($((Get-TransferNetworkError $_.Exception).Message))" }
+		$client.ReceiveTimeout = 60000
 		$client.SendTimeout = 30000
 		$stream = $client.GetStream()
 		$reader = New-Object System.IO.BinaryReader($stream, [System.Text.Encoding]::UTF8)
@@ -191,7 +270,7 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			$metadataLength = $reader.ReadInt32()
 			if ($metadataLength -lt 2 -or $metadataLength -gt 1MB) { throw 'Ungültige Sitzungsbeschreibung vom Gastgeber.' }
 			$metadata = $reader.ReadBytes($metadataLength)
-			if ($metadata.Length -ne $metadataLength) { throw 'Die Sitzungsbeschreibung wurde unvollständig übertragen.' }
+			if ($metadata.Length -ne $metadataLength) { throw (New-TransferBreak 'Die Sitzungsbeschreibung wurde unvollständig übertragen.') }
 			try { $session = [Text.Encoding]::UTF8.GetString($metadata) | ConvertFrom-Json } catch { throw 'Die Sitzungsbeschreibung ist beschädigt.' }
 			Assert-SessionCompatibility $session $LocalManifest
 			$writer.Write([byte]1); $writer.Write('Kompatibilität geprüft.'); $writer.Flush()
@@ -212,20 +291,21 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			$length = $reader.ReadInt64()
 			$hash = $reader.ReadBytes(32)
 			if (-not (Test-SaveFileName $fileName $name)) { throw "Ungültiger Dateiname vom Gastgeber: '$fileName'" }
-			if ($hash.Length -ne 32) { throw 'Ein Datei-Fingerabdruck wurde unvollständig übertragen.' }
+			if ($hash.Length -ne 32) { throw (New-TransferBreak 'Ein Datei-Fingerabdruck wurde unvollständig übertragen.') }
 			if (@($received | Where-Object Name -eq $fileName).Count) { throw "Datei doppelt übertragen: '$fileName'" }
 			if ($session -and [IO.Path]::GetExtension($fileName) -ieq '.sav' -and ([BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant() -ne $session.SaveHash) { throw 'Der Datei-Fingerabdruck passt nicht zur vorbereiteten Sitzung.' }
 			if ($length -lt 0 -or $length -gt $SaveMaxBytes) { throw "Ungültige Größe: $length" }
 			$part = Join-Path $saveDir ($fileName + '.part')
-			$parts += $part
+			$partsRef.Value += $part
 			$sha = [System.Security.Cryptography.SHA256]::Create()
-			$out = [System.IO.File]::Create($part)
+			try { $out = [System.IO.File]::Create($part) }
+			catch { $sha.Dispose(); throw "Der Spielstand kann nicht in '$saveDir' gespeichert werden: $($_.Exception.Message)" }
 			try {
 				$left = $length
 				while ($left -gt 0) {
 					$want = [int][Math]::Min([int64]$buffer.Length, $left)
 					$n = $stream.Read($buffer, 0, $want)
-					if ($n -le 0) { throw 'Die Verbindung ist abgebrochen.' }
+					if ($n -le 0) { throw (New-TransferBreak 'Der Gastgeber hat die Verbindung während der Übertragung getrennt.') }
 					$out.Write($buffer, 0, $n)
 					[void]$sha.TransformBlock($buffer, 0, $n, $null, 0)
 					$left -= $n
@@ -233,7 +313,7 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 					if (& $tick "Empfange '$name' ..." $done $total) { throw 'Abgebrochen.' }
 				}
 				[void]$sha.TransformFinalBlock($buffer, 0, 0)
-				if (-not (Test-SameBytes $sha.Hash $hash)) { throw "Die Datei '$fileName' kam beschädigt an. Bitte noch einmal übertragen." }
+				if (-not (Test-SameBytes $sha.Hash $hash)) { throw (New-TransferBreak "Die Datei '$fileName' kam beschädigt an.") }
 			} finally { $out.Dispose(); $sha.Dispose() }
 			$received += @{ Name = $fileName; Part = $part; Hash = $hash }
 		}
@@ -252,16 +332,46 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			if ($replace -contains $r.Name) { Move-Item -LiteralPath $target -Destination ($target + '.bak') -Force }
 			Move-Item -LiteralPath $r.Part -Destination $target -Force
 		}
-		$parts = @()
+		$partsRef.Value = @()
 		$text = "Spielstand '$name' gespeichert ($([Math]::Round($done / 1MB, 1)) MB)."
 		$writer.Write([byte]1); $writer.Write($text); $writer.Flush()
 		if ($session) { return [pscustomobject]@{ Text = $text; Session = $session; SavePath = (Join-Path $saveDir ($name + '.sav')) } }
 		return $text
 	} catch {
-		if ($writer) { try { $writer.Write([byte]0); $writer.Write($_.Exception.Message); $writer.Flush() } catch {} }
+		# Endgültige Gründe gehen an den Gastgeber, damit er sie anzeigen kann; Netzwerkfehler versucht der Aufrufer erneut.
+		if ($writer -and -not (Get-TransferNetworkError $_.Exception)) { Send-ReceiverAbort $client $writer $_.Exception.Message }
 		throw
 	} finally {
-		foreach ($p in $parts) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue } }
 		$client.Close()
+	}
+}
+
+# Mitspieler: holt den Spielstand vom Gastgeber und legt ihn in $saveDir ab.
+# $confirm (Text) gibt $true zurück, wenn ein anderer Spielstand mit demselben Namen ersetzt werden darf.
+# -LocalManifest verlangt Version 2 und liefert {Text, Session, SavePath} erst nach dem Speichern.
+# Reißt die Verbindung ab, verbindet er sich bis zu $MaxAttempts-mal neu; der Gastgeber wartet so lange.
+function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest = $null, [int]$MaxAttempts = 5) {
+	$parts = @()
+	try {
+		for ($attempt = 1; ; $attempt++) {
+			try {
+				return Receive-SaveOnce $hostIp $port $saveDir $tick $confirm $LocalManifest ([ref]$parts)
+			} catch {
+				$break = Get-TransferNetworkError $_.Exception
+				if (-not $break -or $attempt -ge $MaxAttempts) {
+					if ($break) { throw "Die Übertragung ist $attempt-mal abgebrochen: $($break.Message)`r`n$SaveRetryHint" }
+					throw
+				}
+				foreach ($p in $parts) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue } }
+				$parts = @()
+				$until = [DateTime]::UtcNow.AddSeconds(3)
+				while ([DateTime]::UtcNow -lt $until) {
+					if (& $tick "Verbindung abgebrochen ($($break.Message)). Neuer Versuch $($attempt + 1) von $MaxAttempts ..." 0 0) { throw 'Abgebrochen.' }
+					Start-Sleep -Milliseconds 100
+				}
+			}
+		}
+	} finally {
+		foreach ($p in $parts) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue } }
 	}
 }

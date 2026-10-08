@@ -14,6 +14,15 @@ Die Spielstandübertragung verwendet für normale Sitzungen `TF3MPSAVE2`: begren
 
 Vor Installation und Spielstart prüft der Launcher die vorbereitete Sitzung erneut. Beim direkten Spielstart werden zusätzlich die installierten Moddateien, DLL und Sitzungsfelder der INI gegen die vorbereitete Sitzung geprüft. Die großen Startknöpfe führen bei fehlender Vorbereitung durch Teilen beziehungsweise Holen des Spielstands und starten danach das Spiel. Die Welt laden beide Spieler weiterhin selbst im Spiel.
 
+### Abbrüche bei der Spielstandübertragung (8. Oktober 2026)
+
+Erster VPN-Versuch: Der Gastgeber sah nur „Ausnahme beim Aufrufen von Write mit 3 Argument(en) … vom Remotehost geschlossen“. Der Mitspieler hatte die Verbindung mitten im Dateiversand geschlossen; seine Begründung ging verloren, weil er sofort schloss (Windows setzt die Verbindung dann hart zurück) und der Gastgeber nur schrieb, nicht las. Seitdem:
+
+- Der Mitspieler schickt bei einem endgültigen Fehler Byte 0 plus Grund, schließt nur seine Senderichtung und liest bis zu 3 s weiter. Der Gastgeber prüft nach jedem Block, ob eine Antwort vorliegt, und zeigt „Der Mitspieler hat die Übertragung abgebrochen: <Grund>“.
+- Netzwerkabbrüche (getrennte Verbindung, Zeitüberschreitung, beschädigt angekommene Datei) sind keine Endgültigkeit mehr: Der Gastgeber wartet auf den nächsten Versuch, der Mitspieler verbindet sich nach 3 s selbst neu, bis zu 5 Versuche. Teildateien werden dabei gelöscht.
+- Statt der rohen .NET-Meldung erscheint ein deutscher Text mit den häufigen Ursachen. Das Übertragungsformat ist unverändert; ältere Launcher bleiben verträglich, zeigen aber selbst noch die alten Meldungen.
+- Tests: `tests/run_save_transfer.ps1` stellt den ursprünglichen Fehler nach (Abbruch mitten in einer 40-MB-Datei, harter Verbindungsabbruch, Neuversuch von beiden Seiten).
+
 ## Freigabe durch die DLL
 
 Die native DLL v11 verlangt bei normalen Gastgeber-/Beitreten-Sitzungen HELLO-Protokoll 3 mit passender Sitzungskennung sowie Spiel-, Paket-, Mod- und Spielstandhash. Beide Seiten müssen den vereinbarten Spielstand geladen und ihre Lua-Initialisierung abgeschlossen haben, bevor Spielnachrichten ausgetauscht werden. Die DLL erkennt den geladenen Namen anhand der originalen Ladezeile im aktuellen Spielprotokoll. Der Spielstandinhalt wird unmittelbar vor dem Start vom Launcher geprüft; die DLL dekodiert den geladenen Weltinhalt nicht erneut aus der Engine.

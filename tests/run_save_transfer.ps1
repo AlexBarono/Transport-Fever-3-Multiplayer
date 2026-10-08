@@ -44,7 +44,9 @@ try {
 	$file = Join-Path $base 'receiver.ps1'
 	Set-Content -Path $file -Value $script -Encoding UTF8
 	$out = Join-Path $base ('receiver-' + [Guid]::NewGuid().ToString('N') + '.txt')
-	$p = Start-Process -FilePath $shell -ArgumentList '-NoProfile', '-File', $file -RedirectStandardOutput $out -PassThru -WindowStyle Hidden
+	$hidden = @{}
+	if ($IsWindows -ne $false) { $hidden.WindowStyle = 'Hidden' }  # Windows PowerShell 5.1 kennt $IsWindows nicht
+	$p = Start-Process -FilePath $shell -ArgumentList '-NoProfile', '-File', $file -RedirectStandardOutput $out -PassThru @hidden
 	return @{ Process = $p; Out = $out }
 }
 function Wait-Receiver($r) {
@@ -251,6 +253,86 @@ Test 'a transferred hash that contradicts the session cannot replace the saved w
 		Assert (-not (Test-Path -LiteralPath $prepared)) 'no preparation'
 		Assert (Test-SameBytes $before (Get-FileSha256 (Join-Path $clientDir 'Det.sav'))) 'world untouched'
 	} finally { if ($client) { $client.Close() }; $listener.Stop() }
+}
+
+# Weitere Gegenstellen als eigene PowerShell-Prozesse (Gastgeber läuft blockierend in diesem Prozess).
+function Start-Peer($body) {
+	$script = @"
+`$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding(`$false)
+. '$((Join-Path $root 'tools\save-transfer.ps1').Replace("'", "''"))'
+try {
+$body
+} catch { Write-Output "ERROR `$(`$_.Exception.Message)" }
+"@
+	$file = Join-Path $base ('peer-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+	Set-Content -Path $file -Value $script -Encoding UTF8
+	$out = Join-Path $base ('peer-' + [Guid]::NewGuid().ToString('N') + '.txt')
+	$hidden = @{}
+	if ($IsWindows -ne $false) { $hidden.WindowStyle = 'Hidden' }
+	$p = Start-Process -FilePath $shell -ArgumentList '-NoProfile', '-File', $file -RedirectStandardOutput $out -PassThru @hidden
+	return @{ Process = $p; Out = $out }
+}
+# Liest Kopf und den Anfang der ersten Datei wie ein Mitspieler, danach entscheidet $then.
+$readSome = @"
+	Start-Sleep -Milliseconds 300
+	`$c = New-Object Net.Sockets.TcpClient; `$c.Connect('127.0.0.1', $port); `$c.ReceiveTimeout = 10000
+	`$s = `$c.GetStream(); `$r = New-Object IO.BinaryReader(`$s, [Text.Encoding]::UTF8); `$w = New-Object IO.BinaryWriter(`$s, [Text.Encoding]::UTF8)
+	`$null = `$r.ReadString(); `$null = `$r.ReadString(); `$null = `$r.ReadInt32(); `$null = `$r.ReadInt64()
+	`$null = `$r.ReadString(); `$null = `$r.ReadInt64(); `$null = `$r.ReadBytes(32); `$null = `$r.ReadBytes(200000)
+"@
+# Größer als die Socket-Puffer, damit der Gastgeber beim Abbruch noch mitten im Senden ist.
+New-RandomFile (Join-Path $hostDir 'Abbruch.sav') 40000000
+
+Test 'a player who aborts mid-file tells the host why' {
+	$r = Start-Peer ($readSome + "`n	Send-ReceiverAbort `$c `$w 'Testgrund: Festplatte voll'; `$c.Close(); Write-Output 'OK'")
+	$err = ''
+	try { Send-Savegame (Join-Path $hostDir 'Abbruch.sav') $port $tick 30 | Out-Null } catch { $err = $_.Exception.Message }
+	Wait-Receiver $r | Out-Null
+	Assert ($err -like '*Mitspieler hat die Übertragung abgebrochen*Testgrund: Festplatte voll*') "host: $err"
+}
+
+Test 'an abrupt close mid-file gives a readable message instead of the raw Write error' {
+	$r = Start-Peer ($readSome + "`n	`$c.Client.LingerState = New-Object Net.Sockets.LingerOption(`$true, 0); `$c.Close(); Write-Output 'OK'")
+	$err = ''
+	try { Send-Savegame (Join-Path $hostDir 'Abbruch.sav') $port $tick 30 -MaxAttempts 1 | Out-Null } catch { $err = $_.Exception.Message }
+	Wait-Receiver $r | Out-Null
+	Assert ($err -like '*Verbindung zum Mitspieler*abgebrochen*' -and $err -notlike '*Write*') "host: $err"
+}
+
+Test 'after a broken connection the host waits and the next attempt succeeds' {
+	Remove-Item -LiteralPath (Join-Path $clientDir 'Abbruch.sav') -ErrorAction SilentlyContinue
+	$broken = Start-Peer ($readSome + "`n	`$c.Client.LingerState = New-Object Net.Sockets.LingerOption(`$true, 0); `$c.Close(); Write-Output 'OK'")
+	$retry = Start-Peer @"
+	Start-Sleep -Seconds 4
+	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$false } { param(`$q) `$true }
+	Write-Output "OK `$t"
+"@
+	$answer = Send-Savegame (Join-Path $hostDir 'Abbruch.sav') $port $tick 30
+	Wait-Receiver $broken | Out-Null
+	$got = Wait-Receiver $retry
+	Assert ($got -like 'OK *gespeichert*') $got
+	Assert ($answer -like '*gespeichert*') $answer
+	Assert (Test-SameBytes (Get-FileSha256 (Join-Path $hostDir 'Abbruch.sav')) (Get-FileSha256 (Join-Path $clientDir 'Abbruch.sav'))) 'same bytes'
+}
+
+Test 'the player reconnects by itself when the host drops the connection' {
+	Remove-Item -LiteralPath (Join-Path $clientDir 'Abbruch.sav') -ErrorAction SilentlyContinue
+	$r = Start-Receiver 'true'
+	$listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $port)
+	$listener.Start()
+	try {
+		$client = $listener.AcceptTcpClient()
+		$writer = New-Object IO.BinaryWriter($client.GetStream(), [Text.Encoding]::UTF8)
+		$writer.Write($SaveMagic); $writer.Write('Abbruch'); $writer.Write([int]1); $writer.Write([int64]40000000)
+		$writer.Write('Abbruch.sav'); $writer.Write([int64]40000000); $writer.Write([byte[]](Get-FileSha256 (Join-Path $hostDir 'Abbruch.sav')))
+		$writer.Write((New-Object byte[] 100000)); $writer.Flush()
+		$client.Client.LingerState = New-Object Net.Sockets.LingerOption($true, 0); $client.Close()
+	} finally { $listener.Stop() }
+	Send-Savegame (Join-Path $hostDir 'Abbruch.sav') $port $tick 30 | Out-Null
+	$got = Wait-Receiver $r
+	Assert ($got -like 'OK *gespeichert*') $got
+	Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'no .part left'
 }
 
 Remove-Item -Recurse -Force $base
