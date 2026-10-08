@@ -652,7 +652,42 @@ function main.recheck_welds(env, s)
 	s.weld_checks = waiting
 end
 
+--- Two PCs, 8 Oct: the copy of a depot stopped after the depot was built (no entrance check, no
+-- execution receipt, both sides' queues stuck). The command callbacks and handleEvent write the
+-- script state from another Lua state while update() runs; update() then wrote back its own older
+-- copy of the whole state, and the callback's countdown (or the cleared continuation request)
+-- was lost for good. The execution receipt fields belong to those writers: every write from
+-- update() takes them from the live state, keeping only what update() itself adds (an entrance
+-- check's error, the request for the next stage).
+function main.adopt_live_transport(live, s)
+	local mine_work, mine_follow = s.network_work, s.network_followup
+	s.network_work, s.network_done, s.network_followup = live.network_work, live.network_done, live.network_followup
+	local work = s.network_work
+	if mine_work and mine_work.error and work and work.token == mine_work.token and not work.error then
+		work.error = mine_work.error
+	end
+	local follow = s.network_followup
+	if mine_follow and mine_follow.requested and follow and follow.phase == mine_follow.phase and not follow.requested then
+		follow.requested = true
+	end
+end
+
+function main.guard_state(state)
+	local guarded = {}
+	function guarded.get(_) return state:get() end
+	function guarded.set(_, v)
+		if type(v) == "table" then main.adopt_live_transport(state:get() or {}, v) end
+		return state:set(v)
+	end
+	return setmetatable(guarded, { __index = function(_, k)
+		local f = state[k]
+		if type(f) ~= "function" then return f end
+		return function(_, ...) return f(state, ...) end
+	end })
+end
+
 function main.update(_user_params, state, _dt)
+	state = main.guard_state(state)
 	local s = state:get() or {}
 	-- Reset observation baseline on upgrade; never send an existing save as new actions.
 	if s.actions_version ~= main.PROBE_VERSION then

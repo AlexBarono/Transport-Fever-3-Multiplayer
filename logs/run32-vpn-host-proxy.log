@@ -1,0 +1,67 @@
+2026-10-08 16:48:30 [44104] alut proxy v11 loaded
+2026-10-08 16:48:30 [44104] bridge: ucrtbase _putenv_s found
+2026-10-08 16:48:30 [44104] bridge: TF3MP_IN=hello (ok)
+2026-10-08 16:48:30 [44104] bridge: TF3MP_ROLE=host
+2026-10-08 16:48:30 [44104] bridge: tailing c:/program files (x86)/steam\userdata\312632597\3493540\local\crash_dump\stdout.txt
+2026-10-08 16:48:30 [44104] net: host listening on UDP 47800, protocol fragments+results v3
+2026-10-08 16:48:45 [44104] net: expected source save loaded; waiting for world initialization
+2026-10-08 16:48:50 [44104] net: prepared source world initialized; ready for matching peer
+2026-10-08 16:48:50 [44104] bridge: TF3MP_IN=ack 0 (ok)
+2026-10-08 16:48:52 [44104] net: connected to partner, port 53985
+2026-10-08 16:49:00 [44104] bridge: first state gui of the mod: by=host gt=168200 hb=1 run=0 speed=0 src=gui tg=0 ver=0
+2026-10-08 16:49:03 [44104] net: state gui from the peer (1 so far): by=client gt=168200 hb=1 run=0 speed=0 src=gui tg=0 ver=0
+2026-10-08 16:49:06 [44104] bridge: TF3MP_IN=ack 64 (ok)
+2026-10-08 16:49:15 [44104] net: line 44104-8624031.1 queued (1658 bytes)
+2026-10-08 16:49:16 [44104] bridge: TF3MP_IN=ack 65 (ok)
+2026-10-08 16:49:26 [44104] bridge: TF3MP_IN=ack 66 (ok)
+2026-10-08 16:49:29 [44104] net: line 41252-4193703.1 received from the peer (1448 bytes, 2 fragments)
+2026-10-08 16:49:29 [44104] bridge: TF3MP_IN=part 41252-4193703.1 net 0 1 A1 t3:s4:6f70s28:76656869636c655f637265617465s12:74... (ok)
+2026-10-08 16:49:29 [44104] bridge: TF3MP_IN=ack 66 (ok)
+2026-10-08 16:49:29 [44104] bridge: the mod has line 41252-4193703.1
+2026-10-08 16:49:29 [44104] bridge: TF3MP_IN=ack 66 (ok)
+2026-10-08 16:49:30 [44104] net: game result 41252-4193703.1 OK
+2026-10-08 16:49:30 [44104] bridge: TF3MP_IN=ack 66 (ok)
+2026-10-08 16:49:36 [44104] bridge: TF3MP_IN=ack 67 (ok)
+2026-10-08 16:49:46 [44104] bridge: TF3MP_IN=ack 68 (ok)
+2026-10-08 16:49:46 [44104] net: line 44104-8624031.2 queued (1705 bytes)
+2026-10-08 16:49:56 [44104] net: state sim from the peer (1 so far): adj=0 ck=3 con=1 date=1900-02-15 gt=180000 hcon=h1_e9fc815a6a094666 hedge=h1_d6feb5aa60d3b8bd hline=h1_626e6d21146c8cf3 
+2026-10-08 16:49:56 [44104] bridge: first state sim of the mod: ck=3 con=1 date=1900-02-15 gt=180000 hcon=h1_e9fc815a6a094666 hedge=h1_57dc720857ff078c hline=h1_626e6d21146c8cf3 hveh=h
+2026-10-08 16:49:56 [44104] bridge: TF3MP_IN=ack 69 (ok)
+2026-10-08 16:49:56 [44104] bridge: first state health of the mod: ck=3 status=checking fields=hedge,hveh
+2026-10-08 16:49:57 [44104] net: state health from the peer (1 so far): ck=3 status=checking fields=hedge,hveh
+2026-10-08 16:50:06 [44104] bridge: TF3MP_IN=ack 70 (ok)
+2026-10-08 16:50:16 [44104] bridge: TF3MP_IN=ack 71 (ok)
+2026-10-08 16:50:26 [44104] bridge: TF3MP_IN=ack 72 (ok)
+2026-10-08 16:50:32 [44104] net: line 41252-4193703.2 received from the peer (1360 bytes, 2 fragments)
+2026-10-08 16:50:32 [44104] bridge: TF3MP_IN=part 41252-4193703.2 net 0 1 B5 n-1;7280.786,-10.62,8.579 n-2;7280.786,6.12,8.57... (ok)
+2026-10-08 16:50:32 [44104] bridge: TF3MP_IN=ack 72 (ok)
+2026-10-08 16:50:32 [44104] bridge: the mod has line 41252-4193703.2
+2026-10-08 16:50:32 [44104] bridge: TF3MP_IN=ack 72 (ok)
+2026-10-08 16:50:36 [44104] bridge: TF3MP_IN=ack 73 (ok)
+2026-10-08 16:50:44 [44104] net: line 44104-8624031.3 queued (637 bytes)
+2026-10-08 16:50:46 [44104] bridge: TF3MP_IN=ack 74 (ok)
+2026-10-08 16:50:48 [44104] net: line 44104-8624031.4 queued (1388 bytes)
+2026-10-08 16:50:54 [44104] net: line 44104-8624031.5 queued (1794 bytes)
+2026-10-08 16:50:56 [44104] bridge: TF3MP_IN=ack 75 (ok)
+2026-10-08 16:51:06 [44104] bridge: TF3MP_IN=ack 76 (ok)
+2026-10-08 16:51:16 [44104] bridge: TF3MP_IN=ack 77 (ok)
+2026-10-08 16:51:26 [44104] bridge: TF3MP_IN=ack 78 (ok)
+2026-10-08 16:51:36 [44104] bridge: TF3MP_IN=ack 79 (ok)
+2026-10-08 16:51:46 [44104] bridge: TF3MP_IN=ack 80 (ok)
+2026-10-08 16:51:56 [44104] bridge: TF3MP_IN=ack 81 (ok)
+2026-10-08 16:52:06 [44104] bridge: TF3MP_IN=ack 82 (ok)
+2026-10-08 16:52:16 [44104] bridge: TF3MP_IN=ack 83 (ok)
+2026-10-08 16:52:23 [44104] net: peer silent; queues retained for reconnect
+2026-10-08 16:52:23 [44104] bridge: state gui of the peer cleared
+2026-10-08 16:52:23 [44104] bridge: state sim of the peer cleared
+2026-10-08 16:52:23 [44104] bridge: state health of the peer cleared
+2026-10-08 16:52:26 [44104] bridge: TF3MP_IN=ack 84 (ok)
+2026-10-08 16:52:36 [44104] bridge: TF3MP_IN=ack 85 (ok)
+2026-10-08 16:52:46 [44104] bridge: TF3MP_IN=ack 86 (ok)
+2026-10-08 16:52:56 [44104] bridge: TF3MP_IN=ack 87 (ok)
+2026-10-08 16:53:06 [44104] bridge: TF3MP_IN=ack 88 (ok)
+2026-10-08 16:53:16 [44104] bridge: TF3MP_IN=ack 89 (ok)
+2026-10-08 16:53:26 [44104] bridge: TF3MP_IN=ack 90 (ok)
+2026-10-08 16:53:36 [44104] bridge: TF3MP_IN=ack 91 (ok)
+2026-10-08 16:53:46 [44104] bridge: TF3MP_IN=ack 92 (ok)
+2026-10-08 16:53:56 [44104] bridge: TF3MP_IN=ack 93 (ok)

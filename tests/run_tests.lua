@@ -2633,6 +2633,44 @@ test("native station replacements retain engine configurations and wait for conn
 	end)
 end)
 
+test("a command callback during update() is not overwritten by update's older copy (two PCs, 8 Oct: depot copy stalled)", function()
+	with_engine_api({}, function(t)
+		local main = fresh_main()
+		-- The engine hands each reader its own copy of the script state.
+		local value
+		local state = { get = function() return value and copy_value(value) end, set = function(_, v) value = copy_value(v) end,
+			subscribeToEvent = function() end }
+		state:set({ probe_version = main.PROBE_VERSION, subscribed = main.PROBE_VERSION,
+			replay_version = main.PROBE_VERSION, constructions_scanned = main.PROBE_VERSION,
+			actions_version = main.PROBE_VERSION, actions = {}, updates = 1,
+			network_work = { token = "41252-4193703.2", pending = 1, dispatched = true },
+			network_followup = { phase = "finish", data = { configs = {} }, player = 83475, gates = true } })
+		-- The depot's callback arrives from the event state while update() runs.
+		main.sync_tick = function()
+			local live = state:get()
+			live.network_work.pending = 0
+			state:set(live)
+		end
+		logged = {}
+		main.update(nil, state, 0)
+		local s = state:get()
+		assert(s.network_work.pending == 0, "the callback's countdown must survive update()")
+		assert(s.network_followup.requested == true and #t.events == 1, "the next stage is requested once")
+		main.update(nil, state, 0)
+		assert(#t.events == 1, "and not again while it waits")
+		-- The continuation clears the request in the event state; update() must not bring it back.
+		main.sync_tick = function()
+			local live = state:get()
+			live.network_followup = { phase = "verify", data = { configs = {} } }
+			state:set(live)
+		end
+		main.update(nil, state, 0)
+		s = state:get()
+		assert(s.network_followup.phase == "verify" and s.network_followup.requested == true and #t.events == 2,
+			"the next stage is requested after the continuation moved on")
+	end)
+end)
+
 test("an unreadable delayed station connection check rejects the execution receipt", function()
 	with_engine_api({}, function(t)
 		local main, state = fresh_main(), mock_state()
