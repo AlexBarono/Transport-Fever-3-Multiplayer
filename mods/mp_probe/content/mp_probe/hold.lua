@@ -1,15 +1,21 @@
---- Probe v33: can a player's action be held BEFORE TF3 executes it? Common-tick execution
--- (timeline.lua) needs that; capturing after the fact can only replay an action late.
+--- Holding a player's build BEFORE TF3 executes it, so that both games build it at a common tick
+-- (timeline.lua). Capturing after the fact can only replay an action late.
 --
--- TF3's own game scripts show two hooks in the GUI Lua state (base/content/game_mechanics.zip):
---   * The native build tools fire guiHandleEvent "builder.proposalCreate", then
---     "builder.proposalPrepareForApply" and "builder.proposalApply" with param {proposal, data}.
---     company.script returns { errorMessages = {...} } from proposalCreate to refuse a build.
---   * The line and vehicle windows are Lua (gui/line_vehicle_mgmt) and send their commands
---     through api.cmd.sendCommand.
--- This module only observes, except for one self-test in 'Allein testen' (role loopback): the
--- first build is refused at proposalPrepareForApply and, if TF3 really did not build it, sent
--- again by the mod REISSUE_S seconds later. The log then says whether holding works.
+-- TF3's own game scripts show the hook (base/content/game_mechanics.zip, company.script.tl): the
+-- native build tools fire guiHandleEvent "builder.proposalCreate", "builder.proposalPrepareForApply"
+-- and "builder.proposalApply" with param {proposal, data} to every game script that subscribed to
+-- them (main.SUBSCRIBED_EVENTS), and a script refuses a build by returning { errorMessages = {...} }.
+-- v33 did not subscribe, so its probe saw no events (run 36).
+--
+-- v34, in a session (host or client, DLL v12 ordering):
+--   proposalPrepareForApply: serialize the proposal like the capture does (build.lua), refuse it
+--   and keep the line in the GUI script state. If TF3 applies it anyway (proposalApply of the same
+--   proposal), holding is switched off and the build travels as before.
+--   guiUpdate, HELD_WAIT_S later: hand the line to the simulation as "mp_probe_schedule" with
+--   held=true. The timeline gives it a common stamp; both games pause there and build it.
+--   If the timeline fails or does not plan it within GIVE_UP_S, holding is switched off.
+-- 'Allein testen' (loopback): the first build is refused once and re-sent by the mod REISSUE_S
+-- later, to show in one minute whether refusing holds a build.
 -- @module mp_probe.hold
 local logger = require("/mp_probe/logger.lua")
 
@@ -20,16 +26,26 @@ hold.MAX_EVENTS = 40
 hold.MAX_COMMANDS = 30
 --- Builder events logged in full (with counts) per Lua state.
 hold.MAX_BUILDS = 12
---- Real seconds between the refused build and the mod's own copy of it.
+--- Real seconds between the refused build and the mod's own copy of it ('Allein testen').
 hold.REISSUE_S = 2
+--- Real seconds a held build waits for a proposalApply that would show the refusal did not hold.
+hold.HELD_WAIT_S = 0.3
+--- Real seconds a handed-over build may wait for its common stamp before holding is switched off.
+hold.GIVE_UP_S = 30
+--- Largest line the timeline carries (timeline.MAX_PAYLOAD).
+hold.MAX_LINE = 120000
 --- Shown in TF3 as the reason the build was refused.
 hold.TEST_TEXT = "TF3MP-Test: Bau einmal zurückgehalten, er erscheint gleich von selbst"
+hold.SYNC_TEXT = "TF3MP: wird gleich auf beiden PCs gleichzeitig gebaut"
 
 local memories = setmetatable({}, { __mode = "k" })
 local function memory(env)
 	local m = memories[env]
 	if not m then
 		m = { events = {}, event_count = 0, commands = {}, command_count = 0, builds = 0 }
+		-- Without TF3's GUI script state (older callers), keep the shared data in this Lua state.
+		local value = {}
+		m.fallback = { get = function() return value end, set = function(_, v) value = v end }
 		memories[env] = m
 	end
 	return m
@@ -40,7 +56,7 @@ local function count(fn)
 	return ok and tostring(n) or "?"
 end
 
---- Short description of a builder event's proposal.
+--- Short description of a builder event's proposal; also identifies it between two events.
 function hold.describe_proposal(param)
 	local p = type(param) == "table" and param[1] or nil
 	local d = type(param) == "table" and param[2] or nil
@@ -52,49 +68,20 @@ function hold.describe_proposal(param)
 		" cost=" .. count(function() return d.costs end)
 end
 
-local function role_of(env)
-	local ok, role = pcall(function() return env.os.getenv("TF3MP_ROLE") end)
-	return ok and role or nil
+local function getenv(env, key)
+	local ok, value = pcall(function() return env.os.getenv(key) end)
+	return ok and value or nil
 end
 
---- guiHandleEvent (main.gs.lua). Returns nil (no opinion) except in the loopback self-test.
-function hold.event(env, src, id, name, param)
-	local m = memory(env)
-	local key = tostring(id) .. "/" .. tostring(name)
-	if not m.events[key] and m.event_count < hold.MAX_EVENTS then
-		m.events[key] = true
-		m.event_count = m.event_count + 1
-		logger.info("gui event " .. key .. " (src=" .. tostring(src) .. ", param " .. type(param) .. ")")
-	end
-	if type(name) ~= "string" or name:sub(1, 16) ~= "builder.proposal" then
-		return nil
-	end
-	if m.builds < hold.MAX_BUILDS then
-		m.builds = m.builds + 1
-		logger.info("gui " .. name .. ": " .. hold.describe_proposal(param))
-	end
-	local test = m.test
-	if name == "builder.proposalPrepareForApply" and not m.tested and role_of(env) == "loopback" then
-		local critical = false
-		pcall(function() critical = param[2].errorState.critical == true end)
-		if critical or type(param) ~= "table" or param[1] == nil then return nil end
-		m.tested = true
-		-- The engine may reuse its proposal after the event; keep a copy (Proposal.clone).
-		local ok_c, copy = pcall(function() return env.api.type.Proposal.clone(param[1]) end)
-		if not ok_c or copy == nil then
-			logger.info("hold test: Proposal.clone unavailable (" .. tostring(copy):sub(1, 100) .. "), keeping the original")
-			copy = param[1]
-		end
-		m.test = { proposal = copy, at = hold.clock(env, m) + hold.REISSUE_S, applied = false }
-		logger.info("hold test: refusing this build once at proposalPrepareForApply (" .. hold.describe_proposal(param) .. ")")
-		return { errorMessages = { [hold.TEST_TEXT] = true } }
-	end
-	if name == "builder.proposalApply" and test and not test.done then
-		-- TF3 applied the build although it was refused: refusing does not hold it.
-		test.applied = true
-		logger.info("hold test: TF3 applied the refused build anyway (proposalApply arrived); nothing is sent again")
-	end
-	return nil
+--- The GUI script state TF3 hands to guiUpdate and guiHandleEvent (plain data only). It is the
+-- one place both are sure to share, even if they run in different Lua states.
+local function shared(gui_state)
+	if not gui_state then return {} end
+	local ok, value = pcall(function() return gui_state:get() end)
+	return ok and type(value) == "table" and value or {}
+end
+local function store(gui_state, value)
+	if gui_state then pcall(function() gui_state:set(value) end) end
 end
 
 --- Real time in seconds (os.clock), or a frame count.
@@ -105,13 +92,164 @@ function hold.clock(env, m)
 	return m.frames / 60
 end
 
---- Every GUI step: finishes the self-test and installs the command logger once.
-function hold.step(env)
+--- The proposal as a B5 line, read like main.capture_build does, but before TF3 executes it:
+-- demolished constructions still exist, so they are read from the engine directly.
+-- @return line or nil, error text
+function hold.serialize(env, p)
+	local build = require("/mp_probe/build.lua")
+	local world = require("/mp_probe/world.lua")
+	local opts = {
+		node_position = function(id) return world.node_position(env, id) end,
+		segment_ends = function(id) return world.edge_ends(env, id) end,
+		to_add = p.toAdd,
+		to_remove = p.toRemove,
+		construction = function(id) return world.construction_info(env, id) end,
+		edge_object = function(id, from_proposal) return world.edge_object_info(env, id, from_proposal) end,
+		read_transf = function(t) return build.read_transf(t) end,
+	}
+	local ok, line, info = pcall(build.serialize, p.proposal, opts)
+	if not ok then return nil, tostring(line):sub(1, 200) end
+	if #info.dropped > 0 then return nil, "the line would leave out " .. table.concat(info.dropped, ", ") end
+	if info.segments + info.removed_segments + info.constructions + info.demolished + (info.node_configs or 0) == 0 then
+		return nil, "nothing to build"
+	end
+	if #line > hold.MAX_LINE then return nil, "line too long (" .. #line .. " characters)" end
+	return line
+end
+
+--- A session whose partner is there: the DLL empties TF3MP_PEER_CLOCK once the partner falls silent,
+-- and without a partner nobody could plan the common stamp, so nothing is held then.
+local function session(env)
+	local role = getenv(env, "TF3MP_ROLE")
+	local peer = getenv(env, "TF3MP_PEER_CLOCK")
+	return (role == "host" or role == "client") and getenv(env, "TF3MP_ORDERING") == "1"
+		and type(peer) == "string" and peer:find("gt=", 1, true) ~= nil
+end
+
+--- guiHandleEvent (main.gs.lua). nil means no objection.
+function hold.event(env, src, id, name, param, gui_state)
+	local m = memory(env)
+	local key = tostring(id) .. "/" .. tostring(name)
+	if not m.events[key] and m.event_count < hold.MAX_EVENTS then
+		m.events[key] = true
+		m.event_count = m.event_count + 1
+		logger.info("gui event " .. key .. " (src=" .. tostring(src) .. ", param " .. type(param) .. ")")
+	end
+	if type(name) ~= "string" or name:sub(1, 16) ~= "builder.proposal" then return nil end
+	local described = hold.describe_proposal(param)
+	if m.builds < hold.MAX_BUILDS then
+		m.builds = m.builds + 1
+		logger.info("gui " .. name .. ": " .. described)
+	end
+	local critical = false
+	pcall(function() critical = param[2].errorState.critical == true end)
+	local usable = not critical and type(param) == "table" and param[1] ~= nil
+	gui_state = gui_state or m.fallback
+	local g = shared(gui_state)
+
+	if name == "builder.proposalApply" then
+		local h = g.held
+		if h and not h.sent and h.key == described then
+			-- TF3 built it although it was refused: refusing does not hold builds here.
+			g.held, g.hold_off = nil, "TF3 applied a refused build"
+			store(gui_state, g)
+			logger.info("hold: TF3 applied the held build anyway; holding is off, builds travel as before")
+		end
+		local test = m.test
+		if test and not test.done then
+			test.applied = true
+			logger.info("hold test: TF3 applied the refused build anyway (proposalApply arrived); nothing is sent again")
+		end
+		return nil
+	end
+	if name ~= "builder.proposalPrepareForApply" or not usable then return nil end
+
+	if session(env) then
+		if g.hold_off or g.held then return nil end
+		local line, err = hold.serialize(env, param[1])
+		if not line then
+			logger.info("hold: build not held (" .. tostring(err) .. "); it travels as before")
+			return nil
+		end
+		g.held = { line = line, key = described, at = hold.clock(env, m) + hold.HELD_WAIT_S }
+		store(gui_state, g)
+		logger.info("hold: build held for a common tick (" .. described .. ", " .. #line .. " characters)")
+		return { errorMessages = { [hold.SYNC_TEXT] = true } }
+	end
+
+	if getenv(env, "TF3MP_ROLE") == "loopback" and not g.tested then
+		-- The engine may reuse its proposal after the event; keep a copy (Proposal.clone).
+		local ok_c, copy = pcall(function() return env.api.type.Proposal.clone(param[1]) end)
+		if not ok_c or copy == nil then
+			logger.info("hold test: Proposal.clone unavailable (" .. tostring(copy):sub(1, 100) .. "), keeping the original")
+			copy = param[1]
+		end
+		m.test = { proposal = copy, at = hold.clock(env, m) + hold.REISSUE_S, applied = false }
+		g.tested, g.test_pending = true, true
+		store(gui_state, g)
+		logger.info("hold test: refusing this build once at proposalPrepareForApply (" .. described .. ")")
+		return { errorMessages = { [hold.TEST_TEXT] = true } }
+	end
+	return nil
+end
+
+--- Hands a held build to the simulation (main.submit_intent) as a script event.
+function hold.submit(env, line)
+	local cmd = env.api.cmd
+	cmd.sendCommand(cmd.makeScriptingSendEventCmd("mp_probe", "mp_probe_schedule", "mp_probe_schedule",
+		{ line = line, held = true }))
+end
+
+local function own_clock(env)
+	return require("/mp_probe/sync.lua").decode(getenv(env, "TF3MP_OWN_CLOCK")) or {}
+end
+
+--- Every GUI step: the command logger, held builds and the 'Allein testen' check.
+function hold.step(env, gui_state)
 	local m = memory(env)
 	hold.wrap(env, m)
+	local now = hold.clock(env, m)
+	gui_state = gui_state or m.fallback
+	local g = shared(gui_state)
+	local changed = false
+	local h = g.held
+	if h and not h.sent and now >= h.at then
+		local ok, err = pcall(hold.submit, env, h.line)
+		if ok then
+			g.waiting = { since = now, seq = tonumber(own_clock(env).seq) or 0 }
+			logger.info("hold: held build handed over for its common tick")
+		else
+			g.hold_off = "handing over failed"
+			logger.info("hold: handing over the held build failed (" .. tostring(err):sub(1, 160) .. "); it is lost, please build it again")
+		end
+		g.held = nil
+		changed = true
+	end
+	local w = g.waiting
+	if w then
+		local clock = own_clock(env)
+		if clock.phase == "failed" then
+			g.waiting, g.hold_off = nil, "timeline failed"
+			logger.info("hold: the common timeline failed; holding is off, builds travel as before")
+		elseif (tonumber(clock.seq) or 0) > w.seq then
+			g.waiting = nil
+		elseif now - w.since > hold.GIVE_UP_S or now < w.since then
+			g.waiting, g.hold_off = nil, "no common tick"
+			logger.info("hold: no common tick for the held build within " .. hold.GIVE_UP_S .. " s; holding is off")
+		end
+		changed = changed or g.waiting == nil
+	end
+	if changed then store(gui_state, g) end
+
 	local test = m.test
-	if not test or test.done or hold.clock(env, m) < test.at then return end
+	if g.test_pending and not test then
+		g.test_pending = nil; store(gui_state, g)
+		logger.info("hold test: the refused proposal is not in this Lua state (guiUpdate and guiHandleEvent differ); not sent again")
+		return
+	end
+	if not test or test.done or now < test.at then return end
 	test.done = true
+	g.test_pending = nil; store(gui_state, g)
 	if test.applied then return end
 	logger.info("hold test: TF3 did not build the refused proposal; sending it again now")
 	local ok, err = pcall(function()
@@ -122,6 +260,14 @@ function hold.step(env)
 	end)
 	if not ok then logger.info("hold test: sending the held build failed: " .. tostring(err):sub(1, 200)) end
 	test.proposal = nil
+end
+
+local function callable(v)
+	if type(v) == "function" then return true end
+	if type(v) ~= "table" and type(v) ~= "userdata" then return false end
+	local ok, mt = pcall(getmetatable, v)
+	-- TF3's bindings are tables with __call (run 36: "sendCommand is a table").
+	return ok and type(mt) == "table" and mt.__call ~= nil
 end
 
 --- Logs which commands go through api.cmd.sendCommand in this Lua state, by the name of the
@@ -136,7 +282,7 @@ function hold.wrap(env, m)
 	local ok_pairs, err_pairs = pcall(function()
 		local makers = {}
 		for k, v in pairs(cmd) do
-			if type(k) == "string" and k:match("^make.+Cmd$") and type(v) == "function" then makers[k] = v end
+			if type(k) == "string" and k:match("^make.+Cmd$") and callable(v) then makers[k] = v end
 		end
 		for k, f in pairs(makers) do
 			cmd[k] = function(...)
@@ -149,7 +295,7 @@ function hold.wrap(env, m)
 	end)
 	local send = cmd.sendCommand
 	local ok_send, err_send = pcall(function()
-		assert(type(send) == "function", "sendCommand is a " .. type(send))
+		assert(callable(send), "sendCommand is a " .. type(send) .. " without __call")
 		cmd.sendCommand = function(c, ...)
 			pcall(function()
 				local name = names[c] or tostring(c):gsub("0x%x+", ""):gsub("%x%x%x%x%x%x%x%x+", "")

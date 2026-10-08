@@ -309,6 +309,21 @@ function Get-RecoveryInstructions([string]$role) {
 
 $script:replayRecording = if ($ReplayLog) { Read-ReplayRecording $ReplayLog } else { $null }
 if ($LibraryOnly) { return }
+
+# v34: kein schwarzes Konsolenfenster neben dem Launcher (Start.bat startet PowerShell schon versteckt;
+# das hier versteckt es auch bei einem Start von Hand). Fehler beim Start zeigt ein Fenster statt der Konsole.
+if (-not $Preview) {
+	try {
+		Add-Type -Namespace TF3MP -Name ConsoleWindow -MemberDefinition '[DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);'
+		$console = [TF3MP.ConsoleWindow]::GetConsoleWindow()
+		if ($console -ne [IntPtr]::Zero) { [void][TF3MP.ConsoleWindow]::ShowWindow($console, 0) }
+	} catch {}
+}
+trap {
+	if ($Preview) { break }
+	[System.Windows.Forms.MessageBox]::Show("Der Launcher ist auf einen Fehler gestoßen:`r`n`r`n$($_.Exception.Message)", 'TF3 Multiplayer', 'OK', 'Error') | Out-Null
+	exit 1
+}
 # ---------- Oberfläche ----------
 . (Join-Path $PSScriptRoot 'view.ps1')
 
@@ -649,7 +664,13 @@ $timer.Add_Tick({
 	} catch { $statusLabel.Text='Verbindungsstatus wird aktualisiert ...' }
 })
 $form.Add_Shown({ $timer.Start() })
-$form.Add_FormClosed({ $timer.Stop(); $timer.Dispose() })
+# v34: das normale X schließt den Launcher immer, auch während einer Übertragung. Laufende Schritte
+# werden abgebrochen; danach endet der (versteckte) PowerShell-Prozess sicher.
+$form.Add_FormClosing({ $script:transferCancel = $true })
+$form.Add_FormClosed({
+	$timer.Stop(); $timer.Dispose()
+	if (-not $Preview) { [Environment]::Exit(0) }
+})
 if ($Preview) {
 	if (-not $PreviewPath) { $PreviewPath = Join-Path $env:TEMP 'tf3mp-launcher-preview.png' }
 	$form.Show(); [System.Windows.Forms.Application]::DoEvents()

@@ -1,16 +1,23 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Haltestellen, Signale, Bahnhöfe, Depots, Abriss, Linien und Fahrzeuge werden zwischen zwei Spielen gespiegelt. Aktueller Stand: **Probe v33 / DLL v12**. v30 hat alle 21 aufgenommenen Aktionen im Spiel erfolgreich nachgebaut, v31 lief mit zwei PCs über VPN. v32 überträgt zusätzlich Depotfahrten, Umkehren und Kredite und macht den Neuabgleich zu einem Klick. v33 behebt den Kreditfehler aus Run 35 und ordnet gleichzeitige Aktionen beider PCs. **Beide PCs brauchen das v33-Paket (DLL v12).**
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Haltestellen, Signale, Bahnhöfe, Depots, Abriss, Linien und Fahrzeuge werden zwischen zwei Spielen gespiegelt. Aktueller Stand: **Probe v34 / DLL v12**. v30 hat alle 21 aufgenommenen Aktionen im Spiel erfolgreich nachgebaut, v31 lief mit zwei PCs über VPN. v32 überträgt zusätzlich Depotfahrten, Umkehren und Kredite und macht den Neuabgleich zu einem Klick. v33 behebt den Kreditfehler aus Run 35 und ordnet gleichzeitige Aktionen beider PCs. v34 baut Bauten auf beiden PCs zum selben Spielzeitpunkt. **Beide PCs brauchen das v34-Paket (DLL v12).**
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe Paket auf beide PCs kopieren und entpacken, beide mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen. Das portable Paket liegt unter `release/TF3-Multiplayer-v33-Windows.zip`.
+1. Dasselbe Paket auf beide PCs kopieren und entpacken, beide mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen. Das portable Paket liegt unter `release/TF3-Multiplayer-v34-Windows.zip`.
 2. Gastgeber: **Gastgeber** auswählen, die Adresse des VPN-Adapters wählen und **Adresse kopieren**. Den Mitspieler diese Adresse einfügen lassen. **Als Gastgeber starten** bietet beim ersten Start die Auswahl eines Spielstands aus dem aktuellen Steam-Spielstandordner an und wartet auf den Mitspieler.
 3. Mitspieler: **Beitreten** wählen, die kopierte Adresse einfügen (z. B. `100.80.12.4:47800`) und **Beitreten und Spiel starten** klicken. Der Launcher holt den Spielstand, vergleicht Spielversion, Multiplayer-Paket und zusätzliche Mods und bereitet eine gemeinsame Sitzung vor. Unterschiedliche Dateien werden konkret gemeldet. Auch installierte inaktive Zusatzmods werden verglichen.
 4. Nach erfolgreicher Übertragung installieren beide Launcher den Mod und starten TF3. Beide laden den angezeigten Spielstand pausiert. Die Verbindung wartet auf den vereinbarten Stand auf beiden PCs; danach gemeinsam fortsetzen. Die Welt muss im Spiel selbst geladen werden.
 5. Der Launcher zeigt Verbindung, ausstehende Aktionen, Weltprüfung und Fehler an. **Details prüfen** öffnet die letzten Meldungen. Ein späterer Start kann die vorbereitete Sitzung verwenden, solange ihre Dateien unverändert sind und beide wieder denselben Ausgangsstand laden.
 
 Standard: UDP 47800 für Spieldaten und TCP 47800 für den Spielstand. Die Windows-Firewall muss TF3 und die Spielstandübertragung über den verwendeten VPN-Adapter zulassen. Im gemeinsamen VPN wird die erreichbare VPN-IPv4 des Gastgebers verwendet; eine Router-Portfreigabe ist dafür nicht erforderlich. **Mod entfernen** stellt die gesicherte Original-DLL wieder her.
+
+## Neu in v34
+
+- **Gleichzeitig ausführen (Bauten)**: Ein Bau (Straße, Gleis, Bahnhof, Haltestelle, Depot, Abriss mit dem Bauwerkzeug) wird nicht mehr sofort ausgeführt. Das Spiel meldet kurz „TF3MP: wird gleich auf beiden PCs gleichzeitig gebaut“, der Mod schickt den Bau an den gemeinsamen Zeitplan, beide Spiele halten am vereinbarten Spielzeitpunkt kurz an, bauen ihn dort und laufen weiter. Kommt kein gemeinsamer Zeitpunkt zustande (Mitspieler fehlt, Zeitplan gestört, 30 Sekunden ohne Plan) oder führt TF3 den Bau trotz Ablehnung aus, schaltet der Mod das Anhalten ab und Bauten reisen wie in v33.
+- **Warum v33 nichts angehalten hat (Run 36)**: Die Bau-Ereignisse kommen nur bei Skripten an, die sie abonnieren. v34 abonniert sie. Außerdem sind `api.cmd.sendCommand` und die Befehlsbauer in TF3 aufrufbare Tabellen, keine Funktionen.
+- **Zeitplan**: Der gemeinsame Zeitpunkt ist jetzt eine Schranke. Ein Spiel, das ihn schon überschritten hat, hält sofort an und baut nach, statt den Plan abzubrechen.
+- **Launcher**: Beim Start bleiben keine schwarzen Fenster mehr offen, und das normale X schließt den Launcher immer.
 
 ## Neu in v33
 

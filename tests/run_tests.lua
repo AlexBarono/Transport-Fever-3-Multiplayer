@@ -1077,6 +1077,7 @@ local function with_engine_api(opts, fn)
 	local build_send = env.api.cmd.sendCommand
 	env.api.cmd.sendCommand = function(cmd, callback)
 		if cmd.event then events[#events + 1] = cmd.event return end
+		if cmd.speed then return end
 		build_send(cmd, callback)
 	end
 	local saved_api, saved_os = api, os
@@ -2949,6 +2950,138 @@ test("large diagnostic lists are bounded and clipped remote records are never ca
 	logged = {}
 	for i, line in ipairs(lines) do main.replay_line({}, line, "bounded." .. i, state, 0) end
 	assert(contains(logged, "0 only here, 0 only there; remote list truncated"))
+end)
+
+-- v34: a build held before execution (hold.lua) travels the common timeline; the host builds
+-- it at the stamp through its own replay path, and the timeline releases after both results.
+test("a held build is planned, built here at its common stamp and released after both results", function()
+	local timeline = require("/mp_probe/timeline.lua")
+	local line = build.serialize(run5_street())
+	with_engine_api({}, function(t)
+		logged = {}
+		local real_os = os
+		local vars = { TF3MP_ROLE = "host", TF3MP_ORDERING = "1", TF3MP_PEER_CLOCK = "gt=1000" }
+		os = setmetatable({ getenv = function(k) return vars[k] end }, { __index = real_os })
+		local speeds = {}
+		t.env.api.cmd.makeGameSetSpeedCmd = function(speed) speeds[#speeds + 1] = speed; return { speed = speed } end
+		local ok, err = pcall(function()
+			local state = mock_state()
+			local client = timeline.new("client")
+			local sent_lines, seen = {}, 0
+			local function host_out()
+				for i = seen + 1, #logged do
+					local text = logged[i]:match("net send (S1 .+)$")
+					if text then sent_lines[#sent_lines + 1] = text end
+				end
+				seen = #logged
+			end
+			local cn = 0
+			local function pump(client_now)
+				for _ = 1, 20 do
+					host_out()
+					local moved = false
+					while #sent_lines > 0 do
+						assert(timeline.receive(client, table.remove(sent_lines, 1), client_now)); moved = true
+					end
+					local reply = timeline.take(client)
+					while reply do
+						cn = cn + 1
+						fresh_main().handleEvent(nil, state, "mp_probe", "mp_probe_replay", "mp_probe_replay",
+							{ line = reply, number = "c1." .. cn, offset = 0, source = "net" })
+						reply = timeline.take(client); moved = true
+					end
+					fresh_main().timeline_tick(_G, state)
+					if not moved and #sent_lines == 0 then
+						host_out(); if #sent_lines == 0 then return end
+					end
+				end
+			end
+			fresh_main().handleEvent(nil, state, "mp_probe", "mp_probe_schedule", "mp_probe_schedule", { line = line, held = true })
+			assert(not contains(logged, "timeline intent rejected"), table.concat(logged, "\n"))
+			fresh_main().timeline_tick(_G, state); pump(1000)
+			local m = state:get().timeline
+			assert(m.active and m.active.phase == "committed" and client.active.phase == "committed", table.concat(logged, "\n"))
+			local at = m.active.at
+			assert(at == 5000 and #t.sent == 0, "nothing built before the stamp")
+			-- Both reach the stamp; the client says so, the host gives GO and builds here.
+			t.advance(at - 1000)
+			assert(not timeline.step(client, at, at)); pump(at)
+			fresh_main().timeline_tick(_G, state); pump(at)
+			assert(client.active.go, "client received GO")
+			local ev
+			for _, e in ipairs(t.events) do if type(e[4]) == "table" and e[4].schedule_seq then ev = e end end
+			assert(ev and ev[4].line == line and ev[4].source == "scheduled" and ev[4].offset == 0, table.concat(logged, "\n"))
+			fresh_main().handleEvent(nil, state, ev[1], ev[2], ev[3], ev[4])
+			assert(#t.sent == 1 and contains(logged, "replay result (SimpleProposal/table): BUILT"), table.concat(logged, "\n"))
+			assert(contains(logged, "timeline result host.1 OK") and contains(logged, "timeline execute host.1 at gt=5000"), table.concat(logged, "\n"))
+			assert(state:get().timeline.active.own_done)
+			-- The client builds too; its DONE lets the host release the command and the hold.
+			assert(timeline.step(client, at, at)); assert(timeline.complete(client, 1, true)); pump(at)
+			fresh_main().timeline_tick(_G, state); pump(at)
+			m = state:get().timeline
+			assert(not m.active and m.last == 1 and not client.active and client.last == 1, table.concat(logged, "\n"))
+			assert(timeline.clock(m).hold == 0 and not m.error)
+		end)
+		os = real_os
+		if not ok then error(err, 0) end
+	end)
+end)
+
+test("a held build is refused only in a session and handed over after the wait", function()
+	local hold = require("/mp_probe/hold.lua")
+	local proposal = run5_street()
+	local data = { errorState = { critical = false }, costs = 10 }
+	local p = { proposal = proposal, toAdd = {}, toRemove = {} }
+	local gstate = { value = nil }
+	function gstate:get() return self.value end
+	function gstate:set(v) self.value = v end
+	local vars = { TF3MP_ROLE = "client", TF3MP_ORDERING = "1", TF3MP_OWN_CLOCK = "gt=1000 seq=0 phase=idle", TF3MP_PEER_CLOCK = "gt=1000 seq=0 phase=idle" }
+	local now, events = 0, {}
+	local env = { os = { getenv = function(k) return vars[k] end, clock = function() return now end },
+		api = { cmd = { sendCommand = function(c) events[#events + 1] = c end,
+			makeScriptingSendEventCmd = function(a, b, c, d) return { a, b, c, d } end },
+			engine = {}, type = {} } }
+	logged = {}
+	local r = hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate)
+	assert(r and r.errorMessages[hold.SYNC_TEXT], table.concat(logged, "\n"))
+	assert(gstate.value.held and gstate.value.held.line:sub(1, 3) == "B5 ")
+	assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate) == nil, "one held build at a time")
+	hold.step(env, gstate); assert(#events == 0, "waits HELD_WAIT_S")
+	now = 1; hold.step(env, gstate)
+	assert(#events == 1 and events[1][2] == "mp_probe_schedule" and events[1][4].held == true and events[1][4].line:sub(1, 3) == "B5 ")
+	assert(gstate.value.waiting and not gstate.value.held)
+	vars.TF3MP_OWN_CLOCK = "gt=1200 seq=1 phase=prepared"
+	hold.step(env, gstate); assert(not gstate.value.waiting and not gstate.value.hold_off)
+	-- A refusal TF3 ignores switches holding off; the build travels as before.
+	local r2 = hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate)
+	assert(r2)
+	hold.event(env, "", "", "builder.proposalApply", { p, data }, gstate)
+	assert(gstate.value.hold_off and not gstate.value.held)
+	assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate) == nil)
+	-- Without a partner, or without the ordered DLL, nothing is held.
+	local g2 = { value = nil, get = gstate.get, set = gstate.set }
+	vars.TF3MP_PEER_CLOCK = ""
+	assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, g2) == nil)
+	vars.TF3MP_PEER_CLOCK = "gt=1000"
+	vars.TF3MP_ORDERING = nil
+	assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, g2) == nil)
+end)
+
+test("a handed-over build without a common tick switches holding off", function()
+	local hold = require("/mp_probe/hold.lua")
+	local gstate = { value = { waiting = { since = 0, seq = 3 } } }
+	function gstate:get() return self.value end
+	function gstate:set(v) self.value = v end
+	local now = 0
+	local vars = { TF3MP_ROLE = "host", TF3MP_ORDERING = "1", TF3MP_OWN_CLOCK = "seq=3 phase=idle" }
+	local env = { os = { getenv = function(k) return vars[k] end, clock = function() return now end }, api = { cmd = {} } }
+	logged = {}
+	hold.step(env, gstate); assert(gstate.value.waiting)
+	now = hold.GIVE_UP_S + 1; hold.step(env, gstate)
+	assert(gstate.value.hold_off == "no common tick" and not gstate.value.waiting)
+	gstate.value = { waiting = { since = now, seq = 3 } }
+	vars.TF3MP_OWN_CLOCK = "seq=3 phase=failed"
+	hold.step(env, gstate); assert(gstate.value.hold_off == "timeline failed")
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

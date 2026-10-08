@@ -61,7 +61,7 @@ function gui.describe(env)
 	return table.concat(parts, ", ")
 end
 
-function gui.update(env)
+function gui.update(env, gui_state)
 	env = env or _G
 	local g = memory(env)
 	g.calls = g.calls + 1
@@ -70,7 +70,7 @@ function gui.update(env)
 	if now < g.next_at and g.next_at - now <= gui.INTERVAL then return end
 	g.next_at = now + gui.INTERVAL
 	-- Probe v33 (hold.lua): command logger and the 'Allein testen' hold test.
-	local ok_h, err_h = pcall(hold.step, env)
+	local ok_h, err_h = pcall(hold.step, env, gui_state)
 	if not ok_h and g.failures < gui.MAX_FAILURES then
 		g.failures = g.failures + 1
 		logger.info("hold probe failed: " .. tostring(err_h):sub(1, 240))

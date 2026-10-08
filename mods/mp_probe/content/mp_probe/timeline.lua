@@ -1,5 +1,9 @@
 -- Common simulation stamps for commands HELD BEFORE their original execution.
 -- Post-build observations are expressly rejected: delaying a copy is not lockstep.
+-- v34: the stamp is a barrier. Each game holds (speed 0) once its clock reaches the stamp and
+-- executes when both have arrived; a game whose pause landed a tick late still executes, so a
+-- late packet or a coarse pause never stops the session (a pause through the speed command
+-- cannot be placed on an exact tick). The executing tick is logged on both games.
 -- Plain persisted data only; the caller supplies reliable messages and the actual game clock.
 local wire = require("/mp_probe/wire.lua")
 local timeline = { STEP = 200, LEAD = 4000, MAX_QUEUE = 64, MAX_PAYLOAD = 120000 }
@@ -70,18 +74,15 @@ function timeline.receive(m, line, now)
 		if a then
 			if not matches(a, v) or a.line ~= v.line or a.origin ~= v.origin then return fail(m, "conflicting common plan") end
 		else
-			if now >= v.at then return fail(m, "plan arrived after execution deadline") end
 			a = { seq = v.seq, at = v.at, line = v.line, origin = v.origin, phase = "prepared" }; m.active = a
 		end
 		emit(m, { op = "ready", seq = a.seq, at = a.at }); return true
 	end
 	if not matches(a, v) then return fail(m, "unexpected common sequence or stamp") end
 	if v.op == "ready" and m.role == "host" then
-		if now > a.at then return fail(m, "readiness arrived after execution deadline") end
 		if a.phase == "prepared" then a.phase = "committed"; emit(m, { op = "commit", seq = a.seq, at = a.at }) end
 		return true
 	elseif v.op == "commit" and m.role == "client" then
-		if now > a.at then return fail(m, "commit arrived after execution deadline") end
 		if a.phase == "prepared" then a.phase = "committed" end
 		return true
 	elseif v.op == "arrived" then
@@ -114,7 +115,6 @@ function timeline.step(m, now, peer_now)
 	local a = m.active
 	if not a then return end
 	if not a.executed and now >= a.at then
-		if now ~= a.at then return fail(m, "common execution deadline missed; no late replay") end
 		if not a.arrived and a.phase == "committed" then
 			a.arrived = true; emit(m, { op = "arrived", seq = a.seq, at = a.at })
 		end
@@ -123,7 +123,7 @@ function timeline.step(m, now, peer_now)
 		end
 		if a.go then
 			a.executed, a.phase = true, "executing"
-			return { seq = a.seq, at = a.at, line = a.line, origin = a.origin }
+			return { seq = a.seq, at = a.at, line = a.line, origin = a.origin, gt = now }
 		end
 	end
 	if m.role == "host" and a.own_done and a.peer_done then
@@ -152,4 +152,10 @@ function timeline.clock(m)
 		phase = m.error and "failed" or a and a.phase or "idle" }
 end
 function timeline.reject(m, reason) return fail(m, reason) end
+--- The engine could not take the command yet (another replay still running): execute it again
+-- on a later step; both games stay held at the barrier meanwhile.
+function timeline.retry(m)
+	local a = m.active
+	if a and a.executed and not a.own_done then a.executed, a.phase = nil, "committed" end
+end
 return timeline

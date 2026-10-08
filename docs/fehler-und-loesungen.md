@@ -94,6 +94,9 @@ Kurz gesagt: Das Depot wird allein gebaut. Danach lässt der Mod das Spiel den A
 | Kredit aufgenommen, danach „peer rejected“ und Stillstand (Lauf 35, VPN). | v32 schickte jede Kreditänderung, auch die automatischen Monatsraten. Der Mitspieler buchte sie als neue Kredite, eine Buchung wurde abgelehnt und blockierte die Warteschlange. | v33 (Codex): Kredite gehören dem Kreditskript des Spiels (`game_mechanics/finance/loan.script.tl`). Übertragen wird nur sein Ereignis `Loan`/`Obtain` bzw. `Repay`; jedes Spiel bucht die Raten selbst. |
 | „resync: this game cannot save from the mod (table: …)“ (Lauf 35). | `app.saveGame` ist im GUI-Zustand eine aufrufbare Tabelle, keine Funktion. | v33: auch aufrufbare Tabellen aufrufen. |
 | Gleichzeitige Aktionen an verschiedenen Stellen machten Probleme. | Beide Richtungen bauten gleichzeitig nach. | DLL v12 (Codex): immer nur ein fremder Nachbau, vom Gastgeber abwechselnd freigegeben. |
+| v33-Test „Bau einmal zurückgehalten“: nichts angehalten, die Straße erschien nur als Kopie 100 m daneben (Lauf 36). | Die Bau-Ereignisse `builder.proposal…` kommen nur bei Skripten an, die sie abonniert haben. | v34: Ereignisse abonnieren (wie `company.script.tl`). |
+| „sendCommand is a table“ (Lauf 36). | `api.cmd.sendCommand` und die `make…Cmd`-Bauer sind aufrufbare Tabellen. | v34: Aufrufbarkeit über `__call` prüfen, nicht über `type(f) == "function"`. |
+| Schwarze cmd-/PowerShell-Fenster beim Launcher, X schloss nicht immer. | `Start.bat` startete PowerShell sichtbar; offene Timer hielten den Prozess am Leben. | v34: PowerShell versteckt starten, beim Schließen Timer stoppen und den Prozess beenden. |
 
 Die Fehler aus run27 bis run29 (Übertragung, Wiederaufnahme, Bahnhofsersatz) hat ChatGPT gelöst. Sie stehen in `docs/phase4-reliable-transport.md`.
 

@@ -21,7 +21,7 @@ local hold = require("/mp_probe/hold.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 33
+main.PROBE_VERSION = 34
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -42,7 +42,9 @@ main.ENTITY_COMPONENTS = {
 
 --- Events the engine only delivers on subscription. Build proposals are what a multiplayer
 -- bridge has to capture and replay, so their parameter structure is dumped once.
-main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay", "Obtain", "Repay", "mp_probe_schedule" }
+-- v34: the builder events reach guiHandleEvent only when subscribed (company.script.tl does the same).
+main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay", "Obtain", "Repay", "mp_probe_schedule",
+	"builder.proposalCreate", "builder.proposalPrepareForApply", "builder.proposalApply" }
 
 --- Replay test (phase 1, one PC). The copy is built this many metres beside the original so both
 -- are visible; at most MAX_REPLAYS per savegame session. A build with as many segments as the copy
@@ -904,7 +906,9 @@ function main.timeline_tick(env, state)
 	if clock.hold == 1 then sync.set_speed(env, 0) end
 	if intent then
 		local live = state:get() or {}
-		if live.network_work then timeline.reject(live.timeline, "another engine action is still active at the common tick"); state:set(live); return end
+		-- Another replay is still running: stay held at the barrier and execute on a later step.
+		if live.network_work then timeline.retry(live.timeline); state:set(live); return end
+		logger.info("timeline execute " .. intent.origin .. "." .. intent.seq .. " at gt=" .. tostring(intent.gt) .. " (stamp " .. intent.at .. ")")
 		local token = "scheduled_" .. intent.origin .. "." .. intent.seq
 		if not main.send_replay_event(env, { line = intent.line, number = token, offset = 0, source = "scheduled",
 			schedule_seq = intent.seq, schedule_at = intent.at }) then
@@ -1354,14 +1358,14 @@ function main.journal_test(env)
 end
 
 --- GUI script (main.gs.lua): runs on every frame, also while the game is paused.
-function main.guiUpdate()
-	gui.update(_G)
+function main.guiUpdate(_user_params, _state, gui_state)
+	gui.update(_G, gui_state)
 end
 
 --- GUI events (main.gs.lua, probe v33): what TF3's tools announce before they execute
 -- (hold.lua). Never lets an error reach the game's UI; nil means no objection.
 function main.guiHandleEvent(_user_params, _state, _gui_state, src, id, name, param)
-	local ok, result = pcall(hold.event, _G, src, id, name, param)
+	local ok, result = pcall(hold.event, _G, src, id, name, param, _gui_state)
 	if ok then return result end
 	logger.info("gui event failed: " .. main.error_text(result):sub(1, 200))
 	return nil
@@ -1591,7 +1595,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			line = s.last_build
 		end
 		local network = type(param) == "table" and param.source ~= nil
-		if type(param) == "table" and param.schedule_seq and main.game_time(_G) ~= param.schedule_at then
+		if type(param) == "table" and param.schedule_seq and (main.game_time(_G) or -1) < param.schedule_at then
 			local live = state:get() or {}
 			if live.timeline then timeline.reject(live.timeline, "engine event missed the common tick"); state:set(live) end
 			logger.info("timeline execution rejected after its tick"); return
