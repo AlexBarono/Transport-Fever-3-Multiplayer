@@ -1,4 +1,4 @@
---- The GUI side of the game script (probe v24). TF3 calls main.guiUpdate in the GUI's Lua state on
+--- The GUI side of the game script (probe v24, resync save v32). TF3 calls main.guiUpdate in the GUI's Lua state on
 -- every frame, also while the game is paused, so the shared game speed lives here (sync.speed_step):
 -- pause, speed changes and catching up. The simulation scripts stop while the game is paused and
 -- could neither notice a pause of this game nor lift one of the other game.
@@ -25,6 +25,13 @@ local function memory(env)
 	end
 	return g
 end
+
+--- Neuabgleich (probe v32): when the world check finds a difference, the host's GUI script saves the
+-- host's game under this name. The launcher's 'Neu abgleichen' then sends the newest save written
+-- since the game started, so nobody has to save by hand.
+gui.RESYNC_SAVE = "TF3MP-Neuabgleich"
+--- At most one save per this many checkpoints while the difference lasts (saving makes the game stutter).
+gui.RESYNC_EVERY = 3
 
 --- Real time in seconds.
 function gui.now(env, g)
@@ -97,6 +104,7 @@ function gui.step(env, g, now)
 		end
 		return
 	end
+	if role == "host" then gui.resync_save(env, g, getenv) end
 	local out = sync.speed_step(g.speed, {
 		own = speed, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
 		hold = true, src = "gui", restore = restore,
@@ -109,6 +117,35 @@ function gui.step(env, g, now)
 		end)
 	end
 	if out.publish then logger.info("net state gui " .. out.publish) end
+end
+
+--- Host: saves this game once the world check reports a difference (TF3MP_OWN_HEALTH status=diff),
+-- again only RESYNC_EVERY checkpoints later. "net state resync ck=N" marks the checkpoint, so a
+-- GUI Lua state without memory does not save twice (the DLL keeps it as TF3MP_OWN_RESYNC).
+function gui.resync_save(env, g, getenv)
+	local health = sync.decode(getenv("TF3MP_OWN_HEALTH"))
+	if not health or health.status ~= "diff" then return end
+	local ck = tonumber(health.ck)
+	if not ck then return end
+	local done = sync.decode(getenv("TF3MP_OWN_RESYNC"))
+	local last = g.resync_ck or (done and tonumber(done.ck))
+	if last and ck >= last and ck < last + gui.RESYNC_EVERY then return end
+	g.resync_ck = ck
+	logger.info("net state resync ck=" .. ck)
+	local found, save = pcall(function() return env.app.saveGame end)
+	if not found or type(save) ~= "function" then
+		logger.info("resync: this game cannot save from the mod (" .. tostring(save):sub(1, 120) ..
+			"); for 'Neu abgleichen' save by hand")
+		return
+	end
+	local name = gui.RESYNC_SAVE
+	-- Not the map editor; skipSetName keeps the player's own name for the next save.
+	local ok, err = pcall(save, name, function() logger.info("resync: saved '" .. name .. "' at check " .. ck) end, false, true)
+	if ok then
+		logger.info("resync: the world differs at check " .. ck .. ", saving '" .. name .. "' for 'Neu abgleichen'")
+	else
+		logger.info("resync: saving '" .. name .. "' did not work: " .. tostring(err):sub(1, 200))
+	end
 end
 
 return gui

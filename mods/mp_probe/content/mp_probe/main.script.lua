@@ -19,7 +19,7 @@ local fingerprint = require("/mp_probe/fingerprint.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 31
+main.PROBE_VERSION = 32
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -75,8 +75,9 @@ main.BRIDGE_ENV = "TF3MP_IN"
 main.ACTION_EVERY = 10
 --- Dump every replay result (slow for stations, run 14).
 main.DUMP_REPLAY_RESULTS = false
---- Action kinds polled by actions.lua (the rest comes from build events, format B5).
-main.ACTION_KINDS = { "line", "vehicle" }
+--- Action kinds polled by actions.lua (the rest comes from build events, format B5). v32: the
+-- account, so a loan taken in either game reaches the other.
+main.ACTION_KINDS = { "line", "vehicle", "account" }
 --- v20: a copied construction's entrance is checked again this much game time after the copy,
 -- in case the world was not up to date right after the command.
 main.WELD_RECHECK_MS = 4000

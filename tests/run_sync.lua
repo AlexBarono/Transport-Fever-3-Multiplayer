@@ -664,5 +664,72 @@ test("nonadjacent mismatches do not trigger a world warning", function()
 	assert(not out.world_mismatch and #out.warnings == 0)
 end)
 
+-- ---------------------------------------------------------------------------------------------
+-- Neuabgleich: the host saves its game when the world check finds a difference (probe v32)
+
+--- A save function like app.saveGame; it calls back at once.
+local function saver(g)
+	g.saves = {}
+	g.env.app = { saveGame = function(name, cb, editor, skip)
+		g.saves[#g.saves + 1] = { name = name, editor = editor, skip = skip }
+		cb()
+	end }
+end
+
+test("the host saves once per difference and again only after a few checkpoints", function()
+	local host, client = pair()
+	saver(host); saver(client)
+	host.vars.TF3MP_OWN_HEALTH = "ck=4 fields=hcon status=same"
+	client.vars.TF3MP_OWN_HEALTH = "ck=4 fields=hcon status=diff"
+	host.gui(); client.gui()
+	assert(#host.saves == 0 and #client.saves == 0, "no difference on the host, never on the client")
+	host.vars.TF3MP_OWN_HEALTH = "ck=5 fields=hcon status=diff"
+	host.gui(); host.gui()
+	assert(#host.saves == 1 and host.saves[1].name == gui.RESYNC_SAVE, "one save at the first difference")
+	assert(host.saves[1].editor == false and host.saves[1].skip == true, "not the map editor, keeps the player's save name")
+	assert(host.vars.TF3MP_OWN_RESYNC == "ck=5" and client.vars.TF3MP_PEER_RESYNC == "ck=5", "the checkpoint is published")
+	assert(has(host.logs, "resync: saved 'TF3MP-Neuabgleich' at check 5"))
+	for ck = 6, 5 + gui.RESYNC_EVERY - 1 do
+		host.vars.TF3MP_OWN_HEALTH = "ck=" .. ck .. " fields=hcon status=diff"
+		host.gui()
+	end
+	assert(#host.saves == 1, "no save at every checkpoint")
+	host.vars.TF3MP_OWN_HEALTH = "ck=" .. (5 + gui.RESYNC_EVERY) .. " fields=hcon status=diff"
+	host.gui()
+	assert(#host.saves == 2, "a newer save while the difference lasts")
+	assert(#client.saves == 0)
+end)
+
+test("a GUI Lua state without memory does not save the same difference twice", function()
+	local host = game("host")
+	saver(host)
+	host.vars.TF3MP_OWN_HEALTH = "ck=9 fields=hveh status=diff"
+	host.gui()
+	assert(#host.saves == 1)
+	-- New Lua state: a new environment table, the DLL still has TF3MP_OWN_RESYNC.
+	host.env = { api = host.api, os = host.os, app = host.env.app }
+	host.gui(); host.gui()
+	assert(#host.saves == 1, "the published checkpoint stops a second save")
+	host.vars.TF3MP_OWN_HEALTH = "ck=" .. (9 + gui.RESYNC_EVERY) .. " fields=hveh status=diff"
+	host.gui()
+	assert(#host.saves == 2)
+	-- A world loaded again starts its checkpoints at 0 again.
+	host.vars.TF3MP_OWN_HEALTH = "ck=2 fields=hveh status=diff"
+	host.gui()
+	assert(#host.saves == 3, "a lower checkpoint is a new game")
+end)
+
+test("without a save function the host is told to save by hand, once per difference", function()
+	local host = game("host")
+	host.vars.TF3MP_OWN_HEALTH = "ck=3 fields=hcon status=diff"
+	host.gui(); host.gui()
+	assert(count(host.logs, "save by hand") == 1, "one note")
+	assert(not has(host.logs, "gui sync failed"))
+	host.env.app = { saveGame = function() error("not allowed here") end }
+	host.vars.TF3MP_OWN_HEALTH = "ck=" .. (3 + gui.RESYNC_EVERY) .. " fields=hcon status=diff"
+	host.gui()
+	assert(has(host.logs, "resync: saving 'TF3MP-Neuabgleich' did not work: ") and not has(host.logs, "gui sync failed"))
+end)
+
 print(string.format("%d sync tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

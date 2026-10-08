@@ -240,8 +240,11 @@ end
 
 function fingerprint.values(env)
 	local out, failed = {}, {}
-	for _, kind in ipairs(actions.KINDS) do
-		local field = assert(fingerprint.FIELDS[kind])
+	local kinds = {}
+	-- v32: the account (loan) is an action kind, but money and loan have their own checks.
+	for _, kind in ipairs(actions.KINDS) do if fingerprint.FIELDS[kind] then kinds[#kinds + 1] = kind end end
+	for _, kind in ipairs(kinds) do
+		local field = fingerprint.FIELDS[kind]
 		local ok, digest = pcall(function()
 			local engine, ct, read_failed = env.api.engine, env.api.type.ComponentType, false
 			-- A local proxy observes even errors swallowed by capture's optional-name fallback.

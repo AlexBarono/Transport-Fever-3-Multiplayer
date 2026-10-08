@@ -63,6 +63,16 @@ Kurz gesagt: Das Depot wird allein gebaut. Danach lässt der Mod das Spiel den A
 - In run34 kam die Abweichung direkt nach dem hängenden Depot. Sehr wahrscheinlich folgte sie aus dem Fehler oben: Die Linie und alles danach wurden auf einem PC nicht nachgebaut.
 - Neu in `edc2c7c`: Nach einer bestätigten Abweichung schickt jedes Spiel seine Liste der betroffenen Teile an das andere (`W1`-Zeilen). Der Empfänger schreibt ins Protokoll, was nur bei ihm und was nur beim anderen existiert, mit Datei, Position und Namen (`world diff … only in this game: …`). Beim nächsten Mal zeigt also schon das Protokoll des Gastgebers, welche Teile abweichen.
 
+**Kredit des Mitspielers wurde zurückgesetzt (beim Lesen des Codes gefunden, nicht im Spiel gesehen).**
+- Ursache: Der Kredit wurde nicht als Aktion übertragen. Beim Geldabgleich übernimmt der Mitspieler den Kredit des Gastgebers, also hätte der Abgleich einen Kredit des Mitspielers wieder zurückgebucht.
+- Lösung v32: Eine Kreditänderung ist eine eigene Aktion (`account`). Das andere Spiel bucht denselben Unterschied als Kreditbuchung. Der Geldabgleich bleibt nur als Sicherung.
+
+**Ins Depot schicken, Umkehren und Weiterfahren aus dem Depot fehlten (v31).**
+- Lösung v32: Die Fahrzeugabfrage merkt sich zusätzlich Zustand, Verkaufen bei Ankunft und Fahrtrichtung und schickt diese Befehle mit. Umkehren wird nur erkannt, wenn sich die Richtung zwischen zwei Abfragen während der Fahrt ändert, nicht beim normalen Wenden an einer Endhaltestelle.
+
+**Neuabgleich brauchte sechs Handgriffe.**
+- Lösung v32: Bei einer Weltabweichung speichert das Spiel des Gastgebers selbst (`TF3MP-Neuabgleich`). **Neu abgleichen** beendet TF3, überträgt den Stand und startet neu; der Mitspieler wartet dabei auf den Gastgeber. Ob TF3 einem Mod das Speichern erlaubt, zeigt erst der nächste Test. Sonst fragt der Launcher den Gastgeber, jetzt selbst zu speichern.
+
 ## 3. Frühere Fehler (6. und 7. Oktober)
 
 | Was man sah | Ursache | Lösung |

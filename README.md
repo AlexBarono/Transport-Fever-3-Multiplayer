@@ -1,16 +1,23 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Haltestellen, Signale, Bahnhöfe, Depots, Abriss, Linien und Fahrzeuge werden zwischen zwei Spielen gespiegelt. Aktueller Stand: **Probe v31 / DLL v11**. v30 hat alle 21 aufgenommenen Aktionen im Spiel erfolgreich nachgebaut, einschließlich Bahnhofserweiterungen und Linienumbenennung. v31 ergänzt die gemeinsame Startprüfung und einen genaueren Weltvergleich; der Test mit zwei PCs steht aus.
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Haltestellen, Signale, Bahnhöfe, Depots, Abriss, Linien und Fahrzeuge werden zwischen zwei Spielen gespiegelt. Aktueller Stand: **Probe v32 / DLL v11**. v30 hat alle 21 aufgenommenen Aktionen im Spiel erfolgreich nachgebaut, v31 lief mit zwei PCs über VPN. v32 überträgt zusätzlich Depotfahrten, Umkehren und Kredite und macht den Neuabgleich zu einem Klick.
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe Paket auf beide PCs kopieren und entpacken, beide mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen. Das portable Paket liegt unter `release/TF3-Multiplayer-v31-Windows.zip`.
+1. Dasselbe Paket auf beide PCs kopieren und entpacken, beide mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen. Das portable Paket liegt unter `release/TF3-Multiplayer-v32-Windows.zip`.
 2. Gastgeber: **Gastgeber** auswählen, die Adresse des VPN-Adapters wählen und **Adresse kopieren**. Den Mitspieler diese Adresse einfügen lassen. **Als Gastgeber starten** bietet beim ersten Start die Auswahl eines Spielstands aus dem aktuellen Steam-Spielstandordner an und wartet auf den Mitspieler.
 3. Mitspieler: **Beitreten** wählen, die kopierte Adresse einfügen (z. B. `100.80.12.4:47800`) und **Beitreten und Spiel starten** klicken. Der Launcher holt den Spielstand, vergleicht Spielversion, Multiplayer-Paket und zusätzliche Mods und bereitet eine gemeinsame Sitzung vor. Unterschiedliche Dateien werden konkret gemeldet. Auch installierte inaktive Zusatzmods werden verglichen.
 4. Nach erfolgreicher Übertragung installieren beide Launcher den Mod und starten TF3. Beide laden den angezeigten Spielstand pausiert. Die Verbindung wartet auf den vereinbarten Stand auf beiden PCs; danach gemeinsam fortsetzen. Die Welt muss im Spiel selbst geladen werden.
 5. Der Launcher zeigt Verbindung, ausstehende Aktionen, Weltprüfung und Fehler an. **Details prüfen** öffnet die letzten Meldungen. Ein späterer Start kann die vorbereitete Sitzung verwenden, solange ihre Dateien unverändert sind und beide wieder denselben Ausgangsstand laden.
 
 Standard: UDP 47800 für Spieldaten und TCP 47800 für den Spielstand. Die Windows-Firewall muss TF3 und die Spielstandübertragung über den verwendeten VPN-Adapter zulassen. Im gemeinsamen VPN wird die erreichbare VPN-IPv4 des Gastgebers verwendet; eine Router-Portfreigabe ist dafür nicht erforderlich. **Mod entfernen** stellt die gesicherte Original-DLL wieder her.
+
+## Neu in v32
+
+- **Ins Depot schicken** (auch „bei Ankunft verkaufen“), **Umkehren** während der Fahrt und das **Weiterfahren aus dem Depot** werden auf den anderen PC übertragen. Ein Fahrzeug, das „bei Ankunft verkauft“ wird, verkauft jedes Spiel selbst, sobald es im Depot ankommt.
+- **Kredit**: Nimmt einer von euch einen Kredit auf oder zahlt ihn zurück, bucht das andere Spiel denselben Betrag. Bisher hat der Abgleich den Kredit des Mitspielers wieder zurückgesetzt.
+- **Neu abgleichen mit einem Klick**: Findet der Weltvergleich eine Abweichung, speichert das Spiel des Gastgebers selbst den Stand `TF3MP-Neuabgleich`. Beide klicken danach im Launcher **Neu abgleichen**. Der Launcher des Gastgebers nimmt diesen Stand (oder bittet um ein neues Speichern), beendet TF3 und schickt ihn. Der Launcher des Mitspielers beendet TF3, wartet auf den Gastgeber und holt den Stand. Danach starten beide TF3 neu und laden den genannten Spielstand pausiert.
+- „Automatisch ersetzen“ gibt es in der Spiel-Schnittstelle nicht. Manuelles Ersetzen eines Fahrzeugs wurde schon vorher übertragen.
 
 ## Neu in v31
 

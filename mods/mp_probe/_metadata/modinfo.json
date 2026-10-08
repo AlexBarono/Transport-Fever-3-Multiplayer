@@ -5,7 +5,7 @@
             "role": "CREATOR"
         }
     ],
-    "description": "Experimental TF3 multiplayer prototype. Probe v31 / bridge v11: prepared sessions verify game, multiplayer package, installed mods and source save before exchanging actions. Detailed world digests detect persistent content differences. v30 successfully replayed all 21 actions in-game; v31 two-PC VPN validation is pending.",
+    "description": "Experimental TF3 multiplayer prototype. Probe v32 / bridge v11: prepared sessions verify game, multiplayer package, installed mods and source save before exchanging actions. Detailed world digests detect persistent content differences. v32 adds depot, reverse and loan sync and a one-click resync.",
     "name": "Multiplayer Probe (dev)",
     "summary": "Logs the TF3 Lua sandbox and engine API for multiplayer research.",
     "tags": [

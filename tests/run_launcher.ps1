@@ -12,7 +12,7 @@ foreach($entry in @('::1','vpn.example.com','127.1','0.0.0.0','10.0.0.1:99999','
     if(-not $rejected){throw "Invalid address accepted: $entry"}
     $passed++
 }
-foreach($script in @('launcher\launcher.ps1','launcher\view.ps1','tools\session.ps1','tools\transport.ps1','tools\fake-partner.ps1','tools\same-spot.ps1')) {
+foreach($script in @('launcher\launcher.ps1','launcher\view.ps1','tools\session.ps1','tools\resync.ps1','tools\save-transfer.ps1','tools\transport.ps1','tools\fake-partner.ps1','tools\same-spot.ps1')) {
     $tokens=$null; $errors=$null
     [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Root $script),[ref]$tokens,[ref]$errors)
     if($errors.Count){throw ($errors | Out-String)}
@@ -154,7 +154,7 @@ try {
     try{Get-LaunchSession $game $fixtureSteam | Out-Null}catch{$rejected=$_.Exception.Message -like '*Neuabgleich abzuschließen*'}
     if(-not $rejected){throw 'A pending recovery reused the previous session'}
     $passed++
-    if((Get-RecoveryInstructions host) -notlike '*neuen Spielstand*' -or (Get-RecoveryInstructions client) -notlike '*Gastgeber speichert*'){throw 'Recovery omitted role-specific save instructions'}
+    if((Get-RecoveryInstructions host) -notlike '*TF3MP-Neuabgleich*jetzt zu speichern*' -or (Get-RecoveryInstructions client) -notlike '*wartet, bis der Gastgeber*'){throw 'Recovery omitted role-specific save instructions'}
     $passed++
 } finally {
     $ModSource=$originalSource; $ProxyDll=$originalDll; $env:PUBLIC=$originalPublic; $env:LOCALAPPDATA=$originalLocalAppData; $script:forceNewSession=$false

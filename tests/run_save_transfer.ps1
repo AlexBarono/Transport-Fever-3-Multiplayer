@@ -340,6 +340,32 @@ Test 'the player reconnects by itself when the host drops the connection' {
 	Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'no .part left'
 }
 
+Test 'Neuabgleich: the player clicks first and waits until the host sends' {
+	Remove-Item -LiteralPath (Join-Path $clientDir 'Det.sav') -ErrorAction SilentlyContinue
+	$r = Start-Peer @"
+	`$out = [pscustomobject]@{ Text = '' }  # wie das Textfeld im Launcher
+	`$seen = @{ waiting = 0 }
+	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) if (`$a -like 'Warte auf den Gastgeber*') { `$seen.waiting++ }; `$out.Text = `$a; `$false } { param(`$q) `$true } -WaitSeconds 30
+	Write-Output "OK waited=`$(`$seen.waiting -gt 0) `$t"
+"@
+	Start-Sleep -Seconds 5
+	$answer = Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30
+	$got = Wait-Receiver $r
+	Assert ($got -like 'OK waited=True *gespeichert*') $got
+	Assert ($answer -like '*gespeichert*') $answer
+	Assert (Test-SameBytes (Get-FileSha256 (Join-Path $hostDir 'Det.sav')) (Get-FileSha256 (Join-Path $clientDir 'Det.sav'))) 'same bytes'
+}
+
+Test 'Neuabgleich: without a host the waiting player stops after its time' {
+	$started = [DateTime]::UtcNow
+	$err = $null
+	try { Receive-Savegame '127.0.0.1' ($port + 1) $clientDir $tick { $true } -WaitSeconds 3 | Out-Null } catch { $err = $_.Exception.Message }
+	$took = ([DateTime]::UtcNow - $started).TotalSeconds
+	Assert ($err -like '*Keine Verbindung*') "message: $err"
+	Assert ($took -ge 2.5 -and $took -lt 25) "waited $took s"
+	Assert ($out.Text -like 'Warte auf den Gastgeber*' -or $out.Text -like 'Verbinde mit*') "tick: $($out.Text)"
+}
+
 Remove-Item -Recurse -Force $base
 Write-Host "$passed save transfer tests passed, $failed failed"
 if ($failed -gt 0) { exit 1 }

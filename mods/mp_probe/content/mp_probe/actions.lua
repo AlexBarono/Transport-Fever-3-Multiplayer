@@ -4,7 +4,7 @@
 local wire = require("/mp_probe/wire.lua")
 local build = require("/mp_probe/build.lua")
 local world = require("/mp_probe/world.lua")
-local actions = { VERSION = 1, KINDS = { "construction", "line", "vehicle", "edge" } }
+local actions = { VERSION = 1, KINDS = { "construction", "line", "vehicle", "edge", "account" } }
 
 local function field(obj, key)
 	local ok, value = pcall(function() return obj[key] end)
@@ -103,6 +103,13 @@ local function ids(env, kind)
 	local out = {}
 	if kind == "line" then
 		out = e.system.lineSystem.getLines()
+	elseif kind == "account" then
+		-- The player's account; nothing when it cannot be read (a read error must not look like a change).
+		local ok, player = pcall(function()
+			local player = e.util.getPlayer()
+			return e.getComponent(player, assert(ct.ACCOUNT)) and player
+		end)
+		if ok and player then out = { player } end
 	elseif kind == "edge" then
 		local seen = {}
 		-- BASE_EDGE cannot be enumerated with forEachEntityWithComponent in TF3.
@@ -241,7 +248,36 @@ local function vehicle_config(env, config)
 	return out
 end
 
+--- Name of a vehicle's TransportVehicleState (IN_DEPOT, EN_ROUTE, AT_TERMINAL, GOING_TO_DEPOT), or
+-- nil when the game does not say.
+actions.VEHICLE_STATES = { "IN_DEPOT", "EN_ROUTE", "AT_TERMINAL", "GOING_TO_DEPOT" }
+local function vehicle_state(env, value)
+	if value == nil then return nil end
+	if type(value) == "string" then return value end
+	local ok, enum = pcall(function() return env.api.type.enum.TransportVehicleState end)
+	if not ok or enum == nil then return nil end
+	for _, name in ipairs(actions.VEHICLE_STATES) do
+		local ok_v, v = pcall(function() return enum[name] end)
+		if ok_v and v ~= nil and v == value then return name end
+	end
+	return nil
+end
+
+--- Whether a train runs reversed (read from its first carriage), or nil for vehicles without
+-- carriages and when it cannot be read.
+local function train_reversed(env, id)
+	local ok, reversed = pcall(function()
+		local list = component(env, id, "CARRIAGE_LIST").carriages
+		return component(env, list[1], "CARRIAGE").reversed
+	end)
+	if ok and type(reversed) == "boolean" then return reversed end
+	return nil
+end
+
 local function record(env, id, kind)
+	if kind == "account" then
+		return { ref = { kind = "account", key = "player" }, loan = component(env, id, "ACCOUNT").loan }
+	end
 	if not owned(env, id) then return nil end
 	if kind == "construction" then
 		local c = component(env, id, "CONSTRUCTION")
@@ -260,6 +296,11 @@ local function record(env, id, kind)
 			stopIndex = v.stopIndex }
 		if v.depot and v.depot >= 0 then out.depot = child_ref(env, v.depot, "depot") end
 		if v.line and v.line >= 0 then out.line = named_ref(env, v.line, "line") end
+		-- v32: where the vehicle is going and which way a train runs, for the depot and reverse
+		-- commands (actions.vehicle_events).
+		out.state = vehicle_state(env, field(v, "state"))
+		out.sell = field(v, "sellOnArrival") == true or nil
+		out.reversed = train_reversed(env, id)
 		return out
 	elseif kind == "edge" then
 		local parent = env.api.engine.system.streetConnectorSystem.getConstructionEntityForEdge(id)
@@ -330,6 +371,7 @@ local function changed(kind, r, old)
 		return r.name ~= old.name or r.userStopped ~= old.userStopped or r.autoDeparture ~= old.autoDeparture
 			or not same(r.config, old.config) or line_key(r) ~= line_key(old)
 	end
+	if kind == "account" then return r.loan ~= old.loan end
 	if kind == "line" then
 		-- Run 24: once a bus was put on the copied line, the game filled in its transport modes and
 		-- the copy was sent back as a line change. The modes still travel with every line.
@@ -344,6 +386,35 @@ end
 function actions.vehicle_previous(r, old)
 	return { name = old.name, line = old.line, userStopped = old.userStopped, autoDeparture = old.autoDeparture,
 		config_changed = not same(r.config, old.config) }
+end
+
+--- Polls after the receiver reversed a train in which its own direction change is not sent back.
+actions.REVERSE_QUIET_POLLS = 3
+
+--- Vehicle commands that leave no lasting setting behind, seen by comparing two polls (v32):
+-- - depot: sent to a depot (true: sold on arrival), also a change of the sell flag on the way;
+-- - reverse: a train turned while driving. Trains also turn by themselves at a terminal, in both
+--   games alike, so only a turn between two polls that both saw the train driving counts;
+-- - release: sent out again from the depot it was sent to.
+-- Keeps r.held (in the depot it was sent to) and r.quiet (polls without reverse) for the next poll.
+-- @return table events or nil
+function actions.vehicle_events(r, old)
+	local ev = {}
+	r.held = r.state == "IN_DEPOT" and (old.state == "GOING_TO_DEPOT" or old.held) or nil
+	local quiet = (old.quiet or 0) > 0
+	r.quiet = quiet and old.quiet - 1 > 0 and old.quiet - 1 or nil
+	if r.state == "GOING_TO_DEPOT" and old.state ~= nil
+		and (old.state ~= "GOING_TO_DEPOT" or (r.sell or false) ~= (old.sell or false)) then
+		ev.depot = r.sell or false
+	end
+	if not quiet and old.state == "EN_ROUTE" and r.state == "EN_ROUTE" and old.reversed ~= nil
+		and r.reversed ~= nil and old.reversed ~= r.reversed then
+		ev.reverse = true
+	end
+	if old.held and r.state ~= nil and r.state ~= "IN_DEPOT" and r.state ~= "GOING_TO_DEPOT" and r.line then
+		ev.release = true
+	end
+	return next(ev) ~= nil and ev or nil
 end
 
 --- Diffs each category independently. A failed read never masquerades as demolition/sale.
@@ -388,7 +459,9 @@ function actions.poll(env, s, log, kinds)
 							end
 							if #matches == 1 then old = previous[matches[1]]; replaced[matches[1]] = true end
 						end
-						if kind ~= "edge" and (not old or changed(kind, r, old)) then
+						local events = kind == "vehicle" and old and actions.vehicle_events(r, old) or nil
+						-- The account is only a baseline until its loan changes.
+						if kind ~= "edge" and (old or kind ~= "account") and (not old or events or changed(kind, r, old)) then
 							-- v26: one record that cannot travel (a vehicle that left its depot before it
 							-- was seen, a record too long for the DLL) is reported and left out; it must not
 							-- keep the whole kind from taking the new snapshot, or nothing of it is sent again.
@@ -398,7 +471,8 @@ function actions.poll(env, s, log, kinds)
 									error("left its depot before it was seen; the purchase cannot be copied", 0)
 								end
 								return actions.encode({ op = op, target = old and old.ref or r.ref, value = r,
-									previous = kind == "vehicle" and old and actions.vehicle_previous(r, old) or nil })
+									previous = kind == "vehicle" and old and actions.vehicle_previous(r, old) or nil,
+									events = events })
 							end)
 							if ok_one then
 								staged[#staged + 1] = line
@@ -412,7 +486,15 @@ function actions.poll(env, s, log, kinds)
 					end
 					local removed = {}
 					for key, old in pairs(previous) do
-						if not current[key] and not replaced[key] then removed[#removed + 1] = old.ref end
+						if not current[key] and not replaced[key] then
+							if kind == "account" then
+								-- An account that cannot be read is not gone.
+							elseif kind == "vehicle" and old.sell then
+								-- v32: sold on arrival in its depot. The other game got the same order and sells
+								-- its own copy when it arrives there.
+								if log then log("action vehicle " .. tostring(old.name) .. " sold on arrival in its depot; the other game sells its own") end
+							else removed[#removed + 1] = old.ref end
+						end
 					end
 					if kind == "edge" and edge_additions and #removed > 0 then
 						-- Splitting/upgrading a road also removes old edges. Sending only that
@@ -450,7 +532,7 @@ function actions.poll(env, s, log, kinds)
 			if log then log("action capture " .. kind .. " failed: " .. tostring(current):sub(1, 220)) end
 		end
 	end
-	local priority = { construction_create = 1, construction_update = 1,
+	local priority = { construction_create = 1, construction_update = 1, account_update = 1,
 		line_create = 2, line_update = 2, vehicle_create = 3, vehicle_update = 3,
 		vehicle_remove = 4, line_remove = 5, edge_remove = 6, construction_remove = 7 }
 	-- Create dependencies first, remove dependents first; retain prior polls' FIFO order.
@@ -659,7 +741,10 @@ local function enqueue(state, work)
 	state:set(s)
 end
 
-local function refresh(env, state, peer, kind, id, ref, remove)
+--- After an applied action: binds the sender's reference to the local id and takes the entity's
+-- new record into the snapshot, so the next poll does not send it back. patch (v32) sets fields of
+-- that record the game may only show a step later (a vehicle on its way to the depot).
+local function refresh(env, state, peer, kind, id, ref, remove, patch)
 	local live = state:get() or {}
 	live.action_entities = live.action_entities or {}
 	if ref and not remove then live.action_entities[map_key(peer, ref)] = id end
@@ -671,7 +756,11 @@ local function refresh(env, state, peer, kind, id, ref, remove)
 	local snapshots = live.actions and live.actions.snapshots
 	if snapshots and snapshots[kind] then
 		if remove then snapshots[kind][tostring(id)] = nil
-		else snapshots[kind][tostring(id)] = record(env, id, kind) end
+		else
+			local r = record(env, id, kind)
+			if r and patch then for k, v in pairs(patch) do r[k] = v end end
+			snapshots[kind][tostring(id)] = r
+		end
 	end
 	state:set(live)
 end
@@ -710,16 +799,32 @@ function actions.continue(env, state, log)
 	state:set(s)
 	if not task then return end
 	local cmd, id, value = env.api.cmd, task.id, task.value
-	component(env, id, task.kind == "line" and "LINE" or "TRANSPORT_VEHICLE")
+	local target = component(env, id, task.kind == "line" and "LINE" or "TRANSPORT_VEHICLE")
 	assert(owned(env, id), "follow-up target no longer owned by local player")
-	local command
-	if task.command == "name" then command = cmd.makeEntitySetNameCmd(id, value)
+	local command, patch, skip
+	local now = task.kind == "vehicle" and vehicle_state(env, field(target, "state")) or nil
+	if task.command == "depot" then
+		-- v32: the game may already be doing it (a vehicle sent to the depot by both players).
+		if now == "GOING_TO_DEPOT" and (field(target, "sellOnArrival") == true) == value then skip = "already on its way to the depot"
+		elseif now == "IN_DEPOT" and not value then skip = "already in the depot" end
+		command, patch = cmd.makeVehicleSendToDepotCmd(id, value), { state = "GOING_TO_DEPOT", sell = value or nil }
+	elseif task.command == "reverse" then
+		command, patch = cmd.makeVehicleReverseCmd(id), { quiet = actions.REVERSE_QUIET_POLLS }
+	elseif task.command == "release" then
+		if now ~= "IN_DEPOT" then skip = "not waiting in a depot here (" .. tostring(now) .. ")" end
+		command = cmd.makeVehicleSetLineCmd(id, value, task.stopIndex or 0)
+	elseif task.command == "name" then command = cmd.makeEntitySetNameCmd(id, value)
 	elseif task.command == "color" then command = cmd.makeEntitySetColorCmd(id, env.api.type.Vec3f.new(value.x, value.y, value.z))
 	elseif task.command == "line" then command = cmd.makeVehicleSetLineCmd(id, value, task.stopIndex or 0)
 	elseif task.command == "stopped" then command = cmd.makeVehicleSetStoppedByUserCmd(id, value)
 	elseif task.command == "manual" then command = cmd.makeVehicleSetManualDepartureCmd(id, value)
 	elseif task.command == "remove_line" then command = cmd.makeLineDestroyCmd(id)
 	else error("unknown local continuation") end
+	if skip then
+		local ok, err = pcall(refresh, env, state, task.peer, task.kind, id, task.ref)
+		log(ok and ("action continuation " .. task.command .. " skipped: " .. skip) or ("action continuation result failed: " .. tostring(err)))
+		return
+	end
 	busy(state, true)
 	local sent, send_error = pcall(cmd.sendCommand, command, function(_, success)
 		busy(state, false)
@@ -736,7 +841,7 @@ function actions.continue(env, state, log)
 			log("action continuation " .. task.command .. " rejected by game" .. detail)
 			return
 		end
-		local ok, err = pcall(refresh, env, state, task.peer, task.kind, id, task.ref, task.command == "remove_line")
+		local ok, err = pcall(refresh, env, state, task.peer, task.kind, id, task.ref, task.command == "remove_line", patch)
 		log(ok and ("action continuation " .. task.command .. " applied") or ("action continuation result failed: " .. tostring(err)))
 	end)
 	if not sent then busy(state, false); error(send_error) end
@@ -772,6 +877,7 @@ function actions.replay(env, action, state, peer, offset, log)
 	end
 	local function vehicle_settings(id, r, old)
 		local work = {}
+		local ev = action.events or {}
 		local function add(command, value, stop_index)
 			work[#work + 1] = { command = command, value = value, stopIndex = stop_index,
 				id = id, kind = "vehicle", peer = peer, ref = r.ref }
@@ -788,8 +894,10 @@ function actions.replay(env, action, state, peer, offset, log)
 				assert(type(stop_index) == "number" and stop_index >= 0 and stop_index % 1 == 0,
 					"invalid vehicle line stop index")
 				add("line", line, stop_index)
-			elseif old and old.line then
-				log("action vehicle: taking a vehicle off its line is not copied yet")
+			elseif old and old.line and ev.depot == nil and r.state ~= "GOING_TO_DEPOT" and r.state ~= "IN_DEPOT" then
+				-- v32: taken off its line while driving. (A vehicle sent to the depot leaves its
+				-- line through the depot command below.)
+				add("line", -1, 0)
 			end
 		end
 		if not old or r.userStopped ~= old.userStopped then
@@ -797,6 +905,15 @@ function actions.replay(env, action, state, peer, offset, log)
 		end
 		if not old or r.autoDeparture ~= old.autoDeparture then
 			add("manual", not r.autoDeparture)
+		end
+		-- v32: depot, reverse and leaving the depot again (actions.vehicle_events).
+		if ev.depot ~= nil then add("depot", ev.depot == true) end
+		if ev.reverse then add("reverse", true) end
+		local line_set = false
+		for _, w in ipairs(work) do if w.command == "line" then line_set = true end end
+		if ev.release and not line_set and r.line then
+			local stop_index = r.stopIndex == nil and 0 or r.stopIndex
+			add("release", resolve(env, r.line, state:get() or {}, peer, offset), stop_index)
 		end
 		enqueue(state, work)
 	end
@@ -855,6 +972,26 @@ function actions.replay(env, action, state, peer, offset, log)
 				vehicle_settings(id, value, action.previous)
 			end)
 		else vehicle_settings(id, value, action.previous) end
+	elseif op == "account_update" then
+		-- v32: a loan taken or paid back in the other game. The line carries the loan it has now;
+		-- this game books the difference as a loan entry, like the client's checkpoint correction.
+		local player = env.api.engine.util.getPlayer()
+		local loan = assert(tonumber(value.loan), "loan missing")
+		local before = assert(tonumber(component(env, player, "ACCOUNT").loan), "loan unreadable")
+		if before == loan then
+			updated("account", player, value.ref)
+			log("action account_update: the loan is " .. tostring(loan) .. " here already")
+			return true
+		end
+		local sync = require("/mp_probe/sync.lua")
+		local entry, notes = sync.journal_entry(env, loan - before, "LOAN")
+		assert(entry, "loan booking not possible: " .. tostring(notes))
+		send(cmd.makeJournalBookAssetCmd(player, entry), function()
+			local after = component(env, player, "ACCOUNT").loan
+			updated("account", player, value.ref)
+			log(string.format("action account_update: loan %s -> %s (other game %s)%s", tostring(before), tostring(after),
+				tostring(loan), after == loan and "" or ", NOT the same; the checkpoint shows it"))
+		end)
 	elseif op == "construction_remove" or op == "edge_remove" or op == "line_remove" or op == "vehicle_remove" then
 		local kind = op:match("^(%a+)_")
 		local targets = {}

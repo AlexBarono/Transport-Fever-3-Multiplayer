@@ -103,6 +103,14 @@ function Get-TransferNetworkError($exception) {
 
 function New-TransferBreak($text) { return New-Object System.IO.IOException($text) }
 
+# Der Gastgeber wartet (noch) nicht: Mit -WaitSeconds versucht der Mitspieler es weiter, sonst endgültig.
+function New-NoHostError($text) {
+	$e = New-Object System.Exception($text)
+	$e.Data['TF3MPNoHost'] = $true
+	return $e
+}
+function Test-NoHostError($exception) { return [bool]($exception -and $exception.Data -and $exception.Data['TF3MPNoHost']) }
+
 $SaveRetryHint = 'Häufige Gründe: VPN kurz getrennt, Launcher des Mitspielers geschlossen oder abgebrochen, Firewall/Virenschutz.'
 
 # Gastgeber: Hat der Mitspieler mitten in der Übertragung etwas geschickt, ist es seine Absage (Byte 0 + Grund).
@@ -254,11 +262,11 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		$async = $client.BeginConnect($hostIp, $port, $null, $null)
 		$deadline = [DateTime]::UtcNow.AddSeconds(15)
 		while (-not $async.AsyncWaitHandle.WaitOne(100)) {
-			if ([DateTime]::UtcNow -gt $deadline) { throw "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt?" }
+			if ([DateTime]::UtcNow -gt $deadline) { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt?") }
 			if (& $tick "Verbinde mit $($hostIp):$port ..." 0 0) { throw 'Abgebrochen.' }
 		}
-		# Keine Verbindung ist endgültig: Der Gastgeber wartet nicht oder die Adresse stimmt nicht.
-		try { $client.EndConnect($async) } catch { throw "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt? ($((Get-TransferNetworkError $_.Exception).Message))" }
+		# Keine Verbindung: Der Gastgeber wartet nicht oder die Adresse stimmt nicht (endgültig ohne -WaitSeconds).
+		try { $client.EndConnect($async) } catch { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt? ($((Get-TransferNetworkError $_.Exception).Message))") }
 		$client.ReceiveTimeout = 60000
 		$client.SendTimeout = 30000
 		$stream = $client.GetStream()
@@ -352,13 +360,26 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 # $confirm (Text) gibt $true zurück, wenn ein anderer Spielstand mit demselben Namen ersetzt werden darf.
 # -LocalManifest verlangt Version 2 und liefert {Text, Session, SavePath} erst nach dem Speichern.
 # Reißt die Verbindung ab, verbindet er sich bis zu $MaxAttempts-mal neu; der Gastgeber wartet so lange.
-function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest = $null, [int]$MaxAttempts = 5) {
+# -WaitSeconds (Neuabgleich): Wartet der Gastgeber noch nicht, versucht er es so lange alle 2 Sekunden erneut.
+function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest = $null, [int]$MaxAttempts = 5, [int]$WaitSeconds = 0) {
 	$parts = @()
+	$waitUntil = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
 	try {
 		for ($attempt = 1; ; $attempt++) {
 			try {
 				return Receive-SaveOnce $hostIp $port $saveDir $tick $confirm $LocalManifest ([ref]$parts)
 			} catch {
+				if ((Test-NoHostError $_.Exception) -and [DateTime]::UtcNow -lt $waitUntil) {
+					# Kein Versuch verbraucht: Es wurde noch nichts übertragen.
+					$attempt--
+					$until = [DateTime]::UtcNow.AddSeconds(2)
+					while ([DateTime]::UtcNow -lt $until) {
+						$left = [int][Math]::Max(0, ($waitUntil - [DateTime]::UtcNow).TotalSeconds)
+						if (& $tick "Warte auf den Gastgeber ($($hostIp):$port). Er klickt ebenfalls auf 'Neu abgleichen' (noch $left Sekunden) ..." 0 0) { throw 'Abgebrochen.' }
+						Start-Sleep -Milliseconds 100
+					}
+					continue
+				}
 				$break = Get-TransferNetworkError $_.Exception
 				if (-not $break -or $attempt -ge $MaxAttempts) {
 					if ($break) { throw "Die Übertragung ist $attempt-mal abgebrochen: $($break.Message)`r`n$SaveRetryHint" }

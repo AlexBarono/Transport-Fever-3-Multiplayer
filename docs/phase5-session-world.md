@@ -55,9 +55,14 @@ Nicht vollständig erfasst sind insbesondere Fahrzeugpositionen während der Fah
 
 ## Geführter Neuabgleich
 
-Die Schaltfläche **Neu abgleichen** erklärt den Ablauf passend zur Rolle: Gastgeber speichert den gewünschten gemeinsamen Stand pausiert, beide beenden TF3, Gastgeber teilt und Mitspieler holt den aktuellen Stand. Dabei entsteht eine neue Sitzungskennung. Beide starten anschließend und laden wieder denselben Stand pausiert. Sobald ein Neuabgleich begonnen wurde, lässt sich die alte Vorbereitung im geöffneten Launcher nicht versehentlich weiterverwenden.
+Seit v32 ist **Neu abgleichen** ein Klick auf jedem PC:
 
-Speichern, Beenden und Laden bleiben manuelle Schritte. Es gibt noch keinen automatischen Resync im laufenden Spiel. Eine Weltabweichung wird angezeigt und führt zum angebotenen Neuabgleich; sie löst keine automatische Änderung einer Spielwelt aus.
+- Meldet der Weltvergleich eine Abweichung (`health … status=diff`), speichert das GUI-Skript des Gastgebers das Spiel mit `app.saveGame` als `TF3MP-Neuabgleich`, danach höchstens alle drei Prüfpunkte erneut (`gui.lua`, `net state resync ck=N`). Ob TF3 das einem Mod erlaubt, ist noch ungetestet; das Protokoll zeigt `resync: saved …` oder `resync: … save by hand`.
+- Gastgeber: Der Launcher nimmt den neuesten Spielstand, der seit dem Start von TF3 geschrieben wurde, und fragt einmal nach (Ja: nehmen, Nein: jetzt neu speichern, der Launcher erkennt die neue Datei selbst). Er wartet, bis die Datei fertig geschrieben ist, beendet TF3 (nach 20 Sekunden auf Nachfrage hart), schickt den Stand, richtet die neue Sitzung ein und startet TF3 neu.
+- Mitspieler: Nach einer Rückfrage beendet der Launcher TF3 und wartet bis zu 10 Minuten auf den Gastgeber (`Receive-Savegame -WaitSeconds`). Ein gleichnamiger Spielstand wird ohne Rückfrage ersetzt und bleibt als `.bak` erhalten. Danach richtet er die Sitzung ein und startet TF3 neu.
+- Laden bleibt ein Handgriff im Spiel: Beide laden den genannten Stand pausiert und setzen gemeinsam fort. Die Hilfen dafür stehen in `tools/resync.ps1` (Test: `tests/run_resync.ps1`).
+
+Der Ablauf wurde ohne Windows mit zwei simulierten PCs durchgespielt (Ersatz-Dialoge, ein Ersatzprozess als TF3): Mitspieler klickt zuerst und wartet, Gastgeber nimmt den Stand des Mods oder speichert neu, Abbrechen lässt alles unverändert. Im echten Spiel ist er noch nicht getestet. Eine Weltabweichung ändert weiterhin keine Spielwelt von selbst.
 
 ## Prüfung und Paket
 
@@ -76,7 +81,7 @@ Speichern, Beenden und Laden bleiben manuelle Schritte. Es gibt noch keinen auto
 3. Zunächst baut jeweils nur einer: Gleis, Bahnhof, Bahnhofserweiterung, zusätzliche Gleise, Abriss, Depot, Linie, Fahrzeug und Linienumbenennung. Danach dieselbe Richtung vom zweiten PC aus prüfen. Die Änderungen müssen vollständig erscheinen und die Aktionswarteschlange muss leer werden.
 4. Nach abgearbeiteten Aktionen keine weiteren Änderungen durchführen und mehrere Prüfintervalle bei laufender Spielzeit abwarten. Im Launcher sollen alle vier Weltgruppen übereinstimmen. Bei **unbekannt**, anhaltender Prüfung oder Abweichung die Details und beide Protokolle aufbewahren.
 5. Eine kurze VPN-Unterbrechung bei weiterlaufenden Spielprozessen testen. Nach Wiederverbindung müssen ausstehende Aktionen ohne doppelte Bauten weiterlaufen. Ein Spielprozessneustart soll dagegen einen Neuabgleich verlangen.
-6. **Neu abgleichen** mit einem eigens gespeicherten Teststand ausprobieren: speichern, beide Spiele beenden, neu teilen/holen, beide neu starten und denselben Stand laden. Danach wieder eine einzelne Bauaktion in jeder Richtung prüfen.
+6. **Neu abgleichen** (v32) ausprobieren: Beide klicken im laufenden Spiel **Neu abgleichen**. TF3 muss sich auf beiden PCs beenden und neu starten, danach laden beide den genannten Stand pausiert. Danach wieder eine einzelne Bauaktion in jeder Richtung prüfen.
 
 Optionaler Fehlertest mit einer Sicherung: absichtlich unterschiedliche Zusatzmoddateien müssen vor dem Start eine konkrete Ablehnung ergeben. Ein anderer geladener Spielstand muss die Sitzung sperren. Keine persönlichen Hauptspielstände für diese Fehlertests verwenden.
 

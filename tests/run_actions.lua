@@ -21,7 +21,8 @@ end
 local function mock()
 	local m = { entities = {}, sent = {}, next_id = 1000, logs = {} }
 	local ct = {}; for _, k in ipairs({ "NAME", "COLOR", "PLAYER_OWNED", "CONSTRUCTION", "LINE",
-		"TRANSPORT_VEHICLE", "STATION_GROUP", "BASE_EDGE", "EDGE_OBJECT", "STATION" }) do ct[k] = k end
+		"TRANSPORT_VEHICLE", "STATION_GROUP", "BASE_EDGE", "EDGE_OBJECT", "STATION", "CARRIAGE_LIST", "CARRIAGE",
+		"ACCOUNT" }) do ct[k] = k end
 	local function new() return {} end
 	local function proposal() return { streetProposal = {} } end
 	local t = { ComponentType = ct, Context = { new = new },
@@ -33,7 +34,9 @@ local function mock()
 		StationTerminal = { new = function(s, terminal) return { station = s, terminal = terminal } end },
 		Vec3f = { new = xyz }, Vec4f = { new = function(x, y, z, w) return { x = x, y = y, z = z, w = w } end },
 		Mat4f = { cols = function(value, i) return copy(value[i]) end,
-			new = function(a, b, c, d) return { a, b, c, d } end } }
+			new = function(a, b, c, d) return { a, b, c, d } end },
+		enum = { TransportVehicleState = { IN_DEPOT = 0, EN_ROUTE = 1, AT_TERMINAL = 2, GOING_TO_DEPOT = 3 } },
+		JournalEntry = { new = function() return { category = {} } end, Type = { LOAN = 4, OTHER = 9 } } }
 	local engine = { util = { getPlayer = function() return 7 end }, system = {} }
 	function engine.getComponent(id, c)
 		assert(m.entities[id], "entity missing")
@@ -63,7 +66,8 @@ local function mock()
 	local signatures = { makeLineCreateCmd = 4, makeLineUpdateCmd = 2, makeLineDestroyCmd = 1,
 		makeVehicleBuyCmd = 3, makeVehicleReplaceCmd = 2, makeVehicleSellCmd = 1,
 		makeVehicleSetLineCmd = 3, makeVehicleSetStoppedByUserCmd = 2, makeVehicleSetManualDepartureCmd = 2,
-		makeEntitySetNameCmd = 2, makeEntitySetColorCmd = 2, makeWorldBuildProposalCmd = 4 }
+		makeEntitySetNameCmd = 2, makeEntitySetColorCmd = 2, makeWorldBuildProposalCmd = 4,
+		makeVehicleSendToDepotCmd = 2, makeVehicleReverseCmd = 1, makeJournalBookAssetCmd = 2 }
 	for name, n in pairs(signatures) do
 		cmd[name] = function(...)
 			assert(select("#", ...) == n, name .. " signature")
@@ -116,6 +120,17 @@ local function mock()
 			userStopped = false, autoDeparture = true, stopIndex = 0 }
 		return e
 	end
+	-- A train driving (state EN_ROUTE) with one carriage that says which way it runs.
+	function m.train(id, line)
+		local e = m.vehicle(id, nil, line)
+		e.TRANSPORT_VEHICLE.state = 1
+		e.CARRIAGE_LIST = { carriages = { id + 500 } }
+		m.entities[id + 500] = { CARRIAGE = { reversed = false } }
+		return e
+	end
+	function m.account(loan)
+		m.entities[7] = { ACCOUNT = { loan = loan or 0, balance = 1000000 } }
+	end
 	function m.edge(id, x, y)
 		local e = base(id)
 		e.BASE_EDGE = { position0 = xyz(x, y), position1 = xyz(x + 10, y), tangent0 = xyz(10),
@@ -156,6 +171,16 @@ local function mock()
 			vehicle.line, vehicle.stopIndex = a[2], a[3]
 		elseif c.name == "makeVehicleSetStoppedByUserCmd" then m.entities[a[1]].TRANSPORT_VEHICLE.userStopped = a[2]
 		elseif c.name == "makeVehicleSetManualDepartureCmd" then m.entities[a[1]].TRANSPORT_VEHICLE.autoDeparture = not a[2]
+		elseif c.name == "makeVehicleSendToDepotCmd" then
+			-- slow_state: the game shows the new state only a step later.
+			local vehicle = m.entities[a[1]].TRANSPORT_VEHICLE
+			if not m.slow_state then vehicle.state, vehicle.sellOnArrival = 3, a[2] end
+		elseif c.name == "makeVehicleReverseCmd" then
+			local carriage = m.entities[m.entities[a[1]].CARRIAGE_LIST.carriages[1]].CARRIAGE
+			carriage.reversed = not carriage.reversed
+		elseif c.name == "makeJournalBookAssetCmd" then
+			assert(a[1] == 7 and a[2].category.type == 4, "not a loan booking for the player")
+			m.entities[7].ACCOUNT.loan = m.entities[7].ACCOUNT.loan + a[2].amount
 		elseif c.name == "makeEntitySetNameCmd" then m.entities[a[1]].NAME.name = a[2]
 		elseif c.name == "makeEntitySetColorCmd" then m.entities[a[1]].COLOR.color = copy(a[2]) end
 		m.in_callback = true
@@ -635,6 +660,104 @@ test("main dispatch does not overwrite mappings or busy flags from an immediate 
 		assert(not dest.state:get().action_work_requested and not dest.state:get().action_busy)
 	end)
 	api, debugPrint = old_api, old_debug; assert(ok, err)
+end)
+local function has_log(m, text)
+	for _, msg in ipairs(m.logs) do if msg:find(text, 1, true) then return true end end
+	return false
+end
+local function names(m, from)
+	local out = {}
+	for i = from or 1, #m.sent do out[#out + 1] = m.sent[i].name end
+	return table.concat(out, ",")
+end
+test("a vehicle sent to the depot to be sold is sent there in the other game; neither game sends the sale (v32)", function()
+	local source, dest = mock(), mock(); source.train(30); dest.train(90); dest.entities[90].NAME.name = "Bus 30"
+	source.poll(); dest.poll()
+	local v = source.entities[30].TRANSPORT_VEHICLE; v.state, v.sellOnArrival = 3, true
+	source.poll(); local q = source.drain()
+	assert(#q == 1 and q[1].op == "vehicle_update" and q[1].events.depot == true, #q .. " actions")
+	dest.replay(q[1]); assert(names(dest) == "makeVehicleSendToDepotCmd", names(dest))
+	assert(dest.sent[1].args[1] == 90 and dest.sent[1].args[2] == true)
+	dest.poll(); assert(#dest.drain() == 0, "sent back")
+	-- Both games sell their own vehicle when it arrives; nobody sends the sale.
+	source.entities[30], source.entities[530] = nil, nil; source.poll()
+	assert(#source.drain() == 0 and has_log(source, "sold on arrival"))
+	dest.entities[90], dest.entities[590] = nil, nil; dest.poll(); assert(#dest.drain() == 0)
+	-- Sent to the depot by both players: the second order is not given again.
+	local a, b = mock(), mock(); a.train(30); b.train(90); b.entities[90].NAME.name = "Bus 30"; a.poll(); b.poll()
+	a.entities[30].TRANSPORT_VEHICLE.state = 3; b.entities[90].TRANSPORT_VEHICLE.state = 3
+	a.poll(); b.replay(a.drain()[1]); assert(#b.sent == 0 and has_log(b, "depot skipped: already on its way"))
+	-- The game shows the trip to the depot a step later: still not sent back.
+	local c, d = mock(), mock(); c.train(30); d.train(90); d.entities[90].NAME.name = "Bus 30"; c.poll(); d.poll()
+	d.slow_state = true; c.entities[30].TRANSPORT_VEHICLE.state = 3; c.poll(); d.replay(c.drain()[1])
+	local w = d.entities[90].TRANSPORT_VEHICLE; w.state, w.sellOnArrival = 3, false
+	d.poll(); assert(#d.drain() == 0, "sent back after a late state")
+end)
+test("a vehicle sent to the depot waits there and goes out again in the other game too (v32)", function()
+	local source, dest = mock(), mock(); source.line(20, "A"); dest.line(92, "A")
+	source.train(30, 20); dest.train(90, 92); dest.entities[90].NAME.name = "Bus 30"
+	source.entities[30].TRANSPORT_VEHICLE.stopIndex = 2
+	source.poll(); dest.poll()
+	local v, w = source.entities[30].TRANSPORT_VEHICLE, dest.entities[90].TRANSPORT_VEHICLE
+	v.state = 3; source.poll(); local q = source.drain(); assert(#q == 1 and q[1].events.depot == false)
+	dest.replay(q[1]); assert(dest.sent[1].name == "makeVehicleSendToDepotCmd" and dest.sent[1].args[2] == false)
+	-- Arrival is no action; leaving again is.
+	v.state = 0; source.poll(); assert(#source.drain() == 0)
+	w.state = 0; dest.poll(); assert(#dest.drain() == 0)
+	v.state = 1; source.poll(); q = source.drain(); assert(#q == 1 and q[1].events.release, "release not sent")
+	local before = #dest.sent; dest.replay(q[1])
+	assert(names(dest, before + 1) == "makeVehicleSetLineCmd", names(dest, before + 1))
+	local c = dest.sent[#dest.sent]; assert(c.args[1] == 90 and c.args[2] == 92 and c.args[3] == 2)
+	w.state = 1; dest.poll(); dest.poll(); assert(#dest.drain() == 0, "sent back")
+	-- Not in the depot here: nothing to send out.
+	local q2 = copy(q[1]); before = #dest.sent; dest.replay(q2)
+	assert(#dest.sent == before and has_log(dest, "release skipped: not waiting in a depot"))
+	-- A vehicle sent to the depot that leaves its line on the way gets no SetLine(-1).
+	v.state, v.line = 3, -1; source.poll(); q = source.drain(); before = #dest.sent; dest.replay(q[1])
+	assert(names(dest, before + 1) == "makeVehicleSendToDepotCmd", names(dest, before + 1))
+end)
+test("a train turned while driving turns in the other game; a turn at a terminal does not travel (v32)", function()
+	local source, dest = mock(), mock(); source.train(30); dest.train(90); dest.entities[90].NAME.name = "Bus 30"
+	source.poll(); dest.poll()
+	source.entities[530].CARRIAGE.reversed = true; source.poll(); local q = source.drain()
+	assert(#q == 1 and q[1].events.reverse and not q[1].previous.config_changed, #q .. " actions")
+	dest.replay(q[1]); assert(names(dest) == "makeVehicleReverseCmd" and dest.sent[1].args[1] == 90)
+	assert(dest.entities[590].CARRIAGE.reversed == true)
+	dest.poll(); assert(#dest.drain() == 0, "sent back")
+	-- Turning at a terminal is the game's own doing in both games.
+	local v = source.entities[30].TRANSPORT_VEHICLE; v.state = 2; source.poll()
+	source.entities[530].CARRIAGE.reversed = false; source.poll(); v.state = 1; source.poll()
+	assert(#source.drain() == 0, "terminal turn sent")
+	-- The receiver's own turn shortly after its reverse is not sent back, a later one is.
+	dest.entities[590].CARRIAGE.reversed = false; dest.poll(); assert(#dest.drain() == 0, "quiet turn sent")
+	dest.poll(); dest.poll(); dest.entities[590].CARRIAGE.reversed = true; dest.poll()
+	q = dest.drain(); assert(#q == 1 and q[1].events.reverse, "later turn not sent")
+	-- Road vehicles have no carriages: nothing to compare.
+	local bus = mock(); bus.vehicle(40); bus.entities[40].TRANSPORT_VEHICLE.state = 1; bus.poll(); bus.poll()
+	assert(#bus.drain() == 0)
+end)
+test("a vehicle taken off its line while driving loses its line in the other game too (v32)", function()
+	local source, dest = mock(), mock(); source.line(20, "A"); dest.line(92, "A")
+	source.train(30, 20); dest.train(90, 92); dest.entities[90].NAME.name = "Bus 30"; source.poll(); dest.poll()
+	source.entities[30].TRANSPORT_VEHICLE.line = -1; source.poll(); local q = source.drain()
+	assert(#q == 1 and q[1].op == "vehicle_update"); dest.replay(q[1])
+	assert(names(dest) == "makeVehicleSetLineCmd" and dest.sent[1].args[2] == -1, names(dest))
+	assert(not has_log(dest, "not copied yet"))
+end)
+test("a loan taken or paid back in one game is booked in the other and not sent back (v32)", function()
+	local source, dest = mock(), mock(); source.account(0); dest.account(0); source.poll(); dest.poll()
+	assert(#source.drain() == 0, "loading sent the loan")
+	source.entities[7].ACCOUNT.loan = 500000; source.poll(); local q = source.drain()
+	assert(#q == 1 and q[1].op == "account_update" and q[1].value.loan == 500000)
+	dest.replay(q[1]); assert(names(dest) == "makeJournalBookAssetCmd" and dest.sent[1].args[2].amount == 500000)
+	assert(dest.entities[7].ACCOUNT.loan == 500000 and has_log(dest, "loan 0 -> 500000"))
+	dest.poll(); assert(#dest.drain() == 0, "sent back")
+	-- The same line again books nothing.
+	dest.replay(q[1]); assert(#dest.sent == 1 and has_log(dest, "is 500000 here already"))
+	source.entities[7].ACCOUNT.loan = 200000; source.poll(); dest.replay(source.drain()[1])
+	assert(dest.sent[2].args[2].amount == -300000 and dest.entities[7].ACCOUNT.loan == 200000)
+	-- An account that cannot be read is neither a change nor a removal.
+	source.entities[7] = nil; source.poll(); assert(#source.drain() == 0)
 end)
 test("the installed mod manifest includes every required action module", function()
 	local f = assert(io.open("mods/mp_probe/_content.json", "r")); local manifest = f:read("*a"); f:close()
