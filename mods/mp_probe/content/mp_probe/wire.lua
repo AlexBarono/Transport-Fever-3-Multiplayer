@@ -1,6 +1,6 @@
 --- Bounded data-only codec. No load()/eval of text received from another game.
 -- Strings are hex encoded so names/params cannot inject a stdout line or protocol marker.
-local wire = { MAX_BYTES = 16383, MAX_DEPTH = 24, MAX_ITEMS = 4096 }
+local wire = { MAX_BYTES = 262144, MAX_DEPTH = 24, MAX_ITEMS = 65536 }
 
 function wire.encode(value)
 	local seen, items = {}, 0

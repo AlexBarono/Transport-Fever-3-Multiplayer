@@ -55,7 +55,10 @@ local function mock()
 		getConstructionEntityForStation = function(id) return m.parents[id] end,
 		getConstructionEntityForEdge = function() return -1 end,
 	}
-	engine.system.stationGroupSystem = { getStationGroup = function(id) return m.groups[id] end }
+	engine.system.stationGroupSystem = { getStationGroup = function(id)
+		assert(id ~= nil, "getStationGroup called with nil")
+		return m.groups[id]
+	end }
 	local cmd = {}
 	local signatures = { makeLineCreateCmd = 4, makeLineUpdateCmd = 2, makeLineDestroyCmd = 1,
 		makeVehicleBuyCmd = 3, makeVehicleReplaceCmd = 2, makeVehicleSellCmd = 1,
@@ -124,6 +127,9 @@ local function mock()
 		local a, result = c.args, {}
 		m.sent[#m.sent + 1] = c
 		if m.reject then callback({}, false); return end
+		if c.name == "makeVehicleSetLineCmd" and m.required_stop ~= nil and a[3] ~= m.required_stop then
+			callback({}, false); return
+		end
 		if c.name == "makeWorldBuildProposalCmd" then
 			assert(a[4] == false, "remote builds must not be playerInitiated")
 			local p = a[1]
@@ -145,7 +151,9 @@ local function mock()
 			e.TRANSPORT_VEHICLE.transportVehicleConfig = copy(a[3]); result.resultVehicleEntity = m.next_id
 		elseif c.name == "makeVehicleReplaceCmd" then m.entities[a[1]].TRANSPORT_VEHICLE.transportVehicleConfig = copy(a[2])
 		elseif c.name == "makeVehicleSellCmd" then for _, id in ipairs(a[1]) do m.entities[id] = nil end
-		elseif c.name == "makeVehicleSetLineCmd" then m.entities[a[1]].TRANSPORT_VEHICLE.line = a[2]
+		elseif c.name == "makeVehicleSetLineCmd" then
+			local vehicle = m.entities[a[1]].TRANSPORT_VEHICLE
+			vehicle.line, vehicle.stopIndex = a[2], a[3]
 		elseif c.name == "makeVehicleSetStoppedByUserCmd" then m.entities[a[1]].TRANSPORT_VEHICLE.userStopped = a[2]
 		elseif c.name == "makeVehicleSetManualDepartureCmd" then m.entities[a[1]].TRANSPORT_VEHICLE.autoDeparture = not a[2]
 		elseif c.name == "makeEntitySetNameCmd" then m.entities[a[1]].NAME.name = a[2]
@@ -195,7 +203,7 @@ test("wire rejects code, malformed/duplicate keys, huge strings, cycles and non-
 	for _, v in ipairs({ "os.execute('bad')", "t1:s2:zzn", "t999999:", "dnan;", "d1;extra", "t2:s2:61ns2:61y" }) do
 		assert(wire.decode(v) == nil, v)
 	end
-	assert(not pcall(wire.encode, string.rep("a", 17000)))
+	assert(not pcall(wire.encode, string.rep("a", wire.MAX_BYTES)))
 	local t = {}; t.self = t; assert(not pcall(wire.encode, t)); assert(not pcall(wire.encode, math.huge))
 end)
 test("loading an existing save only creates baselines", function()
@@ -300,6 +308,51 @@ test("a bus bought without a line gets no SetLine with -1 (run 19)", function()
 	for _, c in ipairs(dest.sent) do assert(c.name ~= "makeVehicleSetLineCmd", "SetLine sent") end
 	assert(dest.entities[1001].TRANSPORT_VEHICLE.line == -1)
 end)
+test("assigning a purchased train preserves its reachable destination stop and user settings", function()
+	local source, dest = mock(), mock(); source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.line(20, "A"); dest.line(92, "A"); source.poll(); dest.poll()
+	local vehicle = source.vehicle(30, 10010).TRANSPORT_VEHICLE
+	source.poll(); dest.replay(source.drain()[1])
+	-- Stop 0 cannot be reached from this depot; the original UI chose stop 1.
+	dest.required_stop = 1
+	vehicle.line, vehicle.stopIndex, vehicle.userStopped, vehicle.autoDeparture = 20, 1, true, false
+	source.poll(); local q = source.drain()
+	assert(#q == 1 and q[1].op == "vehicle_update" and q[1].value.stopIndex == 1)
+	local before = #dest.sent; dest.replay(q[1])
+	local copied = dest.entities[1001].TRANSPORT_VEHICLE
+	assert(copied.line == 92 and copied.stopIndex == 1 and copied.userStopped and not copied.autoDeparture)
+	assert(dest.sent[before + 1].name == "makeVehicleSetLineCmd" and dest.sent[before + 1].args[3] == 1)
+	assert(dest.sent[before + 2].name == "makeVehicleSetStoppedByUserCmd")
+	assert(dest.sent[before + 3].name == "makeVehicleSetManualDepartureCmd")
+	dest.poll(); assert(#dest.drain() == 0, "assignment echoed")
+	vehicle.stopIndex = 0; source.poll(); assert(#source.drain() == 0, "normal stop progression sent an action")
+end)
+test("a train bought with an assigned line keeps its stop through persisted follow-up work", function()
+	local source, dest = mock(), mock(); source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.line(20, "A"); dest.line(92, "A"); source.poll(); dest.poll()
+	source.vehicle(30, 10010, 20).TRANSPORT_VEHICLE.stopIndex = 1
+	source.poll(); local action = source.drain()[1]
+	dest.required_stop, dest.defer = 1, true; dest.replay(action)
+	dest.complete(); dest.defer = false; dest.finish()
+	local copied = dest.entities[1001].TRANSPORT_VEHICLE
+	assert(copied.line == 92 and copied.stopIndex == 1)
+end)
+test("vehicle line payloads from before v28 retain stop 0 as their fallback", function()
+	local source, dest = mock(), mock(); source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.line(20, "A"); dest.line(92, "A"); source.poll(); dest.poll()
+	source.vehicle(30, 10010, 20); source.poll(); local action = source.drain()[1]
+	action.value.stopIndex = nil; dest.required_stop = 0; dest.replay(action)
+	assert(dest.entities[1001].TRANSPORT_VEHICLE.line == 92 and dest.entities[1001].TRANSPORT_VEHICLE.stopIndex == 0)
+end)
+test("rejected vehicle line settings report the target vehicle, line and stop", function()
+	local source, dest = mock(), mock(); source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.line(20, "A"); dest.line(92, "A"); source.poll(); dest.poll()
+	source.vehicle(30, 10010, 20); source.poll(); dest.required_stop = 1; dest.replay(source.drain()[1])
+	local message = dest.logs[#dest.logs]
+	assert(message:find("line rejected by game (vehicle=1001, line=92, stop=0)", 1, true), message)
+	assert(dest.entities[1001].TRANSPORT_VEHICLE.line == -1, "rejected assignment changed the line")
+	assert(#dest.state:get().action_work == 0, "dependent settings survived rejection")
+end)
 test("vehicle sales use semantic local ID rather than sender ID", function()
 	local source, dest = mock(), mock(); source.vehicle(30); dest.vehicle(90); dest.entities[90].NAME.name = "Bus 30"
 	source.poll(); dest.poll(); source.entities[30] = nil; source.poll(); dest.replay(source.drain()[1])
@@ -362,13 +415,13 @@ test("a vehicle that cannot travel is reported and left out; the others still go
 	-- A record too long for the DLL is reported the same way. The mock reads and stores through its
 	-- own copy of wire.lua, which gets room for it; the game has no such limit there.
 	local limit = wire.MAX_BYTES
-	wire.MAX_BYTES = 1000000
+	wire.MAX_BYTES = 16000000
 	m.entities[31].NAME.name = string.rep("x", limit); m.poll()
 	q = m.drain()
 	wire.MAX_BYTES = limit
 	assert(#q == 0, #q .. " actions")
 	assert(m.logs[#m.logs]:find("action NOT sent, vehicle", 1, true) and m.logs[#m.logs]:find("DLL line limit", 1, true), m.logs[#m.logs])
-	wire.MAX_BYTES = 1000000
+	wire.MAX_BYTES = 16000000
 	m.entities[30].TRANSPORT_VEHICLE.userStopped = true; m.poll()
 	q = m.drain()
 	wire.MAX_BYTES = limit
@@ -437,6 +490,54 @@ test("line edits and renames apply through separate simulation commands without 
 	source.poll(); dest.replay(source.drain()[1]); assert(#dest.sent == 3)
 	assert(dest.entities[90].LINE.reservationPriority == 7 and dest.entities[90].NAME.name == "B")
 	assert(dest.entities[90].COLOR.color.x == 0.2); dest.poll(); assert(#dest.drain() == 0)
+end)
+test("station demolition keeps the empty local line slot and allows subsequent line edits and renaming", function()
+	local source, dest = mock(), mock()
+	source.construction(10, 12, 25); source.construction(11, 22, 25)
+	dest.construction(91, 12, 25); dest.construction(92, 22, 25)
+	source.line(20, "A", 20010); dest.line(90, "A", 20091)
+	source.entities[20].LINE.stops[2] = copy(source.entities[20].LINE.stops[1])
+	source.entities[20].LINE.stops[2].stationGroup = 30011
+	dest.entities[90].LINE.stops[2] = copy(dest.entities[90].LINE.stops[1])
+	dest.entities[90].LINE.stops[2].stationGroup = 30092
+	source.poll(); dest.poll()
+	-- The engine keeps the deleted station's empty group and invalidates its line slot.
+	source.entities[10] = nil; source.entities[30010].STATION_GROUP.stations = {}
+	source.entities[20].LINE.stops[1].station, source.entities[20].LINE.stops[1].terminal = -1, -1
+	source.entities[20].LINE.stops[1].alternativeTerminals = {}
+	source.entities[20].NAME.name = "After demolition"
+	source.entities[20].LINE.reservationPriority = 7
+	source.poll(); local q = source.drain()
+	assert(#q == 2 and q[1].op == "line_update" and q[2].op == "construction_remove")
+	-- In-game the B5 demolition is sent by the build event before the polled A1 change.
+	dest.replay(q[2]); dest.entities[30091].STATION_GROUP.stations = {}
+	dest.entities[90].LINE.stops[1].station, dest.entities[90].LINE.stops[1].terminal = -1, -1
+	dest.entities[90].LINE.stops[1].alternativeTerminals = {}
+	dest.replay(q[1])
+	local line = dest.entities[90].LINE
+	assert(#line.stops == 2 and line.stops[1].stationGroup == 30091)
+	assert(line.stops[1].station == -1 and line.stops[1].terminal == -1)
+	assert(line.stops[2].stationGroup == 30092 and line.stops[2].station == 0)
+	assert(line.reservationPriority == 7 and dest.entities[90].NAME.name == "After demolition")
+	dest.poll(); assert(#dest.drain() == 0, "demolition line update echoed")
+end)
+test("an incoming deleted line slot cannot erase a valid destination stop", function()
+	local source, dest = mock(), mock(); source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.line(20, "A", 20010); dest.line(90, "A", 20091); source.poll(); dest.poll()
+	source.entities[30010].STATION_GROUP.stations = {}
+	source.entities[20].LINE.stops[1].station, source.entities[20].LINE.stops[1].terminal = -1, -1
+	source.poll(); local ok, err = pcall(dest.replay, source.drain()[1])
+	assert(not ok and tostring(err):find("deleted line stop not present", 1, true), tostring(err))
+	assert(#dest.sent == 0 and dest.entities[90].LINE.stops[1].station == 0)
+end)
+test("a missing valid line station still fails instead of becoming a deleted placeholder", function()
+	local source, dest = mock(), mock()
+	source.construction(10, 12, 25); source.construction(11, 200, 300); dest.construction(91, 12, 25)
+	source.line(20, "A", 20010); dest.line(90, "A", 20091); source.poll(); dest.poll()
+	source.entities[20].LINE.stops[1].stationGroup = 30011
+	source.poll(); local ok, err = pcall(dest.replay, source.drain()[1])
+	assert(not ok and tostring(err):find("construction reference not found", 1, true), tostring(err))
+	assert(#dest.sent == 0 and dest.entities[90].LINE.stops[1].stationGroup == 30091)
 end)
 test("transport modes the game fills in after a bus joins the copied line are not sent back (run 24)", function()
 	local source, dest = mock(), mock(); dest.poll(); source.poll()

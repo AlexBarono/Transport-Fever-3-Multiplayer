@@ -20,6 +20,7 @@ param(
 )
 
 $SameSpotAppId = '3493540'
+. (Join-Path $PSScriptRoot 'transport.ps1')
 
 function Get-SameSpotSteamRoot {
 	foreach ($key in 'HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam') {
@@ -64,10 +65,19 @@ function Read-SameSpotLines($path) {
 function Get-SameSpotRecording($lines) {
 	$sessions = @()
 	$current = $null
+	$uploads = @{}
 	foreach ($line in $lines) {
 		if ($line -match 'Loading game from file (.+?)\s*$') {
 			$current = @{ Save = $matches[1]; Lines = New-Object System.Collections.ArrayList }
 			$sessions += $current
+			$uploads.Clear()
+		} elseif ($current -and $line -match '\[mp_probe\]\s*net upload (\S+) (\d+) (\d+) (.+)$') {
+			$id=$matches[1]; $index=[int]$matches[2]; $count=[int]$matches[3]; $text=$matches[4]
+			if ($index -eq 0) { $uploads[$id] = New-Object System.Text.StringBuilder }
+			if ($uploads.ContainsKey($id)) {
+				[void]$uploads[$id].Append($text)
+				if ($index -eq $count - 1) { [void]$current.Lines.Add($uploads[$id].ToString()); $uploads.Remove($id) }
+			}
 		} elseif ($current -and $line -match '\[mp_probe\]net send (.+?)\s*$') {
 			[void]$current.Lines.Add($matches[1])
 		}
@@ -103,22 +113,30 @@ function Send-SameSpotRecording($recording, $port, $pause, [scriptblock]$progres
 	try {
 		for ($i = 0; $i -lt $total; $i++) {
 			$token = "gs$stamp.$($i + 1)"
-			$bytes = [System.Text.Encoding]::UTF8.GetBytes("TF3MP/1 LINE $token $($recording.Lines[$i])")
+			$send = New-MpSend $token $recording.Lines[$i]
+			$bytes = $null
 			$kind = $recording.Lines[$i].Substring(0, [Math]::Min(2, $recording.Lines[$i].Length))
 			$ok = $false
 			$silent = 0
 			$deadline = [DateTime]::UtcNow.AddSeconds(120)
 			while (-not $ok -and [DateTime]::UtcNow -lt $deadline) {
+				$bytes = [System.Text.Encoding]::ASCII.GetBytes((Get-MpSendPacket $send))
 				[void]$udp.Send($bytes, $bytes.Length, $target)
 				$until = [DateTime]::UtcNow.AddSeconds(1)
 				while (-not $ok -and [DateTime]::UtcNow -lt $until) {
 					try {
 						$from = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
 						$answer = [System.Text.Encoding]::UTF8.GetString($udp.Receive([ref]$from))
-						if ($answer.StartsWith("TF3MP/1 GOT $token")) { $ok = $true }
+						if ($from.Address.Equals($target.Address) -and $from.Port -eq $target.Port) {
+							$before = $send.Part
+							Confirm-MpSend $send $answer
+							$ok = $send.Done
+							if ($before -ne $send.Part) { break }
+						}
 					} catch {
 						# Zeitüberschreitung: noch einmal schicken. 10054: niemand hört auf dem Port
 						# (Windows meldet das beim nächsten Empfang).
+						if ($_.Exception.Message -like "Das Spiel hat Aktion*") { throw }
 						$e = $_.Exception
 						while ($e.InnerException) { $e = $e.InnerException }
 						if ($e -is [System.Net.Sockets.SocketException] -and
@@ -132,7 +150,7 @@ function Send-SameSpotRecording($recording, $port, $pause, [scriptblock]$progres
 			}
 			if (-not $ok) { throw "Zeile $($i + 1) von $total ($kind) wurde nach 2 Minuten nicht angenommen. Läuft das Spiel (nicht pausiert)?" }
 			$done++
-			& $progress "Zeile $($i + 1) von $total ($kind, $($bytes.Length) Bytes) angenommen."
+			& $progress "Zeile $($i + 1) von $total ($kind, $($send.Text.Length) Bytes) im Spiel ausgefuehrt."
 			Start-Sleep -Milliseconds ([int]($pause * 1000))
 		}
 	} finally { $udp.Close() }

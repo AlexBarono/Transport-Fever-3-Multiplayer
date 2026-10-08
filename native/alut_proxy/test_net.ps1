@@ -6,7 +6,10 @@ $ErrorActionPreference = 'Stop'
 
 $dll = Join-Path $PSScriptRoot 'build\alut.dll'
 $work = Join-Path $PSScriptRoot 'build\nettest'
-Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+$buildRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'build')).TrimEnd('\') + '\'
+$work = [IO.Path]::GetFullPath($work)
+if (-not $work.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Test cleanup escaped the native build directory.' }
+Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 
 $loader = @'
 param($Path, $Seconds)
@@ -20,7 +23,7 @@ $procs = foreach ($role in 'host', 'client') {
 	$dir = Join-Path $work $role
 	New-Item -ItemType Directory -Force $dir | Out-Null
 	Copy-Item $dll $dir
-	Set-Content -Encoding ASCII (Join-Path $dir 'alut_proxy.ini') "[net]`r`nmode=$role`r`nport=$Port`r`nhost=127.0.0.1"
+	Set-Content -Encoding ASCII (Join-Path $dir 'alut_proxy.ini') "[net]`r`nmode=$role`r`nport=$Port`r`nhost=127.0.0.1`r`ntest=fakehost"
 	Set-Content -Encoding ASCII (Join-Path $dir 'load.ps1') $loader
 	Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $dir 'load.ps1'), (Join-Path $dir 'alut.dll'), $Seconds
 }

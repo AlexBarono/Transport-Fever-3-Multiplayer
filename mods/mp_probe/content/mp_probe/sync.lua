@@ -11,6 +11,7 @@
 -- Both games compare the checkpoints with the same number; the host's values count, so only the
 -- client corrects money, loan and date.
 -- @module mp_probe.sync
+local fingerprint = require("/mp_probe/fingerprint.lua")
 local sync = {}
 
 --- Game speed. The speed is a register both games can change; the change with the higher version
@@ -41,6 +42,9 @@ sync.KEEP = 8
 sync.MONEY_TOLERANCE = 1000
 --- Counts that must match in both games.
 sync.COUNT_FIELDS = { "lines", "veh", "st", "con" }
+--- Persistent world contents, compared independently of local entity ids and moving vehicles.
+sync.HASH_FIELDS = { "hcon", "hedge", "hline", "hveh" }
+local HASH_FIELD = { hcon = true, hedge = true, hline = true, hveh = true }
 --- A difference that stays is reported again after this many checkpoints.
 sync.REPEAT_WARNING = 10
 
@@ -56,7 +60,7 @@ function sync.encode(t)
 	for _, k in ipairs(keys) do
 		local v = t[k]
 		if type(v) == "number" then
-			if v == math.floor(v) and math.abs(v) < 2 ^ 53 then v = string.format("%d", v)
+			if v == math.floor(v) and math.abs(v) < 2 ^ 53 then v = string.format("%.0f", v)
 			else v = string.format("%.3f", v) end
 		elseif type(v) == "boolean" then
 			v = v and "1" or "0"
@@ -298,11 +302,24 @@ local CORRECTED = { "loan", "money", "date" }
 -- @param latest number this game's newest checkpoint; a correction made now shows from the next one
 -- @return table diffs (field -> {own, peer, d}), warnings, notes (texts), fix (field -> amount)
 function sync.compare(mem, k, own, peer, role, latest)
-	local out = { warnings = {}, notes = {}, fix = {}, diffs = {} }
+	local out = { warnings = {}, notes = {}, fix = {}, diffs = {},
+		world_fields = 0, world_different = 0, world_mismatch = false, world_diffs = {} }
 	local diffs = out.diffs
 	for _, f in ipairs(sync.COUNT_FIELDS) do
 		local a, b = tonumber(own[f]), tonumber(peer[f])
 		if a and b and a ~= b then diffs[f] = { own = a, peer = b, d = b - a } end
+	end
+	for _, f in ipairs(sync.HASH_FIELDS) do
+		local a, b = own[f], peer[f]
+		if type(a) == "string" and type(b) == "string" and a:match("^h1_%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$")
+			and b:match("^h1_%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$") then
+			out.world_fields = out.world_fields + 1
+			if a ~= b then
+				diffs[f] = { own = a, peer = b }
+				out.world_different = out.world_different + 1
+				out.world_diffs[#out.world_diffs + 1] = f
+			end
+		end
 	end
 	local m_own, m_peer = tonumber(own.money), tonumber(peer.money)
 	if m_own and m_peer and math.abs(m_peer - m_own) > sync.MONEY_TOLERANCE then
@@ -345,6 +362,7 @@ function sync.compare(mem, k, own, peer, role, latest)
 		local d = diffs[field]
 		local w = mem.warned[field]
 		local repeated = w and w.own == d.own and w.peer == d.peer and k - w.k < sync.REPEAT_WARNING
+		if lasting(field) and HASH_FIELD[field] then out.world_mismatch = true end
 		if lasting(field) and not repeated then
 			mem.warned[field] = { k = k, own = d.own, peer = d.peer }
 			out.warnings[#out.warnings + 1] = string.format("%s here %s, in the other game %s",
@@ -417,6 +435,9 @@ function sync.values(env, gt)
 		end)
 	end)
 	try("date", function() return sync.date_text(e.util.getCalendarDate(gt)) end)
+	local contents, unreadable = fingerprint.values(env)
+	for name, value in pairs(contents) do out[name] = value end
+	for _, name in ipairs(unreadable) do failed[#failed + 1] = name end
 	return out, failed
 end
 
@@ -441,6 +462,9 @@ function sync.journal_entry(env, amount, kind)
 	local notes = {}
 	local ok_a, err_a = pcall(function() entry.amount = amount end)
 	notes[#notes + 1] = ok_a and ("amount " .. tostring(amount)) or ("amount FAILED " .. tostring(err_a):sub(1, 80))
+	-- JournalBookAsset requires -1 so the game assigns the booking's current time (run 27).
+	local ok_t, err_t = pcall(function() entry.time = -1 end)
+	notes[#notes + 1] = ok_t and "time -1" or ("time FAILED " .. tostring(err_t):sub(1, 80))
 	local ok_c, err_c = pcall(function()
 		local category = entry.category
 		category.type = assert(JE.Type[kind], "JournalEntry.Type." .. kind .. " missing")
@@ -458,7 +482,7 @@ function sync.journal_entry(env, amount, kind)
 	end)
 	notes[#notes + 1] = ok_c and ("type " .. kind) or ("type FAILED " .. tostring(err_c):sub(1, 80))
 	-- Without its type the entry could land as anything (a loan, a construction), so it is not booked.
-	if not ok_a or not ok_c then return nil, table.concat(notes, ", ") end
+	if not ok_a or not ok_t or not ok_c then return nil, table.concat(notes, ", ") end
 	return entry, table.concat(notes, ", ")
 end
 

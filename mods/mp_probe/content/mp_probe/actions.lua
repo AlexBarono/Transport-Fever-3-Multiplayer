@@ -256,7 +256,8 @@ local function record(env, id, kind)
 	elseif kind == "vehicle" then
 		local v = component(env, id, "TRANSPORT_VEHICLE")
 		local out = { ref = named_ref(env, id, kind), config = vehicle_config(env, v.transportVehicleConfig),
-			name = name_of(env, id), userStopped = v.userStopped, autoDeparture = v.autoDeparture }
+			name = name_of(env, id), userStopped = v.userStopped, autoDeparture = v.autoDeparture,
+			stopIndex = v.stopIndex }
 		if v.depot and v.depot >= 0 then out.depot = child_ref(env, v.depot, "depot") end
 		if v.line and v.line >= 0 then out.line = named_ref(env, v.line, "line") end
 		return out
@@ -550,24 +551,39 @@ local function line_type(env, name)
 	return assert(env.api.type.Line[name], "Line." .. name .. " type missing")
 end
 
-local function make_line(env, value, s, peer, offset)
+local function make_line(env, value, s, peer, offset, current)
 	local line = env.api.type.Line.new()
 	put_fields(line, take(value, { "customFilters", "reservationPriority" }))
 	local stops = {}
 	for i, entry in ipairs(value.stops) do
 		local station_ids = {}
 		for j, ref in ipairs(entry.target.stations) do station_ids[j] = resolve(env, ref, s, peer, offset) end
-		local group_id = env.api.engine.system.stationGroupSystem.getStationGroup(station_ids[1])
-		local group = component(env, group_id, "STATION_GROUP")
-		assert(#group.stations == #station_ids, "station grouping differs")
-		local indexes = {}
-		for j, id in ipairs(station_ids) do
-			for k = 1, #group.stations do if group.stations[k] == id then indexes[j - 1] = k - 1 end end
-			assert(indexes[j - 1], "station missing from destination group")
+		local group_id, station, indexes = nil, nil, {}
+		if #station_ids == 0 then
+			-- Demolishing a station leaves an empty stop in existing lines. The engine
+			-- keeps its local station group and marks station/terminal as -1. Keep that
+			-- same slot instead of looking up nil or changing the other stop indexes.
+			assert(entry.target.station == -1 and entry.terminal == -1, "line stop has no station reference")
+			local previous = current and current.stops[i]
+			assert(previous and previous.station == -1 and previous.terminal == -1,
+				"deleted line stop not present in destination slot " .. tostring(i))
+			local group = component(env, previous.stationGroup, "STATION_GROUP")
+			assert(#group.stations == 0, "deleted line stop group is not empty")
+			assert(#entry.alternativeTerminals == 0, "deleted line stop has alternative terminals")
+			group_id, station = previous.stationGroup, previous.station
+		else
+			group_id = env.api.engine.system.stationGroupSystem.getStationGroup(station_ids[1])
+			local group = component(env, group_id, "STATION_GROUP")
+			assert(#group.stations == #station_ids, "station grouping differs")
+			for j, id in ipairs(station_ids) do
+				for k = 1, #group.stations do if group.stations[k] == id then indexes[j - 1] = k - 1 end end
+				assert(indexes[j - 1], "station missing from destination group")
+			end
+			station = assert(indexes[entry.target.station], "invalid station index")
 		end
 		local stop = line_type(env, "Stop").new()
 		put_fields(stop, take(entry, STOP_FIELDS))
-		stop.stationGroup, stop.station = group_id, assert(indexes[entry.target.station], "invalid station index")
+		stop.stationGroup, stop.station = group_id, station
 		stop.stopConfig = put_fields(line_type(env, "StopConfig").new(), entry.stopConfig)
 		local alternatives = {}
 		for j, alt in ipairs(entry.alternativeTerminals) do
@@ -699,7 +715,7 @@ function actions.continue(env, state, log)
 	local command
 	if task.command == "name" then command = cmd.makeEntitySetNameCmd(id, value)
 	elseif task.command == "color" then command = cmd.makeEntitySetColorCmd(id, env.api.type.Vec3f.new(value.x, value.y, value.z))
-	elseif task.command == "line" then command = cmd.makeVehicleSetLineCmd(id, value, 0)
+	elseif task.command == "line" then command = cmd.makeVehicleSetLineCmd(id, value, task.stopIndex or 0)
 	elseif task.command == "stopped" then command = cmd.makeVehicleSetStoppedByUserCmd(id, value)
 	elseif task.command == "manual" then command = cmd.makeVehicleSetManualDepartureCmd(id, value)
 	elseif task.command == "remove_line" then command = cmd.makeLineDestroyCmd(id)
@@ -715,7 +731,9 @@ function actions.continue(env, state, log)
 				if entry.id ~= id or entry.kind ~= task.kind then remaining[#remaining + 1] = entry end
 			end
 			live.action_work = remaining; state:set(live)
-			log("action continuation " .. task.command .. " rejected by game")
+			local detail = task.command == "line" and
+				(" (vehicle=" .. tostring(id) .. ", line=" .. tostring(value) .. ", stop=" .. tostring(task.stopIndex or 0) .. ")") or ""
+			log("action continuation " .. task.command .. " rejected by game" .. detail)
 			return
 		end
 		local ok, err = pcall(refresh, env, state, task.peer, task.kind, id, task.ref, task.command == "remove_line")
@@ -754,15 +772,22 @@ function actions.replay(env, action, state, peer, offset, log)
 	end
 	local function vehicle_settings(id, r, old)
 		local work = {}
-		local function add(command, value)
-			work[#work + 1] = { command = command, value = value, id = id, kind = "vehicle", peer = peer, ref = r.ref }
+		local function add(command, value, stop_index)
+			work[#work + 1] = { command = command, value = value, stopIndex = stop_index,
+				id = id, kind = "vehicle", peer = peer, ref = r.ref }
 		end
 		if not old or r.name ~= old.name then add("name", r.name) end
 		if not old or line_key(r) ~= line_key(old) then
 			local line = r.line and resolve(env, r.line, state:get() or {}, peer, offset) or -1
 			-- Run 19: SetLine with -1 raised "Unknown exception" for a bus bought without a line.
 			if line >= 0 then
-				add("line", line)
+				-- The UI may send a train towards a different stop than 0 (e.g. the only
+				-- reachable station from its depot). Preserve that choice without treating
+				-- ordinary stop progression as a new action. Pre-v28 records default to 0.
+				local stop_index = r.stopIndex == nil and 0 or r.stopIndex
+				assert(type(stop_index) == "number" and stop_index >= 0 and stop_index % 1 == 0,
+					"invalid vehicle line stop index")
+				add("line", line, stop_index)
 			elseif old and old.line then
 				log("action vehicle: taking a vehicle off its line is not copied yet")
 			end
@@ -793,14 +818,15 @@ function actions.replay(env, action, state, peer, offset, log)
 			updated("construction", id, value.ref)
 		end)
 	elseif op == "line_create" or op == "line_update" then
-		local l = make_line(env, value.data, s, peer, offset)
+		local id = op == "line_update" and resolve(env, action.target, s, peer, offset) or nil
+		local current = id and component(env, id, "LINE") or nil
+		local l = make_line(env, value.data, s, peer, offset, current)
 		if op == "line_create" then
 			local color = env.api.type.Vec3f.new(value.color.x, value.color.y, value.color.z)
 			send(cmd.makeLineCreateCmd(value.name, color, env.api.engine.util.getPlayer(), l), function(result)
 				updated("line", assert(result_id(result, "resultEntity"), "line result id missing"), value.ref)
 			end)
 		else
-			local id = resolve(env, action.target, s, peer, offset)
 			send(cmd.makeLineUpdateCmd(id, l), function()
 				updated("line", id, value.ref)
 				enqueue(state, {

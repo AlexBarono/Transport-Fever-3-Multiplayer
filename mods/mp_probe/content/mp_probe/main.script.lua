@@ -13,11 +13,12 @@ local weld = require("/mp_probe/weld.lua")
 local nodecfg = require("/mp_probe/nodecfg.lua")
 local sync = require("/mp_probe/sync.lua")
 local gui = require("/mp_probe/gui.lua")
+local transport = require("/mp_probe/transport.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 26
+main.PROBE_VERSION = 31
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -67,7 +68,7 @@ main.BRIDGE_EVERY = 50
 -- out is handled every INBOX_EVERY updates (2 s of game time at 1x instead of 10 s), without the
 -- "bridge out" marker in the log. DLL v9 offers a line as soon as it arrives; DLL v8 only on the
 -- marker or after the previous line was acknowledged.
-main.INBOX_EVERY = 10
+main.INBOX_EVERY = 1
 main.BRIDGE_ENV = "TF3MP_IN"
 --- Poll purchases/line edits more frequently than the full street graph.
 main.ACTION_EVERY = 10
@@ -91,9 +92,9 @@ main.WELD_ORIGINAL_DUMPS = 2
 -- kind "net" came from the other PC and is built in place; kind "loop" is the one-PC test and is
 -- built REPLAY_SIDE_OFFSET metres beside the original.
 main.SEND_MARKER = "net send "
---- Longest build line the DLL sends (NET_LINE_MAX 16384 with its end byte; the received line goes
--- to the game with a token in front, in a buffer 64 bytes larger).
-main.MAX_LINE = 16000
+--- Complete message limit. transport.lua chunks stdout and environment values to 6000 bytes;
+-- the DLL uses 768-byte UDP fragments, independently of those bridge chunks.
+main.MAX_LINE = transport.MAX_BYTES
 main.RECEIVED_MARKER = "net received token="
 
 --- v24: keeping the two games in step (sync.lua). The simulation records a checkpoint every
@@ -144,6 +145,7 @@ function main.bridge_has_work(env, s)
 	if not getenv then return false end
 	local ok, value = pcall(getenv, main.BRIDGE_ENV)
 	local token = ok and type(value) == "string" and value:match("^line (%S+) ")
+	if ok and type(value) == "string" and value:match("^part ") then return true end
 	return token ~= nil and token ~= s.last_line_token
 end
 
@@ -154,7 +156,7 @@ end
 function main.bridge_tick(env, seq, s, state, quiet)
 	if not quiet then logger.info("bridge out seq=" .. seq) end
 	local outgoing = s and actions.next_line(s)
-	if outgoing then logger.info(main.SEND_MARKER .. outgoing) end
+	if outgoing then transport.send(outgoing, s, logger.info) end
 	if state then state:set(s) end
 	local getenv = env.os and env.os.getenv
 	if not getenv then return end
@@ -179,10 +181,18 @@ end
 -- the acknowledgement in stdout.txt, so the same token can be read again by the next tick; it is
 -- built only once (the token is kept in the savegame state) but acknowledged every time.
 function main.receive_line(env, s, value, state)
+	value = transport.receive(s, value, logger.info)
+	if state then state:set(s) end
+	if not value then return end
 	local token, kind, line = string.match(value, "^line (%S+) (%a+) (.+)$")
 	if not token then return end
 	logger.info(main.RECEIVED_MARKER .. token .. " kind=" .. kind .. " (" .. #line .. " characters)")
-	if token == s.last_line_token then return end
+	if token == s.last_line_token then
+		if s.network_done and s.network_done.token == token then
+			logger.info("net result " .. token .. " " .. s.network_done.result)
+		end
+		return
+	end
 	s.last_line_token = token
 	if state then state:set(s) end
 	local offset = kind == "loop" and main.REPLAY_SIDE_OFFSET or 0
@@ -192,6 +202,12 @@ function main.receive_line(env, s, value, state)
 		return
 	end
 	logger.info("line " .. token .. ": no script event possible, building in the update state")
+	if state then
+		transport.begin(state, token)
+		transport.fail(state, "simulation event unavailable; no build executed")
+		transport.dispatched(state); transport.check(state, logger.info)
+		return
+	end
 	main.replay_line(env, line, token, state, offset)
 end
 
@@ -268,7 +284,9 @@ function main.log_replay_result(result, success, label, outcome)
 	if outcome.built == true then verdict = "BUILT" elseif outcome.built == false then verdict = "NOTHING BUILT" end
 	logger.info("replay result (" .. tostring(label) .. "): " .. verdict .. ", success=" .. tostring(success) ..
 		", costs " .. tostring(outcome.costs) .. ", new entities " .. tostring(outcome.entities) ..
-		", critical " .. tostring(outcome.critical))
+		", critical " .. tostring(outcome.critical) ..
+		(outcome.removed and (", confirmed removals " .. tostring(outcome.removed)) or ""))
+	if outcome.removal_error then logger.info("replay removal check: " .. outcome.removal_error) end
 	for _, message in ipairs(outcome.messages) do logger.info("replay result " .. message) end
 	-- Run 14: walking the result of a station copy stalled the game for 23 s, so it is off.
 	if main.DUMP_REPLAY_RESULTS then
@@ -320,20 +338,20 @@ end
 function main.replay_line(env, line, number, state, distance)
 	if type(line) ~= "string" then
 		logger.info("replay: no line in the request")
-		return
+		return false, "missing replay line"
 	end
 	if line:sub(1, 1) == "A" then
 		local action, err = actions.decode(line)
-		if not action then logger.info("action replay: bad line (" .. tostring(err) .. ")"); return end
+		if not action then logger.info("action replay: bad line (" .. tostring(err) .. ")"); return false, err end
 		local peer = tostring(number):match("^([^.]+)")
 		local ok, result = pcall(actions.receive, state, action, peer, distance or main.REPLAY_SIDE_OFFSET)
 		if not ok then logger.info("action replay failed: " .. tostring(result):sub(1, 240)) end
-		return
+		return ok, result
 	end
 	local data, err = build.deserialize(line)
 	if not data then
 		logger.info("replay: bad line (" .. tostring(err) .. ")")
-		return
+		return false, err
 	end
 	local now = main.game_time(env)
 	if state and now then
@@ -368,12 +386,16 @@ function main.replay_line(env, line, number, state, distance)
 	if configs_only then
 		logger.info("replay #" .. tostring(number) .. ": only node configurations (" .. #data.configs .. ")")
 		main.apply_node_configs(env, data, player)
-		return
+		if state and (state:get() or {}).network_work then
+			local live = state:get() or {}; live.network_followup = { phase = "verify", data = data }
+			state:set(live)
+		end
+		return true
 	end
 	local ok_r, found, missing, notes = pcall(build.resolve, data, main.finder(env))
 	if not ok_r then
 		logger.info("replay: lookup failed (" .. tostring(found):sub(1, 200) .. ")")
-		return
+		return false, found
 	end
 	for _, note in ipairs(notes or {}) do logger.info("replay note: " .. note) end
 	if #(data.objects or {}) > 0 or #(data.objects_to_remove or {}) > 0 then
@@ -384,7 +406,7 @@ function main.replay_line(env, line, number, state, distance)
 	end
 	if not found then
 		logger.info("replay SKIPPED: the build " .. tostring(missing))
-		return
+		return false, missing
 	end
 	local ok_k, cleared = pcall(main.configs_to_clear, env, data)
 	data.configs_to_remove = ok_k and cleared or {}
@@ -397,22 +419,33 @@ function main.replay_line(env, line, number, state, distance)
 	end
 	local street_work = #data.segments + #data.removed_segments + #data.removed_nodes
 	if has_gates and street_work > 0 and #data.demolished == 0 then
-		main.replay_in_steps(env, data, state, player)
-		return
+		return main.replay_in_steps(env, data, state, player)
 	end
-	local ok, message = build.replay(env, data, main.replay_options(player, has_gates))
+	local ok, message = build.replay(env, data, main.replay_options(player, has_gates, state))
 	logger.info("replay: " .. (ok and "sent, " or "failed, ") .. message)
+	if ok and state and (state:get() or {}).network_work then
+		local live = state:get() or {}
+		live.network_followup = { phase = "finish", data = data, gates = has_gates, player = player }
+		state:set(live)
+		return ok, message
+	end
+	if ok and data.native_replacement then
+		if has_gates and state then main.check_replacement_later(env, data, state) end
+		return ok, message
+	end
 	if ok and has_gates then main.weld_copy(env, data, state, player) end
 	if ok then main.apply_node_configs(env, data, player) end
+	return ok, message
 end
 
 --- Options for build.replay of a received line.
 -- @param describe boolean v20: log what the game made of a copy with an entrance before it is sent
-function main.replay_options(player, describe)
+function main.replay_options(player, describe, state)
 	local described = false
 	return {
 		log = function(text) logger.info("replay " .. text) end,
 		on_result = main.log_replay_result,
+		on_rejected = function(message) transport.fail(state, message) end,
 		-- What the game holds for the first segment just before sending, lanes included.
 		inspect = function(label, _, edge_list)
 			local ok_f, lines = pcall(probe.fields, edge_list[1], "edge[1]", 4, main.RESULT_DUMP_LINES)
@@ -440,10 +473,17 @@ function main.replay_in_steps(env, data, state, player)
 	logger.info(string.format("replay in steps: streets first (%d nodes, %d segments, %d removed segments, " ..
 		"%d removed nodes), then %d construction(s)", #streets.nodes, #streets.segments,
 		#streets.removed_segments, #streets.removed_nodes, #constructions.constructions))
-	local ok_s, message_s = build.replay(env, streets, main.replay_options(player, false))
+	local ok_s, message_s = build.replay(env, streets, main.replay_options(player, false, state))
 	logger.info("replay streets: " .. (ok_s and "sent, " or "failed, ") .. message_s)
+	if not ok_s then return false, message_s end
+	if state and (state:get() or {}).network_work then
+		local live = state:get() or {}
+		live.network_followup = { phase = "street_configs", data = constructions, streets = streets, player = player, gates = true }
+		state:set(live)
+		return true, message_s
+	end
 	if ok_s then main.apply_node_configs(env, streets, player) end
-	local ok_c, message_c = build.replay(env, constructions, main.replay_options(player, true))
+	local ok_c, message_c = build.replay(env, constructions, main.replay_options(player, true, state))
 	logger.info("replay construction: " .. (ok_c and "sent, " or "failed, ") .. message_c)
 	if ok_c then main.weld_copy(env, constructions, state, player) end
 	-- Run 22: setting the configurations once more after the refresh made the game assert
@@ -451,6 +491,69 @@ function main.replay_in_steps(env, data, state, player)
 	-- which crashed the game a few seconds later. The refresh sets the junction's and the gate's
 	-- configurations itself, the others were set after the streets.
 	if ok_c then logger.info("replay: node configurations at the entrance are left to the game") end
+	return ok_c, message_c
+end
+
+-- Continue staged builds only after all callbacks of the earlier stage have returned.
+function main.network_continue(env, state)
+	local live = state:get() or {}; local follow = live.network_followup
+	if live.network_work and live.network_work.error then return end
+	if not follow then return end
+	follow.requested = nil
+	if follow.phase == "street_configs" then
+		main.apply_node_configs(env, follow.streets, follow.player)
+		follow.phase = "street_verify"
+	elseif follow.phase == "street_verify" then
+		main.verify_node_configs(env, follow.streets, state)
+		follow.phase = "construction"; follow.streets = nil
+	elseif follow.phase == "construction" then
+		local ok, err = build.replay(env, follow.data, main.replay_options(follow.player, true, state))
+		if not ok then transport.fail(state, err) end
+		follow.phase = "finish"
+	elseif follow.phase == "finish" then
+		if follow.data.native_replacement then
+			-- The engine's replacement proposal owns the complete station graph, including
+			-- snapping and node configurations. Do not rebuild or overwrite it afterwards.
+			logger.info("replay replacement: connections and node configurations supplied by the engine")
+			if follow.gates then main.check_replacement_later(env, follow.data, state) end
+		else
+			if follow.gates then main.weld_copy(env, follow.data, state, follow.player) end
+			main.apply_node_configs(env, follow.data, follow.player)
+		end
+		follow.phase = "verify"
+	else
+		main.verify_node_configs(env, follow.data, state)
+		follow = nil
+	end
+	live = state:get() or {}; live.network_followup = follow; state:set(live)
+end
+
+-- Verify native replacements with the existing delayed, read-only connection check.
+function main.check_replacement_later(env, data, state)
+	local now = main.game_time(env)
+	if not now then transport.fail(state, "replacement connection check has no game time"); return end
+	local live = state:get() or {}
+	live.weld_checks = live.weld_checks or {}
+	for _, c in ipairs(data.constructions or {}) do
+		live.weld_checks[#live.weld_checks + 1] = {
+			file = c.file, position = { x = c.transf[13], y = c.transf[14], z = c.transf[15] },
+			gates = data.gate_positions or {}, due = now + main.WELD_RECHECK_MS,
+		}
+	end
+	state:set(live)
+end
+
+function main.verify_node_configs(env, data, state)
+	local total = #(data.configs or {})
+	if total == 0 then return end
+	local resolved = nodecfg.resolve(env, data, world.node_index(env))
+	if #resolved < total then transport.fail(state, "node configurations could not all be resolved"); return end
+	for _, entry in ipairs(resolved) do
+		if not world.node_construction(env, entry.node) and not world.has_node_config(env, entry.node) then
+			transport.fail(state, "node configuration missing after execution: " .. tostring(entry.node))
+			return
+		end
+	end
 end
 
 --- v23 (run 22): existing nodes whose configuration the build makes wrong: ends of removed
@@ -510,6 +613,7 @@ function main.weld_copy(env, data, state, player)
 		dump = main.dump_value,
 	})
 	if not ok then
+		transport.fail(state, "weld failed: " .. tostring(checked))
 		logger.info("weld failed: " .. tostring(checked):sub(1, 200))
 		return
 	end
@@ -534,9 +638,12 @@ function main.recheck_welds(env, s)
 		if now >= (c.due or 0) then
 			local id = world.find_construction(env, c.file, c.position)
 			if id then
-				logger.info("weld check later: " .. weld.status(env, id, c.gates or {}).text)
+				local status = weld.status(env, id, c.gates or {})
+				logger.info("weld check later: " .. status.text)
+				if s.network_work and status.welded ~= true then s.network_work.error = "construction entrance not confirmed: " .. status.text end
 			else
 				logger.info("weld check later: the copied construction is gone")
+				if s.network_work then s.network_work.error = "copied construction missing after build" end
 			end
 		else
 			waiting[#waiting + 1] = c
@@ -593,6 +700,9 @@ function main.update(_user_params, state, _dt)
 		local ok, err = pcall(main.recheck_welds, _G, s)
 		if not ok then
 			s.weld_checks = nil
+			if s.network_work then
+				s.network_work.error = s.network_work.error or ("construction entrance check unreadable: " .. tostring(err):sub(1, 180))
+			end
 			logger.info("weld check later failed: " .. tostring(err):sub(1, 200))
 		end
 	end
@@ -615,6 +725,8 @@ function main.update(_user_params, state, _dt)
 		s.actions, s.action_entities = live.actions, live.action_entities
 		s.action_inbox, s.action_work, s.action_busy = live.action_inbox, live.action_work, live.action_busy
 		s.action_work_requested = live.action_work_requested
+		s.network_work, s.network_done = live.network_work, live.network_done
+		s.network_followup = live.network_followup
 		-- A replay handled right away also leaves its quiet time and weld checks there (v20).
 		s.quiet_until, s.quiet_segments, s.weld_checks = live.quiet_until, live.quiet_segments, live.weld_checks
 	end
@@ -631,6 +743,14 @@ function main.update(_user_params, state, _dt)
 		logger.info("snapshot update=" .. s.updates .. " " .. probe.format_snapshot(snap))
 	end
 	state:set(s)
+	if s.network_followup and s.network_work and not s.network_work.error and s.network_work.pending == 0 and not s.network_followup.requested then
+		s.network_followup.requested = true; state:set(s)
+		if not main.send_replay_event(_G, { network_continue = true }) then
+			transport.fail(state, "build continuation event unavailable")
+		end
+	end
+	transport.check(state, logger.info)
+	s = state:get() or s
 	if actions.has_work(s) and not s.action_work_requested then
 		s.action_work_requested = true
 		state:set(s)
@@ -707,6 +827,14 @@ function main.sync_compare(env, ss, role, gt)
 					#fields == 0 and "same" or ("differs in " .. table.concat(fields, ", "))))
 				for _, note in ipairs(out.notes) do logger.info("sync: " .. note) end
 				for _, warning in ipairs(out.warnings) do logger.info("sync WARNING: the games differ: " .. warning) end
+				local world_status = out.world_mismatch and "diff" or (out.world_different or 0) > 0 and "checking"
+					or (out.world_fields or 0) == #(sync.HASH_FIELDS or {}) and (out.world_fields or 0) > 0 and "same" or "unknown"
+				local world_fields = {}
+				for _, field in ipairs(sync.HASH_FIELDS or {}) do
+					if out.diffs[field] then world_fields[#world_fields + 1] = field end
+				end
+				logger.info(main.STATE_MARKER .. "health ck=" .. p.k .. " status=" .. world_status ..
+					" fields=" .. (#world_fields > 0 and table.concat(world_fields, ",") or "none"))
 				main.sync_correct(ss, out.fix, gt)
 			elseif ss.own_k and ss.own_k > p.k then
 				-- This game has no checkpoint with that number (loaded later); it is skipped.
@@ -950,7 +1078,8 @@ function main.capture_build(state, s, param, label)
 			logger.info(string.format("capture line TOO LONG for the network (%d characters, at most %d): " ..
 				"the other game does not get this build", #line, main.MAX_LINE))
 		else
-			logger.info(main.SEND_MARKER .. line)
+			transport.send(line, s, logger.info)
+			state:set(s)
 		end
 	end
 	if info.access > 0 and info.constructions > 0 then
@@ -991,6 +1120,12 @@ end
 -- creates (also copies built for the other player) and once per savegame from a full scan.
 function main.remember_constructions(env, s, param)
 	s.constructions = s.constructions or {}
+	-- Upgrades may reuse the removed construction's ID (run28). Clear the old snapshot
+	-- first, then remember the current construction, so the next upgrade can replace it.
+	pcall(function()
+		local removed = param[1].toRemove
+		for i = 1, #removed do s.constructions[tostring(removed[i])] = nil end
+	end)
 	pcall(function()
 		local ids = param[3]
 		for i = 1, #ids do
@@ -1001,14 +1136,16 @@ function main.remember_constructions(env, s, param)
 			end
 		end
 	end)
-	pcall(function()
-		local removed = param[1].toRemove
-		for i = 1, #removed do s.constructions[tostring(removed[i])] = nil end
-	end)
 end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
 	if main.is_replay_event(src, id, name) then
+		if type(param) == "table" and param.network_continue then
+			local ok, err = pcall(main.network_continue, transport.env(_G, state), state)
+			if not ok then transport.fail(state, err) end
+			transport.check(state, logger.info)
+			return
+		end
 		if type(param) == "table" and param.sync_fix then
 			local ok, err = pcall(main.sync_apply, _G, state, param)
 			if not ok then logger.info("sync correction failed: " .. main.error_text(err):sub(1, 240)) end
@@ -1018,8 +1155,12 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			local s = state:get() or {}
 			s.action_work_requested = false
 			state:set(s)
-			local ok, err = pcall(actions.tick, _G, state, function(text) logger.info(text) end)
-			if not ok then logger.info("action continuation failed: " .. main.error_text(err):sub(1, 400)) end
+			local ok, err = pcall(actions.tick, transport.env(_G, state), state, transport.action_log(state, logger.info))
+			if not ok then
+				transport.fail(state, main.error_text(err))
+				logger.info("action continuation failed: " .. main.error_text(err):sub(1, 400))
+			end
+			transport.check(state, logger.info)
 			return
 		end
 		local line = type(param) == "table" and param.line or nil
@@ -1032,15 +1173,32 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			local s = state:get() or {}
 			line = s.last_build
 		end
-		main.replay_line(_G, line, number, state, distance)
+		local network = type(param) == "table" and param.source ~= nil
+		if network then
+			local live = state:get() or {}
+			if live.network_done and live.network_done.token == tostring(number) then
+				logger.info("net result " .. tostring(number) .. " " .. live.network_done.result)
+				return
+			end
+			if live.network_work and live.network_work.dispatched then return end
+			if not transport.begin(state, tostring(number)) then return end
+		end
+		local ok, applied, err = pcall(main.replay_line, transport.env(_G, state), line, number, state, distance)
+		if network then
+			if not ok or not applied then transport.fail(state, ok and (err or "replay failed") or applied) end
+			transport.dispatched(state); transport.check(state, logger.info)
+		elseif not ok then logger.info("replay failed: " .. main.error_text(applied)) end
 		return
 	end
 	local s = state:get() or {}
 	if name == "handleLegacy" then
+		logger.info("net reload")
+		s.network_work = nil
 		-- A native callback or an event in flight cannot survive a game reload.
 		-- Observe the loaded save anew; don't execute persisted, stale UI operations.
 		s.actions, s.action_inbox, s.action_work = nil, nil, nil
 		s.action_busy, s.action_work_requested = false, false
+		s.network_followup = nil
 		-- The other game's checkpoints and corrections belong to the session before.
 		s.sync = nil
 	end

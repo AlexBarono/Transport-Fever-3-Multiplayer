@@ -22,6 +22,8 @@ param(
 	[string]$LogFile = ''
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'transport.ps1')
+$receiver = New-MpReceiver
 if (-not $LogFile) { $LogFile = Join-Path $PSScriptRoot 'fake-partner.log' }
 Set-Content -Path $LogFile -Value @() -Encoding UTF8
 
@@ -82,11 +84,13 @@ $sessionLines = New-Object System.Collections.ArrayList   # build lines since th
 $replay = New-Object System.Collections.ArrayList         # lines to send back after a reload
 $replayAfterGt = $null
 $replayToken = $null                                      # line in flight
+$replaySend = $null
 $replaySentAt = -10
 $replayTries = 0
 $replayCount = 0
 $replayDone = 0
 $replayRound = 0
+$replayFailure = $null
 
 function Client-Gt {
 	if (-not $client) { return 0 }
@@ -107,7 +111,7 @@ function Send-Text($text) {
 	[void]$script:udp.Send($bytes, $bytes.Length, $script:peer)
 }
 
-while ((Now) -lt $deadline) {
+while ((Now) -lt $deadline -and -not $replayFailure) {
 	$packet = $null
 	try {
 		$from = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
@@ -115,30 +119,35 @@ while ((Now) -lt $deadline) {
 	} catch {
 		# Zeitüberschreitung beim Empfang: weiter.
 	}
+	if ($packet -match '^TF3MP/1 PROBE ([A-Za-z0-9-]+)$') {
+		$ready = [System.Text.Encoding]::ASCII.GetBytes("TF3MP/1 READY $($matches[1]) proto=2")
+		[void]$udp.Send($ready, $ready.Length, $from)
+		continue
+	}
 	if ($packet) {
 		if (-not $peer) { Log "game connected from $from" }
 		$peer = $from
-		if ($packet.StartsWith('TF3MP/1 LINE ')) {
-			$rest = $packet.Substring(13)
-			$token = $rest.Split(' ')[0]
-			$text = $rest.Substring($token.Length).TrimStart(' ')
-			Send-Text "TF3MP/1 GOT $token"
-			# The game sends a line again until it sees GOT; it is kept once.
-			if ($token -ne $lastLineToken) {
-				$lastLineToken = $token
-				$lines++
-				[void]$sessionLines.Add($text)
-				Log "build line $token from the game ($($text.Substring(0, [Math]::Min(2, $text.Length))), $($text.Length) characters), kept for the replay after a reload"
+		$data = Read-MpDataPacket $receiver $packet
+		if ($data) {
+			Send-Text $data.Reply
+			if ($data.Text) {
+				$lines++; [void]$sessionLines.Add($data.Text)
+				Log "recorded build $($data.Token) ($($data.Text.Length) bytes)"
 			}
 		}
-		elseif ($packet.StartsWith('TF3MP/1 GOT ')) {
-			$token = $packet.Substring(12).Trim()
-			if ($replayToken -and $token -eq $replayToken) {
-				$replayDone++
-				Log "the game took line $replayDone of $replayCount ($token)"
-				$replayToken = $null
-				$replay.RemoveAt(0)
-				if ($replay.Count -eq 0) { Log "all $replayCount line(s) sent back; the game builds them at the same spot" }
+		elseif ($replaySend -and $packet -match '^TF3MP/1 (PART|GOT|DONE|RESET) ') {
+			$before = $replaySend.Part
+			try { Confirm-MpSend $replaySend $packet } catch {
+				if (-not $replayFailure) {
+					$replayFailure = $_.Exception.Message
+					Log "REPLAY FAILED at line $($replayDone + 1) of $replayCount ($replayToken): $replayFailure"
+					Log 'Following actions remain stopped. Restart the game and the test from the original save after fixing the rejected action.'
+				}
+			}
+			if ($replaySend.Part -ne $before) { $replaySentAt = -10 }
+			if ($replaySend.Done) {
+				$replayDone++; Log "game APPLIED line $replayDone of $replayCount"
+				$replayToken = $null; $replaySend = $null; $replay.RemoveAt(0)
 			}
 		}
 		elseif ($packet.StartsWith('TF3MP/1 STATE gui ')) {
@@ -149,7 +158,7 @@ while ((Now) -lt $deadline) {
 				if ($sessionLines.Count -gt 0) {
 					foreach ($l in $sessionLines) { [void]$replay.Add($l) }
 					$replayRound++
-					$replayCount = $replay.Count; $replayDone = 0; $replayToken = $null
+					$replayCount = $replay.Count; $replayDone = 0; $replayToken = $null; $replaySend = $null
 					$replayAfterGt = [double]$s['gt'] + 20000
 					Log "$($sessionLines.Count) build line(s) of the session before go back to the game once it ran 20 s"
 					$sessionLines.Clear()
@@ -215,23 +224,24 @@ while ((Now) -lt $deadline) {
 		}
 	}
 	# Replay after a reload: one line at a time, again every second until the game confirms it.
-	if ($peer -and $replay.Count -gt 0 -and $client -and [double]$client['gt'] -ge $replayAfterGt) {
+	if (-not $replayFailure -and $peer -and $replay.Count -gt 0 -and $client -and [double]$client['gt'] -ge $replayAfterGt) {
 		if (-not $replayToken) {
 			$replayToken = "fh$PID-$replayRound.$($replayDone + 1)"
+			$replaySend = New-MpSend $replayToken $replay[0]
 			$replaySentAt = -10
 			$replayTries = 0
 		}
 		if ($now - $replaySentAt -ge 1) {
 			$replaySentAt = $now
 			$replayTries++
-			Send-Text "TF3MP/1 LINE $replayToken $($replay[0])"
+			Send-Text (Get-MpSendPacket $replaySend)
 			if ($replayTries -eq 1) { Log "sending line $($replayDone + 1) of $replayCount back ($replayToken)" }
 			elseif ($replayTries % 30 -eq 0) { Log "line $($replayDone + 1) not confirmed after $replayTries tries" }
 		}
 	}
 	if ($peer -and $now - $lastHello -ge 2) {
 		$lastHello = $now
-		Send-Text "TF3MP/1 HELLO host pid=$PID seq=$hb"
+		Send-Text "TF3MP/1 HELLO host pid=$PID seq=$hb proto=2 session=fh$PID"
 	}
 	if ($peer -and $hostReg -and $now - $lastSend -ge 1) {
 		$lastSend = $now
@@ -246,3 +256,4 @@ while ((Now) -lt $deadline) {
 }
 $udp.Close()
 Log "fake host stopped ($lines build line(s) received, $replayDone sent back, last phase '$phase')"
+if ($replayFailure) { Log "replay stopped: $replayFailure" }

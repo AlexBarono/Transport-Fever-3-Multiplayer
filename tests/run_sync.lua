@@ -107,6 +107,7 @@ local function game(role)
 	function cmd.makeScriptingSendEventCmd(a, b, c, d) return { name = "event", args = { a, b, c, d } } end
 	function cmd.sendCommand(c, callback)
 		if callback and g.context == "update" then error("Callbacks are currently disallowed") end
+		if c.name == "book" then assert(c.entry.time == -1, "cmd.journalEntry.time == -1") end
 		if c.name == "event" then
 			g.events_sent = g.events_sent + 1
 			if g.events_now then g.handle(c.args) else g.events[#g.events + 1] = c.args end
@@ -441,7 +442,7 @@ test("the booking goes to handleEvent as a script event and is counted in the ne
 		run(host, client, 600)
 		assert(client.events_sent == 1 and client.balance == host.balance, tostring(now))
 		assert(has(client.logs, "sync: money differs by 50000 from the host's, booking it"))
-		assert(has(client.logs, "sync: money correction sent (amount 50000, other CHEAT, type OTHER)"))
+		assert(has(client.logs, "sync: money correction sent (amount 50000, time -1, other CHEAT, type OTHER)"))
 		assert(has(client.logs, "sync: money corrected by 50000, success=true"))
 		-- What handleEvent noted survives the update that sent the event.
 		assert(client.s.sync.adj == 50000 and client.s.sync.fixes.money, tostring(now))
@@ -570,6 +571,32 @@ test("an entry whose type cannot be set is not booked", function()
 	assert(ok and sent == false and notes:find("type FAILED", 1, true) and #g.sent == 0)
 end)
 
+test("journal corrections request the game's current time with the required sentinel", function()
+	local g = game("client")
+	-- JE.new() starts at time=0; the real game's command rejects that default (run 27).
+	local entry = g.api.type.JournalEntry.new()
+	assert(not pcall(g.api.cmd.sendCommand, g.api.cmd.makeJournalBookAssetCmd(7, entry)))
+	for _, amount in ipairs({ 5000, -5000 }) do
+		local ok = sync.book(g.env, amount, "OTHER")
+		assert(ok and g.sent[#g.sent].entry.time == -1 and g.sent[#g.sent].entry.amount == amount)
+	end
+	assert(#g.sent == 2 and g.balance == 1000000)
+end)
+
+test("an entry whose required time cannot be set is not booked", function()
+	local g = game("client")
+	function g.api.type.JournalEntry.new()
+		return setmetatable({ amount = 0, category = { type = 0, other = 0 } }, {
+			__newindex = function(t, key, value)
+				if key == "time" then error("time unavailable") end
+				rawset(t, key, value)
+			end,
+		})
+	end
+	local ok, sent, notes = pcall(sync.book, g.env, 100, "OTHER")
+	assert(ok and sent == false and notes:find("time FAILED", 1, true) and #g.sent == 0)
+end)
+
 test("nothing happens without DLL v8, and checkpoints wait for a host or client role", function()
 	local g = game("host"); g.vars.TF3MP_ROLE = nil
 	for _ = 1, 400 do g.tick() end
@@ -600,6 +627,41 @@ test("the installed mod manifest lists sync.lua and gui.lua, and the GUI script 
 	assert(loadfile(MOD_ROOT .. "/mp_probe/main.gs.lua"))()
 	local desc = data()
 	assert(desc.guiUpdateScript.fileName == "main.script@guiUpdate" and type(main.guiUpdate) == "function")
+end)
+
+test("world content differences require two consecutive checkpoints and never modify the world", function()
+	local m = {}
+	local own = { hcon = "h1_0000000000000001", hedge = "h1_0000000000000002",
+		hline = "h1_0000000000000003", hveh = "h1_0000000000000004" }
+	local peer = copy(own); peer.hline = "h1_0000000000000005"
+	local out = sync.compare(m, 1, own, peer, "client", 1)
+	assert(out.world_fields == 4 and out.world_different == 1 and not out.world_mismatch)
+	assert(#out.warnings == 0 and next(out.fix) == nil)
+	out = sync.compare(m, 2, own, peer, "client", 2)
+	assert(out.world_mismatch and #out.warnings == 1 and out.world_diffs[1] == "hline")
+	assert(next(out.fix) == nil, "world contents must only be reported")
+	out = sync.compare(m, 3, own, own, "client", 3)
+	assert(out.world_fields == 4 and out.world_different == 0 and not out.world_mismatch)
+end)
+
+test("missing and invalid world hashes break consecutive evidence instead of proving equality", function()
+	local m, own, peer = {}, { hcon = "h1_0000000000000001" }, { hcon = "h1_0000000000000002" }
+	sync.compare(m, 1, own, peer, "host", 1)
+	local out = sync.compare(m, 2, {}, peer, "host", 2)
+	assert(out.world_fields == 0 and out.world_different == 0 and not out.world_mismatch)
+	out = sync.compare(m, 3, own, peer, "host", 3)
+	assert(out.world_fields == 1 and not out.world_mismatch)
+	out = sync.compare(m, 4, own, peer, "host", 4)
+	assert(out.world_mismatch)
+	out = sync.compare(m, 5, { hcon = "garbage" }, peer, "host", 5)
+	assert(out.world_fields == 0 and not out.world_mismatch)
+end)
+
+test("nonadjacent mismatches do not trigger a world warning", function()
+	local m, own, peer = {}, { hveh = "h1_0000000000000001" }, { hveh = "h1_0000000000000002" }
+	sync.compare(m, 1, own, peer, "host", 1)
+	local out = sync.compare(m, 3, own, peer, "host", 3)
+	assert(not out.world_mismatch and #out.warnings == 0)
 end)
 
 print(string.format("%d sync tests passed, %d failed", passed, failed))

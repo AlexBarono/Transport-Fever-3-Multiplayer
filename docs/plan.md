@@ -1,6 +1,6 @@
 # Transport Fever 3 Multiplayer-Mod: Machbarkeit und Umsetzungsplan
 
-Stand: 6. Oktober 2026 (eine Woche nach Release)
+Stand der Aufgaben: 8. Oktober 2026. Die ursprüngliche Machbarkeitsrecherche weiter unten stammt vom 6. Oktober.
 
 ## 1. Kurzfazit
 
@@ -53,7 +53,16 @@ Konsequenz: Architektur wie bei tpf2-multiplayer, also **native Komponente für 
 
 ## 5. Umsetzungsplan
 
-**Aktuelle Priorität (06.10.2026):** Auf Wunsch des Benutzers zuerst Bahnhöfe, Depots, Abriss, Fahrzeuge und Linien ergänzen, anschließend zwischen zwei PCs testen. Die Umsetzung in Probe v13 und die Übergabe für Claude stehen in [phase2-actions.md](phase2-actions.md). Die zusätzlichen Aktionen sind offline geprüft; ein Spielnachweis steht aus.
+**Aktuelle Priorität (08.10.2026):** Bahnhöfe, Depots, Abriss, Fahrzeuge und Linien sind implementiert. Run30 hat alle 21 Aktionen einschließlich dreier Bahnhofserweiterungen und Linienumbenennung im Spiel bestätigt. v31 ergänzt Sitzungs-/Versions-/Mod-/Spielstandprüfung, detailliertere Weltprüfsummen und geführten Neuabgleich. Aktuelle Übergabe: [phase5-session-world.md](phase5-session-world.md).
+
+- [x] Bauaktionen, Bahnhofserweiterungen und Linienänderungen auf einem PC aufnehmen und vollständig nachbauen (v30, Nutzer und Log bestätigen Erfolg).
+- [x] Gemeinsamen Startstand, Spiel-/Paket-/Modversionen und übertragenen Spielstand prüfen (v31, offline geprüft).
+- [x] Gleiche Anzahlen mit verschiedenen Bau-, Linien- oder Fahrzeugdaten erkennen (v31, offline geprüft).
+- [x] Einen neuen gemeinsamen Spielstand zur Fehlerbehebung geführt teilen und Sitzung neu vorbereiten (v31, offline geprüft; Speichern/Laden im Spiel).
+- [ ] v31 auf zwei PCs im gemeinsamen VPN prüfen: Beitritt, beide Baurichtungen, Weltvergleich, kurze Unterbrechung und Neuabgleich.
+- [ ] Große Spielstände und große Bau-/Fahrzeugaktionen im Spiel auf Laufzeit und Grenzen prüfen.
+- [ ] Automatischen Resync mit Speichern/Laden ohne manuellen Neustart umsetzen.
+- [ ] Gastgeber-Reihenfolge für gleichzeitige Aktionen und tickgenaue Ausführung umsetzen; Determinismus im Zwei-PC-Lauf nachweisen.
 
 ### Phase 0: Erkundung (2–4 Wochen)
 Ziel: Klären, ob die Annahmen für TF3 gelten. Entscheidet über Go/No-Go.

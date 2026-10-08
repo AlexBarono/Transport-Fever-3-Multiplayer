@@ -7,10 +7,11 @@
 #include <windows.h>
 #include <stdarg.h>
 
-#define PROXY_VERSION "9"
+#define PROXY_VERSION "11"
 
 /* Longest build line the DLL passes between the games, in characters. */
-#define NET_LINE_MAX 16384
+#define NET_LINE_MAX 262145
+#define NET_BRIDGE_CHUNK 6000
 
 /* State texts (v8): the latest text per key, sent to the peer every second, nothing queued. */
 #define NET_STATE_MAX 512
@@ -31,12 +32,18 @@ int net_mode(void);
 /* "off", "host", "client" or "loopback". */
 const char *net_mode_name(void);
 /* Queues a captured build line for the other game, or for this one with mode=loopback. */
-void net_send_line(const char *text);
-/* Writes "line <token> <kind> <text>" for the oldest received line into out; 0 if there is none. */
+int net_send_line(const char *text);
+/* Writes one "part <token> <kind> <index> <count> <text>" (up to NET_BRIDGE_CHUNK bytes). */
 int net_inbox_value(char *out, int size);
-/* Drops the oldest received line if it has this token; 1 if it did. */
+/* Receipt only: holds this entry until net_inbox_result reports execution. */
 int net_inbox_ack(const char *token);
-/* Number of received lines the mod has not confirmed yet (v9). */
+int net_inbox_part_ack(const char *token, int part);
+int net_inbox_result(const char *token, const char *result);
+void net_status(char *out, int size);
+int net_game_reload(void);
+/* Original game load log, before Lua reports its first world initialization. */
+void net_world_loading(const char *name);
+/* Received messages not yet executed by the game. */
 int net_inbox_count(void);
 /* Keeps text as this game's latest state under key for the peer; 0 if there is no room for the key. */
 int net_set_state(const char *key, const char *text);

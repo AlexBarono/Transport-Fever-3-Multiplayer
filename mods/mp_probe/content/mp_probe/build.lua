@@ -149,7 +149,7 @@ end
 --- Percent-encodes every character that is not a letter, digit, "_", "." or "-", so a text field
 -- never contains the separators of the line (space, ";", "|", ",") or of a params literal.
 function build.escape(text)
-	return (string.gsub(tostring(text), "[^%w_%.%-]", function(c) return string.format("%%%02X", c:byte()) end))
+	return (string.gsub(tostring(text), "[^A-Za-z0-9_%.%-]", function(c) return string.format("%%%02X", c:byte()) end))
 end
 
 function build.unescape(text)
@@ -515,9 +515,7 @@ function build.serialize(proposal, opts)
 	if #config_tokens > 0 then
 		local text = table.concat(config_tokens, " ")
 		if #line + 1 + #text > build.CONFIG_LINE_LIMIT then
-			info.dropped[#info.dropped + 1] = info.node_configs .. " node configs (line would be " ..
-				(#line + 1 + #text) .. " characters)"
-			info.node_configs = 0
+			error("complete build including node configs exceeds 256 KiB")
 		else
 			line = line .. " " .. text
 		end
@@ -534,7 +532,7 @@ end
 -- crosswalk names, by the positions of its two end nodes ("e" tokens). The receiver applies them
 -- after the build (nodecfg.lua), when every segment has its id in that game, including the ones a
 -- construction lays itself.
-build.CONFIG_LINE_LIMIT = 14000
+build.CONFIG_LINE_LIMIT = 262144
 
 --- Reads a number field that may come as a number, boolean or enum value.
 local function int_of(v)
@@ -1526,15 +1524,20 @@ end
 --   command; this is the only place that says whether the build really happened
 -- @param prepare function|nil called with the command before it is sent (v20: to read the full
 --   Proposal the game made of a SimpleProposal); its errors are logged, never raised
+-- @param native_replacement boolean|nil use the native GUI replacement signature, with nil
+--   context and playerInitiated=false so the copy is not recorded as a new player action
 -- @return boolean ok, string message
-function build.send(env, proposal, log, on_result, player, prepare)
+function build.send(env, proposal, log, on_result, player, prepare, native_replacement)
 	local api = env.api
 	local context = nil
-	pcall(function() context = build.make_context(env, player) end)
-	for i, make_args in ipairs(build.CMD_ARGS) do
+	if not native_replacement then pcall(function() context = build.make_context(env, player) end) end
+	local signatures = native_replacement and { function(p) return { p } end } or build.CMD_ARGS
+	for i, make_args in ipairs(signatures) do
 		local ok, err = pcall(function()
 			local args = make_args(proposal, context)
-			local cmd = api.cmd.makeWorldBuildProposalCmd(args[1], args[2], args[3])
+			local cmd
+			if native_replacement then cmd = api.cmd.makeWorldBuildProposalCmd(args[1], nil, false, false)
+			else cmd = api.cmd.makeWorldBuildProposalCmd(args[1], args[2], args[3]) end
 			if prepare then
 				local ok_p, err_p = pcall(prepare, cmd)
 				if not ok_p and log then log("prepare: " .. tostring(err_p):sub(1, 200)) end
@@ -1589,6 +1592,64 @@ function build.outcome(result)
 	return o
 end
 
+-- Demolition can cost nothing or refund money, and creates no result entities. Only a pure
+-- removal can use this evidence: replacing an edge/station must still prove its new build.
+-- Check before sending as well as in the callback, so an already missing entity is no proof.
+local function removal_exists(env, id, stage)
+	-- TF3 exposes API calls as callable tables, including entityExists (run 28).
+	local ok, exists = pcall(function() return env.api.engine.entityExists(id) end)
+	if not ok then
+		return nil, "removal lookup unreadable " .. stage .. " for entity " .. tostring(id) .. ": " .. tostring(exists):sub(1, 160)
+	end
+	if type(exists) ~= "boolean" then
+		return nil, "removal lookup unreadable " .. stage .. " for entity " .. tostring(id) .. ": non-boolean result"
+	end
+	return exists
+end
+
+local function removal_snapshot(env, data)
+	if #(data.nodes or {}) > 0 or #(data.segments or {}) > 0 or #(data.constructions or {}) > 0 then return nil end
+	for _, object in ipairs(data.objects or {}) do if not object.entity then return nil end end
+	local has_removals = #(data.removed_segments or {}) + #(data.demolished or {}) +
+		#(data.removed_nodes or {}) + #(data.objects_to_remove or {}) > 0
+	if not has_removals then return nil end
+	local ids, seen = {}, {}
+	local function add(id)
+		if type(id) ~= "number" or id < 0 then return false, "invalid removal entity before send: " .. tostring(id) end
+		if not seen[id] then
+			local exists, err = removal_exists(env, id, "before send")
+			if exists ~= true then return false, err or ("removal target missing before send: entity " .. tostring(id)) end
+			seen[id], ids[#ids + 1] = true, id
+		end
+		return true
+	end
+	for _, removed in ipairs(data.removed_segments or {}) do
+		local ok, err = add(removed.entity); if not ok then return nil, true, err end
+	end
+	for _, removed in ipairs(data.demolished or {}) do
+		local ok, err = add(removed.entity); if not ok then return nil, true, err end
+	end
+	for _, node in ipairs(data.removed_nodes or {}) do
+		if node.entity then
+			local ok, err = add(node.entity); if not ok then return nil, true, err end
+		end
+	end
+	for _, id in ipairs(data.objects_to_remove or {}) do
+		local ok, err = add(id); if not ok then return nil, true, err end
+	end
+	if #ids == 0 then return nil, true, "no removal entities could be checked before send" end
+	return ids, true
+end
+
+local function removals_applied(env, ids)
+	if not ids then return false end
+	for _, id in ipairs(ids) do
+		local exists, err = removal_exists(env, id, "after execution")
+		if exists ~= false then return false, err or ("entity still present after removal: " .. tostring(id)) end
+	end
+	return true
+end
+
 --- Moves everything in parsed data by (dx, dy): new and existing nodes, removals and
 -- constructions. Only for the single-PC test, where the copy has to appear next to the original.
 function build.offset(data, dx, dy)
@@ -1640,7 +1701,7 @@ local function replay_once(env, data, opts)
 	opts = opts or {}
 	local log = opts.log or function() end
 	if not (env.api and env.api.type and env.api.cmd) then return false, "api missing" end
-	local nothing_built, failure = 0, nil
+	local nothing_built, failure, removal_failure = 0, nil, nil
 	for index, layout in ipairs(build.LAYOUTS) do
 		local proposal, label = nil, nil
 		for _, kind in ipairs(build.LIST_KINDS) do
@@ -1665,14 +1726,32 @@ local function replay_once(env, data, opts)
 			end
 		end
 		if proposal then
-			local nothing = false
+			local nothing, returned = false, false
+			local removals, removal_only, snapshot_error = removal_snapshot(env, data)
 			local function on_result(result, success)
 				local outcome = build.outcome(result)
+				if removal_only then
+					local verified, err = false, snapshot_error
+					if success == true and outcome.critical ~= true and removals then verified, err = removals_applied(env, removals) end
+					outcome.built = verified
+					if verified then outcome.removed = #removals
+					else outcome.removal_error = err or "removal command rejected"; removal_failure = outcome.removal_error end
+				end
+				if success == false or outcome.critical == true then outcome.built = false end
 				if opts.on_result then opts.on_result(result, success, label, outcome) end
-				nothing = outcome.built == false or (outcome.built == nil and success == false)
+				nothing = success == false or outcome.critical == true or outcome.built == false
+				if nothing and returned and opts.on_rejected then
+					opts.on_rejected("asynchronous build produced nothing: " .. label ..
+						(outcome.removal_error and ("; " .. outcome.removal_error) or ""))
+				end
+				-- Retry contract with transport.env: this callback owns the verdict. A synchronous
+				-- rejection may be retried below; an asynchronous one reports through on_rejected.
+				-- Callback exceptions still escape and fail the enclosing network transaction.
+				return true
 			end
 			local sent, message = build.send(env, proposal, function(line) log(label .. " " .. line) end,
 				on_result, opts.player, opts.prepare)
+			returned = true
 			if sent and not nothing then return true, label .. ": " .. message end
 			if sent then
 				nothing_built = nothing_built + 1
@@ -1684,8 +1763,79 @@ local function replay_once(env, data, opts)
 			end
 		end
 	end
-	if nothing_built > 0 then return false, "nothing built with any layout (" .. nothing_built .. " sent)" end
+	if nothing_built > 0 then
+		return false, "nothing built with any layout (" .. nothing_built .. " sent)" .. (removal_failure and ("; " .. removal_failure) or "")
+	end
 	return false, failure or "no layout could be filled and sent"
+end
+
+local function same_transf(a, b)
+	local left, right = build.read_transf(a), build.read_transf(b)
+	if not left or not right then return false end
+	for i = 1, 16 do
+		local x, y = left[i], right[i]
+		if x ~= x or y ~= y or math.abs(x) == math.huge or math.abs(y) == math.huge or math.abs(x - y) > 0.01 then return false end
+	end
+	return true
+end
+
+-- The game's own construction GUI uses this helper for parameter changes. Unlike reconstructing
+-- a SimpleProposal it preserves attached graph nodes and their configurations (run 29).
+-- nil means this is not a pure replacement, or the helper does not exist in this engine.
+local function replay_replacement(env, data, opts)
+	if #(data.constructions or {}) ~= 1 or #(data.demolished or {}) ~= 1 or
+		#(data.nodes or {}) > 0 or #(data.segments or {}) > 0 or #(data.removed_segments or {}) > 0 or
+		#(data.objects or {}) > 0 or #(data.objects_to_remove or {}) > 0 then return nil end
+	for _, node in ipairs(data.removed_nodes or {}) do if node.entity then return nil end end
+	local c, old = data.constructions[1], data.demolished[1]
+	if c.file ~= old.file then return nil end
+	local ok_helper, helper = pcall(function() return env.api.engine.util.proposal.createProposalReplaceConstruction end)
+	if not ok_helper or helper == nil then return nil end
+	local function failed(message) return false, "native construction replacement: " .. message end
+	if type(old.entity) ~= "number" or old.entity < 0 then return failed("missing existing entity") end
+	local ok_con, con = pcall(function()
+		return env.api.engine.getComponent(old.entity, env.api.type.ComponentType.CONSTRUCTION)
+	end)
+	if not ok_con or not con then return failed("existing construction unreadable: " .. tostring(con):sub(1, 160)) end
+	local ok_frame, same_file, current_frame = pcall(function()
+		return con.fileName == c.file, build.read_transf(con.transf)
+	end)
+	if not ok_frame or not same_file then return failed("existing construction file unreadable or different") end
+	if not current_frame or not build.read_transf(c.transf) then return failed("construction transformation unreadable") end
+	if not same_transf(current_frame, c.transf) then return nil end -- Moving a construction requires the general build path.
+	if type(c.params) ~= "table" then return failed("parameters are not a table") end
+	local ok_params, params_text = pcall(build.params_to_string, c.params)
+	if not ok_params then return failed("parameters unreadable: " .. tostring(params_text):sub(1, 160)) end
+	local params, params_error = build.params_from_string(params_text)
+	if not params then return failed("invalid parameters: " .. tostring(params_error)) end
+	local ok, proposal = pcall(function() return helper(old.entity, params) end)
+	if not ok or proposal == nil then return failed("helper gave no proposal: " .. tostring(proposal):sub(1, 160)) end
+	local valid, err = pcall(function()
+		assert(#proposal.toAdd == 1 and #proposal.toRemove == 1 and proposal.toRemove[1] == old.entity,
+			"proposal does not replace exactly the expected construction")
+		local entry = proposal.toAdd[1]
+		assert(entry.fileName == c.file and same_transf(entry.transf, c.transf), "proposal file or transformation changed")
+		assert(build.params_to_string(entry.params) == params_text, "proposal parameters changed")
+		assert(proposal.old2new[old.entity] == 0, "proposal lost old2new mapping")
+		local count = 0
+		for _ in pairs(proposal.old2new) do count = count + 1 end
+		assert(count == 1, "proposal has unexpected old2new mappings")
+	end)
+	if not valid then return failed("invalid helper proposal: " .. tostring(err):sub(1, 200)) end
+	data.native_replacement = true
+	local label, nothing, returned = "native construction replacement", false, false
+	local function on_result(result, success)
+		local outcome = build.outcome(result)
+		if success == false or outcome.critical == true then outcome.built = false end
+		if opts.on_result then opts.on_result(result, success, label, outcome) end
+		nothing = success == false or outcome.critical == true or outcome.built == false
+		if nothing and returned and opts.on_rejected then opts.on_rejected(label .. " was rejected after execution") end
+		return true -- The managed callback owns this result, like replay_once's retry contract.
+	end
+	local sent, message = build.send(env, proposal, opts.log, on_result, opts.player, opts.prepare, true)
+	returned = true
+	if not sent or nothing then return failed(nothing and "game rejected the proposal" or message) end
+	return true, label .. ": " .. message
 end
 
 --- v26: which demolished construction a new one replaces, as SimpleProposal.old2new wants it
@@ -1754,6 +1904,8 @@ end
 function build.replay(env, data, opts)
 	opts = opts or {}
 	local log = opts.log or function() end
+	local replacement_ok, replacement_message = replay_replacement(env, data, opts)
+	if replacement_ok ~= nil then return replacement_ok, replacement_message end
 	local needs_numbering = false
 	for _, o in ipairs(data.objects or {}) do
 		if not o.entity then needs_numbering = true end

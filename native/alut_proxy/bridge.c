@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Lua <-> DLL bridge (phase 1).
  *
  * TF3 mods run in a Lua sandbox without io, so the file exchange of the TF2
@@ -28,10 +28,10 @@
  */
 #include "proxy.h"
 
-#define TAIL_INTERVAL_MS 500
+#define TAIL_INTERVAL_MS 100
 #define READ_CHUNK 8192
 /* A captured build line plus the game's log prefix. */
-#define LINE_MAX_LEN (NET_LINE_MAX + 256)
+#define LINE_MAX_LEN (NET_BRIDGE_CHUNK + 256)
 
 typedef int (__cdecl *putenv_s_fn)(const char *name, const char *value);
 
@@ -50,12 +50,57 @@ static char own_logged[NET_STATE_KEYS][NET_STATE_KEY_MAX];
 /* Whether TF3MP_IN holds a received line, and the last bridge tick number (v9). */
 static int offering;
 static unsigned long last_seq;
+static char upload[NET_LINE_MAX], upload_id[64];
+static int upload_part, upload_count, upload_length, pending_line;
+static HANDLE spool = INVALID_HANDLE_VALUE;
+static LARGE_INTEGER spool_read, spool_write;
+static char spool_text[NET_LINE_MAX];
+
+/* Overflow captures go to disk, in order. Keep reading stdout so result/control messages can
+ * drain BOTH peers' queues even when both games built more than 128 things while offline. */
+static int queue_line(const char *text)
+{
+	DWORD length = (DWORD)lstrlenA(text), written;
+	if (spool_read.QuadPart == spool_write.QuadPart && net_send_line(text)) return 1;
+	if (spool == INVALID_HANDLE_VALUE) return 0;
+	SetFilePointerEx(spool, spool_write, NULL, FILE_BEGIN);
+	if (!WriteFile(spool, &length, sizeof(length), &written, NULL) || written != sizeof(length)) return 0;
+	if (!WriteFile(spool, text, length, &written, NULL) || written != length) return 0;
+	spool_write.QuadPart += sizeof(length) + length;
+	FlushFileBuffers(spool);
+	proxy_log("bridge: queue backpressure, capture retained on disk (%lu bytes)", length);
+	return 1;
+}
+
+static void drain_spool(void)
+{
+	DWORD length, got;
+	if (spool == INVALID_HANDLE_VALUE || spool_read.QuadPart >= spool_write.QuadPart) return;
+	SetFilePointerEx(spool, spool_read, NULL, FILE_BEGIN);
+	if (!ReadFile(spool, &length, sizeof(length), &got, NULL) || got != sizeof(length) || length >= NET_LINE_MAX) return;
+	if (!ReadFile(spool, spool_text, length, &got, NULL) || got != length) return;
+	spool_text[length] = 0;
+	if (net_send_line(spool_text)) {
+		spool_read.QuadPart += sizeof(length) + length;
+		if (spool_read.QuadPart == spool_write.QuadPart) {
+			spool_read.QuadPart = spool_write.QuadPart = 0;
+			SetFilePointerEx(spool, spool_write, NULL, FILE_BEGIN); SetEndOfFile(spool);
+			proxy_log("bridge: disk backlog drained");
+		}
+	}
+}
 
 /* Without the "[mp_probe]" tag, in case debugPrint separates its arguments. */
 static const char MARKER[] = "bridge out seq=";
 static const char SEND_MARKER[] = "net send ";
 static const char RECEIVED_MARKER[] = "net received token=";
 static const char STATE_MARKER[] = "net state ";
+
+static int starts_with(const char *text, const char *prefix)
+{
+	while (*prefix) if (*text++ != *prefix++) return 0;
+	return 1;
+}
 
 static const char *find(const char *hay, const char *needle)
 {
@@ -150,6 +195,8 @@ static void refresh_env(unsigned long seq)
 	if (!offering)
 		wsprintfA(env_value, "ack %lu", last_seq);
 	set_env(env_value);
+	/* The entry remains in the inbox while the game executes it. */
+	if (net_inbox_count()) offering = 1;
 }
 
 /* Picks the newest <steam>\userdata\<id>\3493540\local\crash_dump\stdout.txt into stdout_path. */
@@ -204,29 +251,94 @@ static int find_stdout(void)
 	return stdout_path[0] != 0;
 }
 
-static void handle_line(void)
+static int handle_line(void)
 {
-	const char *hit, *p;
-	char token[32];
+	const char *hit, *p, *command;
+	char token[64], result[16];
 	unsigned long seq = 0;
 	int n = 0;
 
 	line_buf[line_len] = 0;
-	hit = find(line_buf, SEND_MARKER);
+	/* The source filename is emitted by the game before the mod initializes its world.
+	 * Ignore mod-tagged lines here: a diagnostic or captured text is never a load notice. */
+	if (!line_cut && !find(line_buf, "[mp_probe]")) {
+		hit = find(line_buf, "Loading game from file ");
+		if (hit) { net_world_loading(hit + 23); return 1; }
+	}
+	command = find(line_buf, "[mp_probe]");
+	if (!command) return 1;
+	command += 10;
+	while (*command == ' ' || *command == '\t') command++;
+	if (starts_with(command, "net reload")) {
+		if (net_game_reload() && spool != INVALID_HANDLE_VALUE) {
+			spool_read.QuadPart = spool_write.QuadPart = 0;
+			SetFilePointerEx(spool, spool_write, NULL, FILE_BEGIN); SetEndOfFile(spool);
+		}
+		refresh_env(0); return 1;
+	}
+	hit = starts_with(command, "net upload ") ? command : NULL;
+	if (hit && !line_cut) {
+		int index, count, used = 0, length;
+		p = hit + 11;
+		while (*p && *p != ' ' && used < 63) token[used++] = *p++;
+		token[used] = 0;
+		if (*p++ != ' ') return 1;
+		index = count = 0;
+		while (*p >= '0' && *p <= '9') index = index * 10 + *p++ - '0';
+		if (*p++ != ' ') return 1;
+		while (*p >= '0' && *p <= '9') count = count * 10 + *p++ - '0';
+		if (*p++ != ' ' || count < 1 || count > 44 || index >= count) return 1;
+		length = lstrlenA(p);
+		if (lstrcmpA(upload_id, token)) {
+			if (index != 0) return 1;
+			lstrcpyA(upload_id, token); upload_part = upload_length = 0; upload_count = count;
+		}
+		if (count != upload_count || index > upload_part || length > NET_BRIDGE_CHUNK) return 1;
+		if (index == upload_part) {
+			if (upload_length + length >= NET_LINE_MAX) { proxy_log("bridge: upload too large"); return 1; }
+			lstrcpyA(upload + upload_length, p); upload_length += length; upload_part++;
+		}
+		if (upload_part == upload_count) {
+			if (!queue_line(upload)) return 0;
+			upload_id[0] = 0;
+		}
+		return 1;
+	}
+	hit = starts_with(command, "net partreceived ") ? command : NULL;
+	if (hit) {
+		p = hit + 17;
+		while (*p && *p != ' ' && n < 63) token[n++] = *p++;
+		token[n] = 0; seq = 0;
+		if (*p == ' ') p++;
+		while (*p >= '0' && *p <= '9') seq = seq * 10 + *p++ - '0';
+		if (net_inbox_part_ack(token, (int)seq)) refresh_env(0);
+		return 1;
+	}
+	hit = starts_with(command, "net result ") ? command : NULL;
+	if (hit) {
+		p = hit + 11;
+		while (*p && *p != ' ' && n < 63) token[n++] = *p++;
+		token[n] = 0; if (*p == ' ') p++;
+		n = 0; while (*p && *p != ' ' && n < 15) result[n++] = *p++;
+		result[n] = 0;
+		if (net_inbox_result(token, result)) refresh_env(0);
+		return 1;
+	}
+	hit = starts_with(command, SEND_MARKER) ? command : NULL;
 	if (hit) {
 		if (line_cut)
 			proxy_log("bridge: captured line longer than %d characters, not sent", LINE_MAX_LEN - 1);
 		else
-			net_send_line(hit + sizeof(SEND_MARKER) - 1);
-		return;
+			return queue_line(hit + sizeof(SEND_MARKER) - 1);
+		return 1;
 	}
-	hit = find(line_buf, STATE_MARKER);
+	hit = starts_with(command, STATE_MARKER) ? command : NULL;
 	if (hit) {
 		if (!line_cut)
 			handle_state(hit + sizeof(STATE_MARKER) - 1);
-		return;
+		return 1;
 	}
-	hit = find(line_buf, RECEIVED_MARKER);
+	hit = starts_with(command, RECEIVED_MARKER) ? command : NULL;
 	if (hit) {
 		for (p = hit + sizeof(RECEIVED_MARKER) - 1; *p && *p != ' ' && n < (int)sizeof(token) - 1; p++)
 			token[n++] = *p;
@@ -236,14 +348,15 @@ static void handle_line(void)
 			/* Offer the next line right away instead of on the next tick. */
 			refresh_env(0);
 		}
-		return;
+		return 1;
 	}
-	hit = find(line_buf, MARKER);
+	hit = starts_with(command, MARKER) ? command : NULL;
 	if (!hit)
-		return;
+		return 1;
 	for (p = hit + sizeof(MARKER) - 1; *p >= '0' && *p <= '9'; p++)
 		seq = seq * 10 + (unsigned long)(*p - '0');
 	refresh_env(seq);
+	return 1;
 }
 
 static DWORD WINAPI bridge_thread(LPVOID arg)
@@ -254,6 +367,18 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	int first = 1;
 
 	(void)arg;
+	{
+		char path[MAX_PATH], backup[MAX_PATH], name[48]; WIN32_FILE_ATTRIBUTE_DATA attr; int create = 1;
+		if (proxy_file_next_to_dll(path, "alut_proxy.queue")) {
+			if (GetFileAttributesExA(path, GetFileExInfoStandard, &attr) && (attr.nFileSizeLow || attr.nFileSizeHigh)) {
+				wsprintfA(name,"alut_pending_%lu.bin",GetTickCount());
+				proxy_file_next_to_dll(backup,name);
+				create = MoveFileA(path,backup);
+				proxy_log("bridge: old disk backlog %s; restart requires a shared save",create ? "retained as a recovery file" : "could not be moved; not overwritten");
+			}
+			if (create) spool = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		}
+	}
 	putenv_s = (putenv_s_fn)GetProcAddress(GetModuleHandleA("ucrtbase.dll"), "_putenv_s");
 	proxy_log("bridge: ucrtbase _putenv_s %s", putenv_s ? "found" : "NOT found");
 	set_env("hello");
@@ -273,6 +398,21 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	while (!stopping) {
 		Sleep(TAIL_INTERVAL_MS);
 		refresh_peer_states();
+		drain_spool();
+		{
+			char status[1024], path[MAX_PATH]; HANDLE status_file; DWORD written;
+			net_status(status, sizeof(status));
+			wsprintfA(status + lstrlenA(status), "backlog=%lu\r\n", (unsigned long)(spool_write.QuadPart - spool_read.QuadPart));
+			if (proxy_file_next_to_dll(path, "alut_proxy.status")) {
+				status_file = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+				if (status_file != INVALID_HANDLE_VALUE) { WriteFile(status_file, status, lstrlenA(status), &written, NULL); CloseHandle(status_file); }
+			}
+		}
+		if (pending_line) {
+			if (!handle_line()) continue;
+			pending_line = line_len = line_cut = 0;
+			proxy_log("bridge: queue available, continuing stdout without dropping actions");
+		}
 		/* v9: a line that arrived while none was offered goes to the mod right away; the mod looks
 		 * every 10 updates, no longer only on the bridge tick every 50. */
 		if (!offering && net_inbox_count() > 0)
@@ -295,7 +435,12 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 				for (i = 0; i < got; i++) {
 					char c = read_buf[i];
 					if (c == '\n') {
-						handle_line();
+						if (!handle_line()) {
+							pending_line = 1;
+							offset.QuadPart -= got - i - 1;
+							proxy_log("bridge: queue full, holding stdout position (backpressure)");
+							break;
+						}
 						line_len = 0;
 						line_cut = 0;
 					} else if (c != '\r') {
@@ -305,6 +450,7 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 							line_cut = 1;
 					}
 				}
+				if (pending_line) break;
 			}
 		}
 		CloseHandle(file);

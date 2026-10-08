@@ -13,14 +13,15 @@ gui.INTERVAL = 0.25
 --- Failures logged per Lua state.
 gui.MAX_FAILURES = 5
 
---- Memory of the GUI state. Kept as a global as well as in the module, in case TF3 loads the
--- module again between calls; if the whole Lua state is new each time, speed_step restores the
+--- Memory belongs to this module, never the sandbox's forbidden global namespace.
+-- If the whole Lua state is new each time, speed_step restores the
 -- register from TF3MP_OWN_GUI (what this game said last, kept by the DLL).
+local memories = setmetatable({}, { __mode = "k" })
 local function memory(env)
-	local g = env.mp_probe_gui
-	if type(g) ~= "table" then
+	local g = memories[env]
+	if not g then
 		g = { speed = {}, calls = 0, failures = 0, next_at = -1 }
-		pcall(function() env.mp_probe_gui = g end)
+		memories[env] = g
 	end
 	return g
 end

@@ -1,5 +1,17 @@
 # alut.dll Proxy (nativer Einstiegspunkt)
 
+**Aktueller Stand v11:** Echte Gastgeber-/Mitspieler-Sitzungen verwenden Protokoll 3 und brauchen eine vorbereitete Sitzung aus dem Launcher. Vor dem Austausch von Bauaktionen und Zustandsmeldungen müssen Sitzungskennung, Spielversion (Dateihash), Multiplayer-Paket, installierte Zusatzmods und ursprünglicher Spielstand übereinstimmen. Die Übertragung verwendet weiterhin 768-Byte-Fragmente, Nachrichten bis 256 KiB, getrennte Empfangs- und Ausführungsquittungen sowie begrenzte Warteschlangen mit Disk-Rückstau. Das folgende Dokument enthält außerdem die Entwicklung früherer Versionen. Verbindliche Beschreibung, Tests und Grenzen: [phase4-reliable-transport.md](../../docs/phase4-reliable-transport.md).
+
+## Sitzungsprüfung in v11
+
+`alut_proxy.ini` enthält für echte Sitzungen einen Abschnitt `[session]` mit `id` (32 oder 64 Hex-Zeichen), `game`, `package`, `mods`, `save` (jeweils SHA-256 in 64 Hex-Zeichen) und `name` (UTF-8-Hex des Spielstandnamens ohne `.sav`). Fehlende oder ungültige Angaben sperren die Verbindung. Der `HELLO`-Austausch mit `proto=3` prüft alle Fingerabdrücke und die gemeinsame Sitzungskennung. Prozesskennung und Laufzeitkennung bleiben getrennt davon erhalten, damit ein neu gestarteter Partner erkannt wird. Eine inkompatible Sitzung bleibt bis zum Neustart gesperrt; ein späteres passendes Paket hebt diese Sperre nicht auf.
+
+Die DLL wartet zusätzlich auf die originale Spielmeldung `Loading game from file <name>` und anschließend die erste Weltinitialisierung des Mods (`net reload`). Erst danach meldet sie `ready=1`. Beide Spiele müssen bereit sein, bevor `FRAG`, `LINE`, Zustandsmeldungen oder Quittungen verarbeitet und eigene Spielaktionen verschickt werden. Ein anderer geladener Spielstand oder jedes weitere Laden in einer echten Sitzung verlangt eine neu vorbereitete Sitzung und den Neustart beider Spiele. Der Launcher prüft die Bytes der ausgewählten Datei vor dem Start; der Ladehinweis bestätigt deren Namen. Das ist kein Hash des bereits laufenden Weltzustands.
+
+Die ausdrücklich gewählten lokalen Testarten `test=fakehost`, `test=samespot` und `mode=loopback` brauchen keine vorbereitete Sitzung und behalten Protokoll 2. Ein echter Partner kann diese Ausnahme nicht durch ein Netzwerkpaket aktivieren.
+
+Die Statusdatei nennt zusätzlich `protocol`, `prepared`, `compatible`, `ready`, `peer_ready` sowie `world`, `world_peer`, `world_fields`, `world_ck` für den detaillierten Weltvergleich des Mods. Ein ausstehender oder fehlender Vergleich bleibt `unknown`; bei einer Unterbrechung wird die alte Partnerprüfung verworfen.
+
 TF3 lädt `alut.dll` aus dem Spielordner. Dieser Proxy ersetzt sie (siehe `docs/native-entry-point.md`).
 
 - Alle 20 Exporte werden an `alut_orig.dll` (die umbenannte Original-DLL) weitergeleitet (`forwards.h`).

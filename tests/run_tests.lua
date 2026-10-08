@@ -899,6 +899,126 @@ test("outcome counts new entities and costs, not the success flag", function()
 	assert(build.outcome(nil).built == nil, "no result: unknown")
 end)
 
+local function demolition_replay(opts)
+	local env, sent = mock_build_api()
+	local data = assert(build.deserialize("B5"))
+	data.removed_segments = { { entity = 501 } }
+	data.demolished = { { entity = 502, file = "::/depots/rail/rail_depot.con" } }
+	if opts.station then
+		-- run 28: resolve leaves the station's own edges/nodes to the construction removal.
+		data.removed_segments = {}
+		data.demolished[1].file = "::/stations/rail/modular_station/modular_station.con"
+		for i = 1, 24 do data.removed_nodes[i] = { x = i, y = 0, z = 0 } end
+	end
+	local exists = { [501] = not opts.already_missing, [502] = true }
+	local executed, queries = false, 0
+	env.api.engine = { entityExists = function(id)
+		queries = queries + 1
+		if opts.lookup_fails or (opts.lookup_fails_after and executed) then error("world unavailable") end
+		return exists[id] == true
+	end }
+	if opts.callable then
+		local lookup = env.api.engine.entityExists
+		env.api.engine.entityExists = setmetatable({}, { __call = function(_, id) return lookup(id) end })
+		assert(type(env.api.engine.entityExists) == "table", "the real TF3 API is a callable table")
+	end
+	if opts.no_lookup then env.api.engine.entityExists = nil end
+	if opts.addition then data = street_data(); data.removed_segments = { { entity = 501 } } end
+	local verdict
+	local function execute(callback)
+		executed = true
+		if not opts.no_effect then exists[501] = nil end
+		if not opts.partial and not opts.no_effect then exists[502] = nil end
+		return callback({ resultEntities = {}, resultProposalData = { costs = opts.costs or 0,
+			errorState = { critical = opts.critical == true } } }, opts.success ~= false)
+	end
+	local deferred, callback_return
+	env.api.cmd.sendCommand = function(cmd, callback)
+		sent[#sent + 1] = cmd
+		if opts.deferred then deferred = function() callback_return = execute(callback) end
+		else callback_return = execute(callback) end
+	end
+	local rejected
+	local ok, message = build.replay(env, data, {
+		on_result = function(_, _, _, outcome) verdict = outcome end,
+		on_rejected = function(text) rejected = text end,
+	})
+	if deferred then deferred() end
+	return ok, message, verdict, sent, rejected, callback_return, queries
+end
+
+test("zero-cost and refunded demolition are confirmed against the world", function()
+	for _, costs in ipairs({ 0, -500, 500 }) do
+		local ok, message, verdict, sent = demolition_replay({ costs = costs })
+		assert(ok and #sent == 1, message)
+		assert(verdict.built == true and verdict.removed == 2 and verdict.entities == 0 and verdict.costs == costs)
+	end
+end)
+
+test("run 28 station demolition accepts TF3 callable-table lookups and ignores its owned nodes", function()
+	local ok, message, verdict, sent, _, _, queries = demolition_replay({ station = true, callable = true, costs = 4698 })
+	assert(ok and #sent == 1, message)
+	assert(verdict.built == true and verdict.removed == 1 and verdict.entities == 0 and not verdict.removal_error)
+	assert(queries == 2, "check the one construction before and after execution")
+	assert(sent[1].proposal.constructionsToRemove[1] == 502)
+	assert(#sent[1].proposal.streetProposal.nodesToRemove == 0, "the game removes the station's own nodes")
+end)
+
+test("unconfirmed demolition reports the target and the failed verification stage", function()
+	local cases = {
+		{ opts = { no_effect = true }, text = "entity still present after removal: 501" },
+		{ opts = { partial = true }, text = "entity still present after removal: 502" },
+		{ opts = { already_missing = true }, text = "removal target missing before send: entity 501" },
+		{ opts = { lookup_fails = true }, text = "removal lookup unreadable before send for entity 501" },
+		{ opts = { lookup_fails_after = true }, text = "removal lookup unreadable after execution for entity 501" },
+	}
+	for _, case in ipairs(cases) do
+		local ok, message, verdict = demolition_replay(case.opts)
+		assert(not ok and verdict.built == false and verdict.removal_error:find(case.text, 1, true), message)
+		assert(message:find(case.text, 1, true), "the failed network action must retain its verification reason")
+	end
+end)
+
+test("demolition cannot accept a no-op, partial removal or already absent target", function()
+	for _, opts in ipairs({ { no_effect = true }, { partial = true }, { already_missing = true },
+		{ no_effect = true, costs = 500 }, { already_missing = true, costs = 500 } }) do
+		local ok, message, verdict = demolition_replay(opts)
+		assert(not ok and verdict.built == false and not verdict.removed, message)
+	end
+end)
+
+test("demolition without a working world lookup stays unconfirmed", function()
+	for _, opts in ipairs({ { no_lookup = true }, { lookup_fails = true }, { no_lookup = true, costs = 500 } }) do
+		local ok, message, verdict = demolition_replay(opts)
+		assert(not ok and verdict.built == false, message)
+	end
+end)
+
+test("removing an old entity does not prove that its replacement was built", function()
+	local ok, message, verdict = demolition_replay({ addition = true })
+	assert(not ok and verdict.built == false and not verdict.removed, message)
+end)
+
+test("demolition confirmation also waits for asynchronous execution", function()
+	local ok, message, verdict, _, rejected, callback_return = demolition_replay({ deferred = true, costs = -500 })
+	assert(ok and verdict.built == true and verdict.removed == 2 and not rejected, message)
+	assert(callback_return == true, "the build callback owns the transport verdict")
+	ok, message, verdict, _, rejected = demolition_replay({ deferred = true, no_effect = true })
+	assert(ok and verdict.built == false and rejected:find("asynchronous build produced nothing", 1, true), message)
+end)
+
+test("explicit or critical rejection overrides apparent construction work", function()
+	for _, kind in ipairs({ "success", "critical" }) do
+		local env = mock_build_api()
+		env.api.cmd.sendCommand = function(_, callback)
+			assert(callback({ resultEntities = { 1001 }, resultProposalData = { costs = 500,
+				errorState = { critical = kind == "critical" } } }, kind ~= "success") == true)
+		end
+		local ok, message = build.replay(env, street_data())
+		assert(not ok and message:find("nothing built", 1, true), message)
+	end
+end)
+
 test("modes_to_mask reads keys 0..15 and lanes survive a round trip", function()
 	assert(build.modes_to_mask(modes(0, 1)) == 3)
 	assert(build.modes_to_mask(modes(15)) == 32768)
@@ -1855,9 +1975,168 @@ test("an extended station replaces its old construction with old2new, so lines k
 		send(cmd, callback)
 	end
 	logs = {}
-	ok, message = build.replay(env, data, { player = 29125, log = function(l) logs[#logs + 1] = l end })
+	local transport, state = require("/mp_probe/transport.lua"), mock_state()
+	transport.begin(state, "station-retry.1")
+	ok, message = build.replay(transport.env(env, state), data, {
+		player = 29125, log = function(l) logs[#logs + 1] = l end,
+		on_rejected = function(reason) transport.fail(state, reason) end,
+	})
 	assert(ok and message:find("(without old2new)", 1, true), tostring(message) .. "\n" .. table.concat(logs, "\n"))
 	assert(contains(logs, "retrying without old2new"), table.concat(logs, "\n"))
+	assert(tries == 2 and state:get().network_work.pending == 0)
+	transport.dispatched(state); transport.check(state, function(l) logs[#logs + 1] = l end)
+	assert(state:get().network_done.result == "OK", "successful station retry must release following actions")
+end)
+
+local function native_station_env(opts)
+	opts = opts or {}
+	local env, sent = mock_build_api()
+	local data = assert(build.deserialize("B5"))
+	local frame = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -668.189697, -3369.552246, 1.751801, 1 }
+	local file = "::/stations/rail/modular_station/modular_station.con"
+	data.constructions = { { file = file, name = "Allensbach Station Umstieg", transf = copy_value(frame),
+		params = { length = 3, upgrade = true, modules = { [7400030] = { name = "platform_passenger_era_a.module", variant = 0 } } } } }
+	data.demolished = { { entity = 700, file = file, position = { x = frame[13], y = frame[14], z = frame[15] } } }
+	for i = 1, 24 do data.removed_nodes[i] = { x = i, y = 0, z = 0 } end
+	if opts.fixture then
+		local source = assert(io.open("tests/fixtures/run29-station-extension.b5", "r"))
+		data = assert(build.deserialize(source:read("*a"))); source:close()
+		assert(#data.nodes == 1 and #data.segments == 1 and #data.removed_segments == 24 and #data.configs == 25)
+		build.drop_access(data)
+		local ids, next_id = {}, 800
+		assert(build.resolve(data, {
+			find_node = function(p)
+				local key = string.format("%.3f,%.3f,%.3f", p.x, p.y, p.z)
+				if not ids[key] then next_id = next_id + 1; ids[key] = next_id end
+				return ids[key]
+			end,
+			find_edge = function() return 900 end,
+			edge_construction = function() return 700 end,
+			find_construction = function(f) assert(f == file); return 700 end,
+		}))
+		assert(#data.nodes == 0 and #data.segments == 0 and #data.removed_segments == 0)
+		assert(#data.removed_nodes == 24 and #data.configs == 25)
+		for _, node in ipairs(data.removed_nodes) do assert(node.entity == nil, "construction owns its removed nodes") end
+	end
+	env.api.type.ComponentType = { CONSTRUCTION = 100 }
+	local current = { fileName = file, transf = copy_value(frame) }
+	local calls = { helper = 0, simple = 0, native = 0 }
+	local helper = function(entity, params)
+		calls.helper = calls.helper + 1
+		assert(entity == 700 and params.upgrade == true and params.modules[7400030])
+		if opts.helper_error then error("native replacement unavailable") end
+		if opts.empty_helper then return nil end
+		local p = struct("Proposal", {
+			toAdd = { { fileName = file, transf = copy_value(frame), params = params } },
+			toRemove = { 700 }, old2new = { [700] = 0 },
+			proposal = { attachedNode = 47297, nodeConfigsToRemove = { 47297 } },
+		})
+		if opts.invalid then opts.invalid(p) end
+		return p
+	end
+	env.api.engine = { getComponent = function(id, ct)
+		assert(id == 700 and ct == 100); return current
+	end, util = { proposal = { createProposalReplaceConstruction =
+		setmetatable({}, { __call = function(_, ...) return helper(...) end }) } } }
+	if opts.no_helper then env.api.engine.util.proposal.createProposalReplaceConstruction = nil end
+	local make, send = env.api.cmd.makeWorldBuildProposalCmd, env.api.cmd.sendCommand
+	env.api.cmd.makeWorldBuildProposalCmd = function(...)
+		local p, context, ignore, initiated = ...
+		if type_name_of(p) ~= "Proposal" then calls.simple = calls.simple + 1; return make(p, context, ignore) end
+		assert(select("#", ...) == 4 and context == nil and ignore == false and initiated == false,
+			"use the GUI's full-proposal signature with playerInitiated=false")
+		calls.native = calls.native + 1
+		return { proposal = p, context = context, flag = ignore, playerInitiated = initiated }
+	end
+	local deferred
+	env.api.cmd.sendCommand = function(cmd, callback)
+		if type_name_of(cmd.proposal) ~= "Proposal" then return send(cmd, callback) end
+		sent[#sent + 1] = cmd
+		local function execute()
+			local result = { resultEntities = opts.reject and {} or { 700 }, resultProposalData = {
+				costs = opts.reject and 0 or 30232, errorState = { critical = opts.reject == true } } }
+			assert(callback(result, not opts.reject) == true, "native callback owns the transport verdict")
+		end
+		if opts.deferred then deferred = execute else execute() end
+	end
+	return env, data, sent, calls, function() assert(deferred); deferred() end, current
+end
+
+test("connected station extensions use the engine's full replacement proposal", function()
+	local env, data, sent, calls = native_station_env()
+	local ok, message = build.replay(env, data)
+	assert(ok and data.native_replacement and calls.helper == 1 and calls.native == 1 and calls.simple == 0, message)
+	assert(#sent == 1 and sent[1].proposal.proposal.attachedNode == 47297)
+	assert(sent[1].proposal.old2new[700] == 0 and sent[1].proposal.proposal.nodeConfigsToRemove[1] == 47297)
+	assert(sent[1].proposal.toAdd[1].params.modules[7400030] and sent[1].playerInitiated == false)
+end)
+
+test("the recorded run 29 extension selects native replacement with every module and configuration retained", function()
+	local env, data, sent, calls = native_station_env({ fixture = true })
+	local encoded_params = build.params_to_string(data.constructions[1].params)
+	local ok, message = build.replay(env, data)
+	assert(ok and data.native_replacement and calls.helper == 1 and calls.native == 1 and calls.simple == 0, message)
+	assert(#sent == 1 and sent[1].playerInitiated == false, "one native command without an echoed player action")
+	assert(data.constructions[1].params.upgrade == true and data.constructions[1].params.modules[7400030])
+	assert(build.params_to_string(sent[1].proposal.toAdd[1].params) == encoded_params, "all captured modules reach the helper proposal")
+	assert(#data.configs == 25 and #data.removed_nodes == 24, "preserve the captured data for read-only verification")
+end)
+
+test("native replacement failure never falls back to a new SimpleProposal station", function()
+	for _, opts in ipairs({ { helper_error = true }, { empty_helper = true }, { reject = true } }) do
+		local env, data, sent, calls = native_station_env(opts)
+		local ok, message = build.replay(env, data)
+		assert(not ok and calls.helper == 1 and calls.simple == 0 and #sent <= 1, message)
+		assert(message:find("native construction replacement", 1, true), message)
+	end
+end)
+
+test("native replacement validates the target, frame, parameters and old2new mapping", function()
+	local invalid = {
+		function(p) p.toRemove = { 701 } end,
+		function(p) p.toAdd = {} end,
+		function(p) p.old2new = { [700] = 1 } end,
+		function(p) p.old2new = { [700] = 0, [701] = 0 } end,
+		function(p) local a = p.toAdd; a[1].fileName = "::/other.con"; p.toAdd = a end,
+		function(p) local a = p.toAdd; a[1].transf[13] = 12; p.toAdd = a end,
+		function(p) local a = p.toAdd; a[1].params = {}; p.toAdd = a end,
+	}
+	for _, change in ipairs(invalid) do
+		local env, data, sent, calls = native_station_env({ invalid = change })
+		local ok, message = build.replay(env, data)
+		assert(not ok and calls.simple == 0 and #sent == 0, message)
+		assert(message:find("invalid helper proposal", 1, true), message)
+	end
+end)
+
+test("native replacement rejects invalid incoming data before invoking the helper", function()
+	for _, kind in ipairs({ "parameters", "frame", "file" }) do
+		local env, data, sent, calls, _, current = native_station_env()
+		if kind == "parameters" then data.constructions[1].params = { bad = function() end }
+		elseif kind == "frame" then current.transf = nil
+		else current.fileName = "::/other.con" end
+		local ok, message = build.replay(env, data)
+		assert(not ok and calls.helper == 0 and calls.simple == 0 and #sent == 0, message)
+	end
+end)
+
+test("asynchronous native replacement rejection is reported without resending the build", function()
+	local env, data, sent, calls, finish = native_station_env({ deferred = true, reject = true })
+	local rejected
+	local ok, message = build.replay(env, data, { on_rejected = function(reason) rejected = reason end })
+	assert(ok and data.native_replacement and not rejected and #sent == 1, message)
+	finish()
+	assert(rejected:find("native construction replacement was rejected", 1, true) and calls.simple == 0 and #sent == 1)
+end)
+
+test("missing replacement helper and actual construction moves keep the general build path", function()
+	for _, kind in ipairs({ "missing", "move", "other work" }) do
+		local env, data, sent, calls = native_station_env({ no_helper = kind == "missing" })
+		if kind == "move" then data.constructions[1].transf[13] = data.constructions[1].transf[13] + 10 end
+		if kind == "other work" then data.removed_nodes[1].entity = 701 end
+		local ok, message = build.replay(env, data)
+		assert(ok and not data.native_replacement and calls.helper == 0 and calls.simple > 0 and #sent == 1, message)
+	end
 end)
 
 test("params literals survive a round trip and reject broken text", function()
@@ -1935,13 +2214,12 @@ test("node configurations travel by position with the segments they name (v21, r
 	assert(not plain:find(" k;", 1, true) and not plain:find(" e1;", 1, true), plain)
 end)
 
-test("node configurations are left out when the line would get too long", function()
+test("oversize builds fail as a whole and never silently lose node configurations", function()
 	local saved = build.CONFIG_LINE_LIMIT
 	build.CONFIG_LINE_LIMIT = 500
-	local line, info = build.serialize(street_with_configs(), config_opts())
+	local ok, err = pcall(build.serialize, street_with_configs(), config_opts())
 	build.CONFIG_LINE_LIMIT = saved
-	assert(info.node_configs == 0 and not line:find(" k;", 1, true), line)
-	assert(contains(info.dropped, "2 node configs (line would be"), table.concat(info.dropped, "\n"))
+	assert(not ok and tostring(err):find("complete build including node configs exceeds", 1, true))
 end)
 
 --- A street for nodecfg.lua: nodes 1 - 2 - 3 joined by edges 11 and 12; node 9 lies on node 2's spot
@@ -2188,6 +2466,155 @@ end)
 test("replay without the engine api says so", function()
 	local ok, message = build.replay({}, { nodes = {}, segments = {} })
 	assert(not ok and message == "api missing", message)
+end)
+
+test("network build waits for its callback and verification; duplicate events do not build twice", function()
+	with_engine_api({}, function(t)
+		local main, state = fresh_main(), mock_state()
+		local deferred, original = {}, t.env.api.cmd.sendCommand
+		t.env.api.cmd.sendCommand = function(cmd, callback)
+			deferred[#deferred + 1] = function() original(cmd, callback) end
+		end
+		logged = {}
+		local param={line=build.serialize(run5_street()),number="test.1",source="net",offset=0}
+		main.handleEvent(nil,state,"mp_probe",main.REPLAY_EVENT,main.REPLAY_EVENT,param)
+		assert(state:get().network_work.pending == 1 and #deferred == 1)
+		assert(not contains(logged,"net result test.1 OK"))
+		main.handleEvent(nil,state,"mp_probe",main.REPLAY_EVENT,main.REPLAY_EVENT,param)
+		assert(#deferred == 1, "duplicate event must not build twice")
+		deferred[1]()
+		assert(state:get().network_work.pending == 0)
+		for i=1,2 do main.handleEvent(nil,state,"mp_probe",main.REPLAY_EVENT,main.REPLAY_EVENT,{network_continue=true}) end
+		assert(state:get().network_done.result == "OK")
+		assert(contains(logged,"net result test.1 OK"))
+	end)
+end)
+
+test("network failure prevents construction follow-ups", function()
+	with_engine_api({}, function(t)
+		local main, state = fresh_main(), mock_state()
+		local callback
+		t.env.api.cmd.sendCommand=function(_,cb)callback=cb end
+		logged = {}
+		main.handleEvent(nil,state,"mp_probe",main.REPLAY_EVENT,main.REPLAY_EVENT,
+			{line=build.serialize(run5_street()),number="test.2",source="net",offset=0})
+		assert(callback and state:get().network_followup)
+		callback({},false)
+		main.handleEvent(nil,state,"mp_probe",main.REPLAY_EVENT,main.REPLAY_EVENT,{network_continue=true})
+		assert(state:get().network_done.result == "FAIL" and not state:get().network_followup)
+		assert(contains(logged,"net result test.2 FAIL"))
+	end)
+end)
+
+test("asynchronous success=true with nothing built must not acknowledge an applied action", function()
+	with_engine_api({build={builds={}}},function(t)
+		local main,state=fresh_main(),mock_state()
+		local deferred,original=nil,t.env.api.cmd.sendCommand
+		t.env.api.cmd.sendCommand=function(cmd,cb)deferred=function()original(cmd,cb)end end
+		main.handleEvent(nil,state,"mp_probe",main.REPLAY_EVENT,main.REPLAY_EVENT,
+			{line=build.serialize(run5_street()),number="test.3",source="net",offset=0})
+		assert(deferred); deferred()
+		assert(state:get().network_work.error:find("produced nothing",1,true))
+		main.handleEvent(nil,state,"mp_probe",main.REPLAY_EVENT,main.REPLAY_EVENT,{network_continue=true})
+		assert(state:get().network_done.result=="FAIL")
+	end)
+end)
+
+test("successive station upgrades retain a reused construction ID for capture", function()
+	local main, id = fresh_main(), 43692
+	local station_file = "::/stations/rail/modular_station/modular_station.con"
+	local current = { fileName = station_file,
+		transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 100,200,3,1 } }
+	local env = { api = { type = { ComponentType = { CONSTRUCTION = 1, PLAYER_OWNED = 2 } },
+		engine = { getComponent = setmetatable({}, { __call = function(_, entity, ct)
+			assert(entity == id)
+			if ct == 1 then return current end
+			if ct == 2 then return { player = 29125 } end
+		end }) } } }
+	local s = {}
+	main.remember_constructions(env, s, { { toRemove = {} }, {}, { id } })
+	for upgrade = 1, 3 do
+		local line, info = build.serialize({}, { to_remove = { id },
+			construction = function(entity) return s.constructions[tostring(entity)] end })
+		assert(info.demolished == 1 and #info.dropped == 0, "successive upgrade lost its old construction")
+		local parsed = assert(build.deserialize(line))
+		assert(parsed.demolished[1].position.x == 99 + upgrade)
+		current.transf[13] = 100 + upgrade
+		main.remember_constructions(env, s, { { toRemove = { id } }, {}, { id } })
+		assert(s.constructions[tostring(id)].position.x == 100 + upgrade)
+	end
+	main.remember_constructions(env, s, { { toRemove = { id } }, {}, {} })
+	assert(s.constructions[tostring(id)] == nil, "a final demolition must clear the cache")
+end)
+
+test("native station replacements retain engine configurations and wait for connection verification", function()
+	with_engine_api({}, function(t)
+		local main, state = fresh_main(), mock_state()
+		local transport = require("/mp_probe/transport.lua")
+		transport.begin(state, "replacement.1")
+		transport.dispatched(state)
+		local s = state:get()
+		s.network_followup = { phase = "finish", gates = true, data = {
+			native_replacement = true, configs = {},
+			gate_positions = { { x = 105, y = 200, z = 3 } },
+			constructions = { { file = "station.con", transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 100,200,3,1 } } },
+		} }
+		state:set(s)
+		main.weld_copy = function() error("native replacement must not run a second build") end
+		main.apply_node_configs = function() error("native replacement must keep engine configurations") end
+		main.network_continue(t.env, state)
+		assert(#t.sent == 0 and state:get().network_followup.phase == "verify")
+		local check = state:get().weld_checks[1]
+		assert(check.file == "station.con" and check.position.x == 100 and #check.gates == 1)
+		assert(check.due == 1000 + main.WELD_RECHECK_MS)
+		main.network_continue(t.env, state)
+		transport.check(state, function() error("connection check must hold the execution receipt") end)
+		assert(state:get().network_work and not state:get().network_done)
+	end)
+end)
+
+test("an unreadable delayed station connection check rejects the execution receipt", function()
+	with_engine_api({}, function(t)
+		local main, state = fresh_main(), mock_state()
+		local transport = require("/mp_probe/transport.lua")
+		state:set({ probe_version = main.PROBE_VERSION, subscribed = main.PROBE_VERSION,
+			replay_version = main.PROBE_VERSION, constructions_scanned = main.PROBE_VERSION,
+			actions_version = main.PROBE_VERSION, actions = {}, updates = 1 })
+		transport.begin(state, "replacement-read-failure.1")
+		transport.dispatched(state)
+		main.check_replacement_later(t.env, { constructions = {
+			{ file = "station.con", transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 100,200,3,1 } },
+		} }, state)
+		t.advance(main.WELD_RECHECK_MS)
+		main.recheck_welds = function() error("mock engine read failure", 0) end
+		logged = {}
+		main.update(nil, state, 0)
+		assert(state:get().network_done.result == "FAIL", "an unreadable connection must never acknowledge the replacement")
+		assert(contains(logged, "net result replacement-read-failure.1 FAIL construction entrance check unreadable: mock engine read failure"))
+		assert(not contains(logged, "net result replacement-read-failure.1 OK"))
+	end)
+end)
+
+test("world comparison publishes matching, persistent mismatch and unknown health for the launcher", function()
+	local main = fresh_main()
+	local sync = require("/mp_probe/sync.lua")
+	local own = { hcon = "h1_0000000000000001", hedge = "h1_0000000000000002",
+		hline = "h1_0000000000000003", hveh = "h1_0000000000000004" }
+	local peer = copy_value(own)
+	local mem = { own_k = 1, own = sync.keep(nil, 1, own), peer = sync.keep(nil, 1, peer) }
+	logged = {}
+	main.sync_compare({}, mem, "host", 60000)
+	assert(contains(logged, "net state health ck=1 status=same fields=none"))
+	peer.hline = "h1_0000000000000005"
+	for k = 2, 3 do
+		mem.own_k = k; mem.own = sync.keep(mem.own, k, own); mem.peer = sync.keep(mem.peer, k, peer)
+		main.sync_compare({}, mem, "host", k * 60000)
+	end
+	assert(contains(logged, "net state health ck=2 status=checking fields=hline"))
+	assert(contains(logged, "net state health ck=3 status=diff fields=hline"))
+	mem.own_k = 4; mem.own = sync.keep(mem.own, 4, {}); mem.peer = sync.keep(mem.peer, 4, peer)
+	main.sync_compare({}, mem, "host", 240000)
+	assert(contains(logged, "net state health ck=4 status=unknown fields=none"))
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

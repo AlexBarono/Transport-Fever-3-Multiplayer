@@ -25,25 +25,31 @@ $port = 47950
 
 # Der Mitspieler läuft in einem zweiten PowerShell-Prozess.
 $shell = (Get-Process -Id $PID).Path
-function Start-Receiver($answer) {
+function Start-Receiver($answer, $manifest = $null, $preparedPath = '') {
+	$manifestPath = ''
+	if ($manifest) { $manifestPath = Join-Path $base 'receiver-manifest.json'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8 }
 	$script = @"
 `$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = New-Object Text.UTF8Encoding(`$false)
 . '$((Join-Path $root 'tools\save-transfer.ps1').Replace("'", "''"))'
 try {
 	Start-Sleep -Milliseconds 500
-	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$false } { param(`$q) `$$answer }
-	Write-Output "OK `$t"
+	`$manifest = if ('$($manifestPath.Replace("'", "''"))') { Get-Content -LiteralPath '$($manifestPath.Replace("'", "''"))' -Raw | ConvertFrom-Json } else { `$null }
+	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$false } { param(`$q) `$$answer } -LocalManifest `$manifest
+	if ('$($preparedPath.Replace("'", "''"))' -and `$t.Session) { Save-PreparedSession -Path '$($preparedPath.Replace("'", "''"))' -Session `$t.Session -SavePath `$t.SavePath | Out-Null }
+	`$text = if (`$t.Session) { `$t.Text } else { `$t }
+	Write-Output "OK `$text"
 } catch { Write-Output "ERROR `$(`$_.Exception.Message)" }
 "@
 	$file = Join-Path $base 'receiver.ps1'
 	Set-Content -Path $file -Value $script -Encoding UTF8
 	$out = Join-Path $base ('receiver-' + [Guid]::NewGuid().ToString('N') + '.txt')
-	$p = Start-Process -FilePath $shell -ArgumentList '-NoProfile', '-File', $file -RedirectStandardOutput $out -PassThru -NoNewWindow
+	$p = Start-Process -FilePath $shell -ArgumentList '-NoProfile', '-File', $file -RedirectStandardOutput $out -PassThru -WindowStyle Hidden
 	return @{ Process = $p; Out = $out }
 }
 function Wait-Receiver($r) {
 	if (-not $r.Process.WaitForExit(60000)) { $r.Process.Kill(); throw 'receiver hangs' }
-	return (Get-Content $r.Out -Raw).Trim()
+	return (Get-Content $r.Out -Raw -Encoding UTF8).Trim()
 }
 $ticks = 0
 $tick = { param($text, $done, $total) $script:ticks++; $false }
@@ -117,13 +123,134 @@ Test 'without a host the player gets a clear message' {
 	Assert ($err -like '*Keine Verbindung*' -or $err -like '*refused*' -or $err -like '*verweigert*' -or $err -like '*actively*') "message: $err"
 }
 
-Test 'the save folder is the one with the newest save' {
+Test 'a single save account remains usable without active Steam account metadata' {
 	$steam = Join-Path $base 'steam'
 	$a = Join-Path $steam 'userdata\1\3493540\local\save'; $b = Join-Path $steam 'userdata\2\3493540\local\save'
-	New-Item -ItemType Directory -Force $a, $b | Out-Null
-	Set-Content (Join-Path $a 'x.sav') 'a'; Set-Content (Join-Path $b 'y.sav') 'b'
+	New-Item -ItemType Directory -Force $a | Out-Null
+	Set-Content (Join-Path $a 'x.sav') 'a'
+	Assert ((Get-SaveFolder $steam) -eq $a) 'single unambiguous account'
+}
+
+Test 'the active Steam account wins over a newer save in a different account' {
+	$steam = Join-Path $base 'steam'
+	$a = Join-Path $steam 'userdata\1\3493540\local\save'; $b = Join-Path $steam 'userdata\2\3493540\local\save'
+	New-Item -ItemType Directory -Force $b | Out-Null; Set-Content (Join-Path $b 'y.sav') 'b'
 	(Get-Item (Join-Path $a 'x.sav')).LastWriteTime = (Get-Date).AddDays(-1)
-	Assert ((Get-SaveFolder $steam) -eq $b) (Get-SaveFolder $steam)
+	$originalActive = (Get-Item Function:\Get-ActiveSteamAccount).ScriptBlock
+	try {
+		function Get-ActiveSteamAccount { return '1' }
+		Assert ((Get-SaveFolder $steam) -eq $a) 'active older account'
+		function Get-ActiveSteamAccount { return '3' }
+		Assert ($null -eq (Get-SaveFolder $steam)) 'known active account cannot borrow another account save folder'
+	} finally { Set-Item Function:\Get-ActiveSteamAccount $originalActive }
+}
+
+Test 'multiple accounts without active Steam metadata require explicit resolution' {
+	$err = ''
+	try { Get-SaveFolder (Join-Path $base 'steam') | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like 'Mehrere Steam-Konten*') $err
+}
+
+Test 'registry account information applies only to the matching Steam installation' {
+	$registeredSteam = Join-Path $base 'registered-steam'
+	$script:testRegisteredSteam = $registeredSteam
+	$script:testActiveUser = 42
+	try {
+		function Get-ItemProperty {
+			param($Path, $ErrorAction)
+			if ($Path -like '*ActiveProcess') { return [pscustomobject]@{ ActiveUser = $script:testActiveUser } }
+			return [pscustomobject]@{ SteamPath = $script:testRegisteredSteam }
+		}
+		Assert ((Get-ActiveSteamAccount $registeredSteam) -eq '42') 'matching registry root'
+		Assert ($null -eq (Get-ActiveSteamAccount (Join-Path $base 'fixture-steam'))) 'isolated unrelated root'
+		$script:testActiveUser = -1
+		Assert ((Get-ActiveSteamAccount $registeredSteam) -eq '4294967295') 'unsigned registry DWORD account'
+	} finally { Remove-Item Function:\Get-ItemProperty; Remove-Variable testRegisteredSteam, testActiveUser -Scope Script }
+}
+
+$manifest = [pscustomobject]@{ Protocol = 3; GameHash = ('a' * 64); PackageHash = ('b' * 64); ModsHash = ('c' * 64); Mods = @([pscustomobject]@{ Key = 'staging/track_pack'; Hash = ('d' * 64) }) }
+$session = New-MultiplayerSession $manifest (Join-Path $hostDir 'Det.sav')
+Test 'session transfer verifies compatibility and only successful results become prepared' {
+	$clientPrepared = Join-Path $base 'client-session.json'; $hostPrepared = Join-Path $base 'host-session.json'
+	$r = Start-Receiver 'true' $manifest $clientPrepared
+	$result = Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30 -Session $session
+	$got = Wait-Receiver $r
+	Assert ($got -like 'OK *') $got
+	Assert ($result.Session.SessionId -eq $session.SessionId) 'sender metadata returned'
+	Save-PreparedSession $hostPrepared $result.Session $result.SavePath | Out-Null
+	foreach ($p in $hostPrepared, $clientPrepared) {
+		$record = Read-PreparedSession $p
+		Assert ((Assert-PreparedSession $record $manifest).SessionId -eq $session.SessionId) 'both have same prepared session'
+	}
+}
+
+foreach ($field in 'GameHash', 'PackageHash', 'ModsHash') {
+	Test "different $field rejects before writing save files or a prepared session" {
+		$other = $manifest | ConvertTo-Json -Depth 6 | ConvertFrom-Json; $other.$field = ('e' * 64)
+		$before = Get-FileSha256 (Join-Path $clientDir 'Det.sav')
+		$prepared = Join-Path $base 'rejected-session.json'
+		$r = Start-Receiver 'true' $other $prepared
+		$err = ''
+		try { Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30 -Session $session | Out-Null } catch { $err = $_.Exception.Message }
+		$got = Wait-Receiver $r
+		Assert ($err -like '*Sitzung wurde vom Mitspieler abgelehnt*') "host: $err"
+		Assert ($got -like 'ERROR *') $got
+		Assert (-not (Test-Path -LiteralPath $prepared)) 'no preparation on rejection'
+		Assert (Test-SameBytes $before (Get-FileSha256 (Join-Path $clientDir 'Det.sav'))) 'existing world untouched'
+		Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'no partial files'
+	}
+}
+
+Test 'legacy hosts are refused by the session launcher' {
+	$r = Start-Receiver 'true' $manifest
+	$err = ''
+	try { Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30 | Out-Null } catch { $err = $_.Exception.Message }
+	$got = Wait-Receiver $r
+	Assert ($got -like '*alten Launcher ohne Sitzungsprüfung*') $got
+	Assert ($err.Length -gt 0) 'sender observes rejection'
+}
+
+Test 'changed source save is refused before accepting a connection' {
+	[IO.File]::AppendAllText((Join-Path $hostDir 'Det.sav'), 'changed')
+	$err = ''
+	try { Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 1 -Session $session | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like '*passt nicht mehr zur Sitzung*') $err
+}
+
+Test 'declining a replacement does not prepare the new session' {
+	$newSession = New-MultiplayerSession $manifest (Join-Path $hostDir 'Det.sav')
+	$prepared = Join-Path $base 'declined-session.json'
+	$r = Start-Receiver 'false' $manifest $prepared
+	$err = ''
+	try { Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30 -Session $newSession | Out-Null } catch { $err = $_.Exception.Message }
+	$got = Wait-Receiver $r
+	Assert ($got -like 'ERROR Nicht gespeichert*' -and $err -like '*wollte seinen Spielstand*') "$got / $err"
+	Assert (-not (Test-Path -LiteralPath $prepared)) 'no preparation after declining'
+}
+
+Test 'a transferred hash that contradicts the session cannot replace the saved world' {
+	$wrongSession = $session | ConvertTo-Json -Depth 6 | ConvertFrom-Json; $wrongSession.SaveHash = ('f' * 64)
+	$before = Get-FileSha256 (Join-Path $clientDir 'Det.sav')
+	$prepared = Join-Path $base 'wrong-hash-session.json'
+	$listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $port)
+	$listener.Start(); $client = $null
+	try {
+		$r = Start-Receiver 'true' $manifest $prepared
+		$client = $listener.AcceptTcpClient(); $client.ReceiveTimeout = 10000; $client.SendTimeout = 10000
+		$writer = New-Object IO.BinaryWriter($client.GetStream(), [Text.Encoding]::UTF8)
+		$reader = New-Object IO.BinaryReader($client.GetStream(), [Text.Encoding]::UTF8)
+		$metadata = [Text.Encoding]::UTF8.GetBytes(($wrongSession | ConvertTo-Json -Depth 6 -Compress))
+		$writer.Write($SaveSessionMagic); $writer.Write([int]$metadata.Length); $writer.Write([byte[]]$metadata); $writer.Flush()
+		Assert ($reader.ReadByte() -eq 1) 'game and mod compatibility accepted'; $reader.ReadString() | Out-Null
+		$writer.Write('Det'); $writer.Write([int]1); $writer.Write([int64]1); $writer.Write('Det.sav'); $writer.Write([int64]1)
+		$writer.Write([byte[]](Get-FileSha256 (Join-Path $hostDir 'Det.sav'))); $writer.Flush()
+		Assert ($reader.ReadByte() -eq 0) 'file mismatch rejected'
+		Assert ($reader.ReadString() -like '*Datei-Fingerabdruck passt nicht*') 'specific reason'
+		$got = Wait-Receiver $r
+		Assert ($got -like 'ERROR *') $got
+		Assert (-not (Test-Path -LiteralPath $prepared)) 'no preparation'
+		Assert (Test-SameBytes $before (Get-FileSha256 (Join-Path $clientDir 'Det.sav'))) 'world untouched'
+	} finally { if ($client) { $client.Close() }; $listener.Stop() }
 }
 
 Remove-Item -Recurse -Force $base

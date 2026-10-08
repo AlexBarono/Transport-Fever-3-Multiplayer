@@ -1,0 +1,55 @@
+﻿    0,0 fake host listening on UDP port 47800 for 120 minutes
+    2,1 game connected from 127.0.0.1:59170
+   45,5 game speed state: by=client gt=3109600 hb=1 run=4 speed=4 src=gui tg=4 ver=0
+   45,5 game is running (src=gui); scenario starts
+   47,9 checkpoint 52 of the game: money=7531916 adj=0 veh=15 date=1902-02-20; host answers with same values
+   63,0 checkpoint 53 of the game: money=7511077 adj=0 veh=15 date=1902-03-07; host answers with same values
+   66,7 recorded build 38900-22997531.1 (2004 bytes)
+   66,9 recorded build 38900-22997531.2 (2918 bytes)
+   67,3 recorded build 38900-22997531.3 (78 bytes)
+   68,0 recorded build 38900-22997531.4 (58 bytes)
+   68,8 recorded build 38900-22997531.5 (106 bytes)
+   77,5 recorded build 38900-22997531.6 (2738 bytes)
+   77,9 checkpoint 54 of the game: money=7206173 adj=0 veh=15 date=1902-03-22; host answers with same values
+   80,2 game speed state: by=client gt=3246800 hb=18 run=1 speed=1 src=gui tg=1 ver=1
+   80,2 the game changed the speed: 1 (version 1)
+   84,5 recorded build 38900-22997531.7 (2787 bytes)
+   89,9 recorded build 38900-22997531.8 (806 bytes)
+   95,8 recorded build 38900-22997531.9 (440 bytes)
+   99,3 recorded build 38900-22997531.10 (1061 bytes)
+  104,7 recorded build 38900-22997531.11 (505 bytes)
+  105,6 HOST sets speed 0 (version 2): pause test
+  105,8 game speed state: by=host gt=3272400 hb=31 run=1 speed=0 src=gui tg=0 ver=2
+  106,3 game speed state: by=host gt=3272600 hb=32 run=0 speed=0 src=gui tg=0 ver=2
+  113,1 recorded build 38900-22997531.12 (3395 bytes)
+  125,6 HOST sets speed 1 (version 3): pause test over
+  126,5 game speed state: by=host gt=3272600 hb=42 run=0 speed=1 src=gui tg=1 ver=3
+  126,7 game speed state: by=host gt=3272800 hb=43 run=1 speed=1 src=gui tg=1 ver=3
+  127,1 recorded build 38900-22997531.13 (2012 bytes)
+  129,2 recorded build 38900-22997531.14 (2239 bytes)
+  131,2 recorded build 38900-22997531.15 (1996 bytes)
+  138,0 recorded build 38900-22997531.16 (5174 bytes)
+  139,1 recorded build 38900-22997531.17 (3222 bytes)
+  140,1 recorded build 38900-22997531.18 (5189 bytes)
+  141,2 recorded build 38900-22997531.19 (5296 bytes)
+  141,8 recorded build 38900-22997531.20 (5403 bytes)
+  145,6 HOST is now 90 s of game time ahead (game time 3381554)
+  147,0 game speed state: by=host gt=3293200 hb=54 run=2 speed=1 src=gui tg=2 ver=3
+  150,2 checkpoint 55 of the game: money=5665471 adj=0 veh=16 date=1902-04-06; host answers with money 5000 higher
+  157,9 recorded build 38900-22997531.21 (3218 bytes)
+  173,7 recorded build 38900-22997531.22 (882 bytes)
+  175,8 recorded build 38900-22997531.23 (341 bytes)
+  177,7 recorded build 38900-22997531.24 (356 bytes)
+  179,3 recorded build 38900-22997531.25 (347 bytes)
+  180,1 checkpoint 56 of the game: money=5522095 adj=0 veh=16 date=1902-04-21; host answers with money 5000 higher
+  183,4 recorded build 38900-22997531.26 (67 bytes)
+  226,3 the game loaded a savegame again (game time 3390000 -> 3109600)
+  226,3 26 build line(s) of the session before go back to the game once it ran 20 s
+  226,3 game speed state: by=client gt=3109600 hb=79 rs=1 run=4 speed=4 src=gui tg=4 ver=4
+  226,3 the game changed the speed: 4 (version 4)
+  228,8 checkpoint 52 of the game: money=7531916 adj=0 veh=15 date=1902-02-20; host answers with same values
+  232,6 sending line 1 of 26 back (fh48716-1.1)
+  233,8 REPLAY FAILED at line 1 of 26 (fh48716-1.1): Das Spiel hat Aktion fh48716-1.1 abgelehnt. Abgleich der Spielstaende erforderlich; Folgeaktionen angehalten.
+  233,8 Following actions remain stopped. Restart the game and the test from the original save after fixing the rejected action.
+  233,8 fake host stopped (26 build line(s) received, 0 sent back, last phase 'ahead')
+  233,8 replay stopped: Das Spiel hat Aktion fh48716-1.1 abgelehnt. Abgleich der Spielstaende erforderlich; Folgeaktionen angehalten.

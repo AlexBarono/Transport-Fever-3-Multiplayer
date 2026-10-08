@@ -3,6 +3,7 @@
     "files": [
         "mp_probe/actions.lua",
         "mp_probe/build.lua",
+        "mp_probe/fingerprint.lua",
         "mp_probe/gui.lua",
         "mp_probe/logger.lua",
         "mp_probe/main.gs.lua",
@@ -10,6 +11,7 @@
         "mp_probe/nodecfg.lua",
         "mp_probe/probe.lua",
         "mp_probe/sync.lua",
+        "mp_probe/transport.lua",
         "mp_probe/weld.lua",
         "mp_probe/wire.lua",
         "mp_probe/world.lua"

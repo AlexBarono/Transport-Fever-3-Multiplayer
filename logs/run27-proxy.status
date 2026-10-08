@@ -1,0 +1,9 @@
+pid=38836
+version=10
+mode=client
+connected=0
+outbox=0
+inbox=0
+blocked=1
+error=game rejected fh45112-1.10
+backlog=0
