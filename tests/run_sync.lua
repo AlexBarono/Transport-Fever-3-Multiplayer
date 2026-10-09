@@ -126,6 +126,11 @@ local function game(role)
 			return
 		end
 		g.sent[#g.sent + 1] = c
+		if c.name == "speed" and g.delay_speed then
+			g.speed_commands = g.speed_commands or {}
+			g.speed_commands[#g.speed_commands + 1] = { command = c, callback = callback }
+			return
+		end
 		if c.name == "book" and g.book_works then
 			local kind = c.entry.category.type
 			if kind == JE.Type.LOAN then g.loan, g.balance = g.loan + c.entry.amount, g.balance + c.entry.amount
@@ -145,6 +150,15 @@ local function game(role)
 			Date = { addOffsetDays = function(d, n) return date_of(sync.days(d.year, d.month, d.day) + n) end } } }
 	g.os = { getenv = function(name) return g.vars[name] end, clock = function() return g.clock end }
 	g.env = { api = g.api, os = g.os }
+	function g.apply_speed_commands()
+		g.run(function()
+			for _, item in ipairs(g.speed_commands or {}) do
+				g.speed = item.command.speed
+				if item.callback then item.callback({}, true) end
+			end
+		end)
+		g.speed_commands = {}
+	end
 	function g.print(line)
 		g.logs[#g.logs + 1] = line
 		local key, text = line:match("net state (%a+) (.*)$")
@@ -876,11 +890,83 @@ test("a remembered common-tick hold restores its speed after the clock becomes i
 	g.vars.TF3MP_OWN_CLOCKUI = "hold=1 run=3"
 	g.vars.TF3MP_OWN_CLOCK = "at=1200 phase=idle hold=0"
 	g.gui()
-	assert(g.speed == 3 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).hold == 0)
+	assert(g.speed == 3 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).release == 1)
 	g.gui(); g.gui()
+	assert(sync.decode(g.vars.TF3MP_OWN_CLOCKUI).hold == 0)
 	local restored = sync.decode(g.vars.TF3MP_OWN_GUI)
 	assert(restored.ver == 8 and restored.speed == 3 and restored.run == 3)
 	assert(not has(g.logs, "speed changed here: paused") and not has(g.logs, "gui sync failed"))
+end)
+
+test("delayed barrier release never publishes the automatic pause as a user speed change", function()
+	for _, role in ipairs({ "host", "client" }) do
+		local g = game(role); g.speed, g.gt, g.delay_speed = 0, 1200, true
+		g.vars.TF3MP_ORDERING = "1"
+		g.vars.TF3MP_OWN_HEALTH = "ck=258 fields=hcon,hedge status=diff"
+		g.vars.TF3MP_OWN_GUI = "speed=3 ver=8 by=host run=3 tg=3 src=gui hb=9"
+		g.vars.TF3MP_OWN_CLOCKUI = "hold=1 run=3"
+		g.vars.TF3MP_OWN_CLOCK = "at=0 phase=idle hold=0"
+		for _ = 1, 5 do g.gui() end
+		local before = sync.decode(g.vars.TF3MP_OWN_GUI)
+		assert(before.speed == 3 and before.ver == 8, table.concat(g.logs, "\n"))
+		assert(not has(g.logs, "speed changed here: paused"))
+		g.apply_speed_commands(); g.gui(); g.gui()
+		local after = sync.decode(g.vars.TF3MP_OWN_GUI)
+		assert(g.speed == 3 and after.speed == 3 and after.ver == 8)
+	end
+end)
+
+test("an ordered session with world and time differences never pauses just to catch up", function()
+	local host, client = pair(); host.gt = 200000
+	for _, g in ipairs({ host, client }) do
+		g.vars.TF3MP_ORDERING = "1"
+		g.vars.TF3MP_OWN_HEALTH = "ck=258 fields=hcon,hedge status=diff"
+		g.vars.TF3MP_OWN_CLOCK = "at=0 phase=idle hold=0"
+	end
+	for _ = 1, 20 do host.gui(); client.gui() end
+	assert(host.speed > 0 and client.speed > 0, table.concat(host.logs, "\n"))
+	host.speed = 3
+	for _ = 1, 20 do host.gui(); client.gui() end
+	assert(host.speed > 0 and client.speed > 0 and sync.decode(host.vars.TF3MP_OWN_GUI).speed == 3)
+end)
+
+test("automatic pause release survives lost GUI memory and preserves a later real pause", function()
+	local g = game("client"); g.speed, g.gt, g.delay_speed = 0, 1200, true
+	g.vars.TF3MP_ORDERING = "1"
+	g.vars.TF3MP_OWN_GUI = "speed=4 ver=8 by=host run=4 tg=4 src=gui hb=9"
+	g.vars.TF3MP_OWN_CLOCKUI = "hold=1 run=4"
+	g.vars.TF3MP_OWN_CLOCK = "at=0 phase=idle hold=0"
+	for _ = 1, 5 do
+		g.env = { api = g.api, os = g.os }; g.gui()
+		assert(sync.decode(g.vars.TF3MP_OWN_GUI).ver == 8)
+	end
+	assert(#g.speed_commands == 1, "do not flood TF3 while the speed command is queued")
+	g.apply_speed_commands(); g.delay_speed = false
+	for _ = 1, 3 do g.env = { api = g.api, os = g.os }; g.gui() end
+	assert(g.speed == 4 and sync.decode(g.vars.TF3MP_OWN_GUI).ver == 8)
+	g.speed = 0; g.gui()
+	local paused = sync.decode(g.vars.TF3MP_OWN_GUI)
+	assert(paused.speed == 0 and paused.ver == 9, "a real player pause still travels")
+	g.speed = 2; g.gui()
+	assert(sync.decode(g.vars.TF3MP_OWN_GUI).speed == 2 and g.speed == 2)
+end)
+
+test("a positive speed chosen after automatic resume acknowledgement is preserved", function()
+	local g = game("host"); g.speed, g.gt, g.delay_speed = 0, 1200, true
+	g.vars.TF3MP_OWN_GUI = "speed=3 ver=8 by=host run=3 tg=3 src=gui hb=9"
+	g.vars.TF3MP_OWN_CLOCKUI = "hold=1 run=3"
+	g.vars.TF3MP_OWN_CLOCK = "at=0 phase=idle hold=0"
+	g.gui(); g.apply_speed_commands(); g.delay_speed = false
+	g.speed = 4; g.gui(); g.gui()
+	assert(g.speed == 4 and sync.decode(g.vars.TF3MP_OWN_GUI).speed == 4)
+	assert(sync.decode(g.vars.TF3MP_OWN_GUI).ver == 9)
+end)
+
+test("a clock warning with no planned action cannot pause the simulation fallback", function()
+	local g = game("host"); g.speed = 3
+	g.vars.TF3MP_OWN_CLOCK = "at=0 phase=failed hold=0"
+	g.run(function() main.sync_speed_fallback(g.env, { ticks = 100, gui_seen = true }, "host", g.gt, g.os.getenv) end)
+	assert(g.speed == 3 and #g.sent == 0)
 end)
 
 test("invalid, fractional, non-finite and unsafe journal amounts are rejected before sending", function()

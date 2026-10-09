@@ -60,6 +60,40 @@ function gui.describe(env)
 	return table.concat(parts, ", ")
 end
 
+--- Keep the automatic pause out of the shared speed register until TF3 has
+-- actually resumed. sendCommand returning does not mean the GUI sees its result.
+-- The DLL echo also protects a GUI Lua state that loses its memory between calls.
+function gui.release_hold(env, g, clock_ui, speed, now, getenv)
+	local run = tonumber(clock_ui.run) or 0
+	local releasing = tonumber(clock_ui.release) == 1
+	if releasing and (speed == run or (speed > 0 and (clock_ui.ack == 1 or clock_ui.stopped == 1))) then
+		logger.info("net state clockui hold=0 run=" .. speed)
+		-- A different positive speed after the command's acknowledgement is the
+		-- player's choice; the ordinary speed register detects it on the next step.
+		g.speed.target, g.speed.pending = run, nil
+		return
+	end
+	local sent, tries = tonumber(clock_ui.sent), tonumber(clock_ui.tries) or 0
+	if releasing and sent and now >= sent and now - sent < sync.APPLY_WAIT_S then return end
+	if tries >= sync.APPLY_TRIES then
+		if clock_ui.stopped ~= 1 then
+			logger.info("sync automatic pause release not confirmed; waiting for the game's speed or a manual resume")
+			logger.info("net state clockui " .. sync.encode({ hold = 1, release = 1, run = run, stopped = 1, tries = tries, sent = now }))
+		end
+		return
+	end
+	tries = tries + 1
+	local pending = { hold = 1, release = 1, run = run, sent = now, tries = tries }
+	logger.info("net state clockui " .. sync.encode(pending))
+	sync.set_speed(env, run, function(_, success)
+		if success == false then logger.info("sync automatic pause release rejected by the game"); return end
+		local live = sync.decode(getenv("TF3MP_OWN_CLOCKUI"))
+		if live and live.release == 1 and live.tries == tries and live.run == run then
+			live.ack = 1; logger.info("net state clockui " .. sync.encode(live))
+		end
+	end)
+end
+
 function gui.update(env, gui_state)
 	env = env or _G
 	local g = memory(env)
@@ -134,21 +168,21 @@ function gui.step(env, g, now)
 		end
 	end
 	if holding then
-		if not clock_ui or tonumber(clock_ui.hold) ~= 1 then
+		if not clock_ui or tonumber(clock_ui.hold) ~= 1 or clock_ui.release == 1 then
 			local run = restore and tonumber(restore.tg or restore.run) or speed
 			logger.info("net state clockui hold=1 run=" .. tostring(run))
 		end
 		if speed ~= 0 then sync.set_speed(env, 0) end
 		return
 	elseif clock_ui and tonumber(clock_ui.hold) == 1 then
-		local run = tonumber(clock_ui.run) or 0
-		logger.info("net state clockui hold=0 run=" .. run)
-		if speed ~= run then sync.set_speed(env, run) end
+		gui.release_hold(env, g, clock_ui, speed, now, getenv)
 		return
 	end
 	local out = sync.speed_step(g.speed, {
 		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
-		hold = true, src = "gui", restore = restore,
+		-- World/time differences are diagnostic in a two-PC session. Catch up
+		-- without stopping the game ahead; only a live action barrier may pause it.
+		hold = getenv("TF3MP_ORDERING") ~= "1", src = "gui", restore = restore,
 	})
 	for _, line in ipairs(out.logs) do logger.info("sync " .. line) end
 	if out.command then

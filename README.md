@@ -1,16 +1,22 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Haltestellen, Signale, Bahnhöfe, Depots, Abriss, Linien und Fahrzeuge werden zwischen zwei Spielen gespiegelt. Aktueller Stand: **Probe v46 / DLL v13**. v30 hat alle 21 aufgenommenen Aktionen im Spiel erfolgreich nachgebaut, v31 lief mit zwei PCs über VPN. v32 überträgt zusätzlich Depotfahrten, Umkehren und Kredite und macht den Neuabgleich zu einem Klick. v33 behebt den Kreditfehler aus Run 35 und ordnet gleichzeitige Aktionen beider PCs. v34 baut Bauten auf beiden PCs zum selben Spielzeitpunkt. v35 macht das auch für Zug umdrehen, Start/Stopp und Depotfahrten und gleicht Abweichungen im laufenden Spiel neu ab. v36 macht das auch für „Linie zuweisen“ und Verkaufen und überträgt den Spielstand schneller. v37 hält die Sitzung bei einer abgelehnten Aktion nicht mehr an, gleicht nur noch bei bleibenden Abweichungen im Aufbau neu ab und versucht es nach einem Fehlschlag von selbst wieder. **Beide PCs brauchen das v46-Paket (DLL v13).**
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Haltestellen, Signale, Bahnhöfe, Depots, Abriss, Linien und Fahrzeuge werden zwischen zwei Spielen gespiegelt. Aktueller Stand: **Probe v47 / DLL v13**. v30 hat alle 21 aufgenommenen Aktionen im Spiel erfolgreich nachgebaut, v31 lief mit zwei PCs über VPN. v32 überträgt zusätzlich Depotfahrten, Umkehren und Kredite und macht den Neuabgleich zu einem Klick. v33 behebt den Kreditfehler aus Run 35 und ordnet gleichzeitige Aktionen beider PCs. v34 baut Bauten auf beiden PCs zum selben Spielzeitpunkt. v35 macht das auch für Zug umdrehen, Start/Stopp und Depotfahrten und gleicht Abweichungen im laufenden Spiel neu ab. v36 macht das auch für „Linie zuweisen“ und Verkaufen und überträgt den Spielstand schneller. v37 hält die Sitzung bei einer abgelehnten Aktion nicht mehr an, gleicht nur noch bei bleibenden Abweichungen im Aufbau neu ab und versucht es nach einem Fehlschlag von selbst wieder. **Beide PCs brauchen das v47-Paket (DLL v13).**
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe Paket auf beide PCs kopieren und entpacken, beide mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen. Das portable Paket liegt unter `release/TF3-Multiplayer-v46-Windows.zip`.
+1. Dasselbe Paket auf beide PCs kopieren und entpacken, beide mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen. Das portable Paket liegt unter `release/TF3-Multiplayer-v47-Windows.zip`.
 2. Gastgeber: **Gastgeber** auswählen, die Adresse des VPN-Adapters wählen und **Adresse kopieren**. Den Mitspieler diese Adresse einfügen lassen. **Als Gastgeber starten** bietet beim ersten Start die Auswahl eines Spielstands aus dem aktuellen Steam-Spielstandordner an und wartet auf den Mitspieler.
 3. Mitspieler: **Beitreten** wählen, die kopierte Adresse einfügen (z. B. `100.80.12.4:47800`) und **Beitreten und Spiel starten** klicken. Der Launcher holt den Spielstand, vergleicht Spielversion, Multiplayer-Paket und zusätzliche Mods und bereitet eine gemeinsame Sitzung vor. Unterschiedliche Dateien werden konkret gemeldet. Auch installierte inaktive Zusatzmods werden verglichen.
 4. Nach erfolgreicher Übertragung installieren beide Launcher den Mod und starten TF3. Beide laden den angezeigten Spielstand pausiert. Die Verbindung wartet auf den vereinbarten Stand auf beiden PCs; danach gemeinsam fortsetzen. Die Welt muss im Spiel selbst geladen werden.
 5. Der Launcher zeigt Verbindung, ausstehende Aktionen, Weltprüfung und Fehler an. **Details prüfen** öffnet die letzten Meldungen. Ein späterer Start kann die vorbereitete Sitzung verwenden, solange ihre Dateien unverändert sind und beide wieder denselben Ausgangsstand laden.
 
 Standard: UDP 47800 für Spieldaten und TCP 47800 für den Spielstand. Die Windows-Firewall muss TF3 und die Spielstandübertragung über den verwendeten VPN-Adapter zulassen. Im gemeinsamen VPN wird die erreichbare VPN-IPv4 des Gastgebers verwendet; eine Router-Portfreigabe ist dafür nicht erforderlich. **Mod entfernen** stellt die gesicherte Original-DLL wieder her.
+
+## Neu in v47
+
+- **Keine festhängende Pause nach einer gemeinsamen Aktion:** Das automatische Fortsetzen bleibt bis zur sichtbaren Bestätigung des Spiels geschützt. Die vorübergehende Pause wird dadurch nicht mehr als neue Benutzerpause zwischen beiden PCs hin- und hergeschickt.
+- **Zeitversatz darf bestehen bleiben:** In einer normalen Zwei-PC-Sitzung pausiert das Aufholen den vorauslaufenden PC nicht mehr automatisch. Gelbe Weltmeldungen bleiben Hinweise, Neuabgleich bleibt auf Wunsch. Gemeinsame Aktionen behalten ihre notwendige Ausführungspause.
+- Beide PCs brauchen v47. Bei gelber Meldung 1x, 2x und 4x testen, danach eine Bauaktion sowie echte Pause/Fortsetzen aus beiden Richtungen prüfen. [Befund und Prüfungen](docs/v47-pause-release.md).
 
 ## Neu in v46
 
