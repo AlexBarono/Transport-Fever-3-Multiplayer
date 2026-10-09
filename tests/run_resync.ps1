@@ -10,6 +10,16 @@ function Test($name, $fn) {
 }
 function Assert($cond, $msg) { if (-not $cond) { throw "assertion failed: $msg" } }
 
+Test 'automatic resync only for real multiplayer sessions' {
+	foreach ($mode in 'host', 'client') {
+		Assert (Test-AutomaticResyncEnabled @{mode=$mode} @{}) 'real session disabled'
+		foreach ($testMode in 'fakehost', 'samespot', 'future-test') {
+			Assert (-not (Test-AutomaticResyncEnabled @{mode=$mode;error='game rejected action'} @{test=$testMode})) 'test peer asked for real save'
+		}
+	}
+	Assert (-not (Test-AutomaticResyncEnabled @{mode='loopback'} @{})) 'loopback resync enabled'
+}
+
 $base = Join-Path ([System.IO.Path]::GetTempPath()) ("tf3mp-resync-test-" + [Guid]::NewGuid().ToString('N'))
 $saves = Join-Path $base 'save'
 New-Item -ItemType Directory -Force $saves | Out-Null

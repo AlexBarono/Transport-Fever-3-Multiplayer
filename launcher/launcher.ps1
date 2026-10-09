@@ -881,6 +881,8 @@ $timer.Add_Tick({
 	if ($Preview -or $script:transferBusy -or -not (Test-GameRunning)) { return }
 	try {
 		$values = Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
+		$liveConfig = Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
+		if (-not (Test-AutomaticResyncEnabled $values $liveConfig)) { return }
 		$reason = Get-LiveResyncReason $values $script:liveMemory ([DateTime]::UtcNow)
 		# Ohne Verbindung: in welcher Runde ist der Mitspieler (höchstens alle 10 Sekunden lesen)?
 		if ($values.connected -eq '1' -or $values.mode -notin 'host', 'client') { $script:peerEpoch = -1 }

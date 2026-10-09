@@ -32,3 +32,11 @@ Vor dem nächsten Start wird das vorherige Gastgeberprotokoll archiviert. Ein Na
 Das Protokoll wird mit gemeinsamem Lese-/Schreibzugriff geöffnet; kurze Sperren werden erneut versucht. Ein vorübergehend gesperrtes Diagnoseprotokoll beendet den Testpartner nicht mehr.
 
 Automatische Gegenprüfung: 24 Fälle in `tests/run_fake_report.ps1`, drei reale lokale UDP-Szenarien in `tests/run_fake_partner.py` (erfolgreicher Nachbau, abgelehnte Aktion, fehlende Bestätigung) und 49 Launcherprüfungen in `tests/run_launcher.ps1` bestehen. TF3 wurde dafür nicht gestartet oder verändert.
+
+## Nachtrag: Neuladefehler und v38
+
+Im folgenden Lauf wurden 19 Aktionen aufgezeichnet und nach dem Neuladen zurückgesendet. Schon Aktion 1 (`line_update`, Linie 1) scheiterte mit `construction reference not found`: Ein Halt lag am weltgehörigen Bauernhof `::/industries/farm/farm.con`. Die Auflösung erlaubte bisher ausschließlich Konstruktionen des Spielers. Dadurch waren 0 von 19 Aktionen bestätigt; der anschließende echte Zwei-PC-Neuabgleich wartete vergeblich auf den lokalen Testpartner.
+
+v38 erlaubt das lesende Finden weltgehöriger Konstruktionen ausschließlich als Eltern eines Linienhalts. Änderungen, Abriss und Depotaktionen behalten ihren Eigentumscheck. Die originale erste Aktion liegt als Regression in `tests/fixtures/run41-first-line.a1` und besteht mit einer nachgebildeten Zielwelt mit anderen Entity-IDs. Der Launcher startet in konfigurierten Testmodi keinen automatischen Zwei-PC-Neuabgleich mehr. Diese Korrektur behebt nicht die oben beschriebenen fehlenden Weltmessungen.
+
+13 Schiffs-/Flugzeug-/Industriehaltfälle, 63 Aktionstests, 36 Fingerabdrucktests, 127 grundlegende Modprüfungen, 31 Neuabgleich-, 49 Launcher- und 24 Auswertungsprüfungen bestehen. Der vollständige Nachbau der 19 Aktionen im echten Spiel bleibt zu bestätigen. Beide PCs müssen für einen gemeinsamen Test dasselbe v38-Paket verwenden.

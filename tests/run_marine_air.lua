@@ -16,6 +16,28 @@ local function test(name, fn)
 end
 local HARBOR, AIRPORT = "::/stations/water/harbor_modular.con", "::/stations/air/airport.con"
 local SHIP, PLANE = "::/vehicle/ship/dunara_castle/dunara_castle.mdl", "::/vehicle/plane/boeing_737_700/boeing_737_700.mdl"
+test("run41 recorded line update resolves an unowned farm and a street stop", function()
+	local f = assert(io.open("tests/fixtures/run41-first-line.a1", "r"))
+	local action = assert(actions.decode(f:read("*l"))); f:close()
+	local dest = mock()
+	local stop = action.value.data.stops[1].target.stations[1]
+	local farm = dest.construction(90, 7568, -88, stop.parent.fileName)
+	farm.CONSTRUCTION.transf = copy(stop.parent.transf)
+	farm.PLAYER_OWNED = nil
+	dest.entities[20090] = { STATION = { tag = 1000, terminals = { {}, {} } } }
+	dest.entities[30090] = { STATION_GROUP = { stations = { 20090 } } }
+	local p = action.value.data.stops[2].target.stations[1].position
+	local street = dest.street_stop(400, p.x, p.y)
+	street.EDGE_OBJECT.transf[15] = p.z
+	street.STATION.terminals = { { tag = 16 } }
+	dest.line(20, "Linie 1", 20090)
+	dest.replay(action)
+	local out = dest.entities[20].LINE
+	assert(#out.stops == 2 and out.stops[1].stationGroup == 30090 and out.stops[2].stationGroup == 30400)
+	assert(not pcall(actions.resolve, dest.env, stop.parent, dest.state:get(), "sender", 0), "unowned farm allowed as mutable construction target")
+	local depot = { kind = "depot", parent = stop.parent, index = 1 }
+	assert(not pcall(actions.resolve, dest.env, depot, dest.state:get(), "sender", 0), "unowned depot lookup allowed")
+end)
 local function station(m, con, id, tag, terminal_tags)
 	m.entities[id] = { STATION = { tag = tag, terminals = {} } }
 	for i, terminal in ipairs(terminal_tags) do m.entities[id].STATION.terminals[i] = { tag = terminal } end

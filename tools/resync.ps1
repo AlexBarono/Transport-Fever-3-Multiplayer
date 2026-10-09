@@ -191,6 +191,11 @@ function Update-LiveResyncDifference($Values, $Memory, [datetime]$NowUtc) {
 # v37: 'diff' nur bei einer Abweichung im Aufbau, die dieses Spiel selbst sieht und die bleibt
 # (Update-LiveResyncDifference). Sieht nur der Mitspieler sie, fragt sein Launcher (dann 'peer').
 # 'clock': der gemeinsame Zeitplan dieses Spiels steht seit $LiveResyncClockSeconds.
+function Test-AutomaticResyncEnabled($Values, $Config) {
+	# Local test peers cannot transfer and load a second world's savegame.
+	return $Values.mode -in @('host', 'client') -and -not $Config.test
+}
+
 function Get-LiveResyncReason($Values, $Memory, [datetime]$NowUtc) {
 	if (-not $Values -or ($Values.mode -ne 'host' -and $Values.mode -ne 'client')) { return $null }
 	# Ein neu gestartetes TF3 (andere Prozessnummer) oder ein neu gestarteter Launcher beginnt wieder

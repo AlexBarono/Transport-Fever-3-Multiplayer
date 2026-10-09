@@ -748,15 +748,18 @@ local function unique(list, label)
 	return list[1]
 end
 
-local function resolve(env, ref, s, peer, offset)
+local function resolve(env, ref, s, peer, offset, context)
 	assert(type(ref) == "table", "missing entity reference")
+	-- Industry stations (farms, oil platforms) belong to the world. Looking up a
+	-- line stop may read their parent; modifying a construction still requires ownership.
+	local station_parent = context == "station_parent" and ref.kind == "construction"
 	local maps = s.action_entities or {}
 	if ref.key then
 		local mapped = maps[map_key(peer, ref)]
 		if mapped then
 			local key = ({ construction = "CONSTRUCTION", line = "LINE", vehicle = "TRANSPORT_VEHICLE", edge = "BASE_EDGE" })[ref.kind]
 			component(env, mapped, assert(key, "unknown reference kind"))
-			assert(owned(env, mapped), "mapped target no longer owned by local player")
+			assert(station_parent or owned(env, mapped), "mapped target no longer owned by local player")
 			return mapped
 		end
 	end
@@ -775,7 +778,7 @@ local function resolve(env, ref, s, peer, offset)
 		return assert(best, string.format("street stop near %.1f,%.1f not found", ref.position.x, ref.position.y + offset))
 	end
 	if ref.kind == "depot" or ref.kind == "station" then
-		local parent = resolve(env, ref.parent, s, peer, offset)
+		local parent = resolve(env, ref.parent, s, peer, offset, ref.kind == "station" and "station_parent" or nil)
 		local c = component(env, parent, "CONSTRUCTION")
 		local list = ref.kind == "depot" and c.depots or c.stations
 		if ref.kind == "station" and ref.tag ~= nil then
@@ -790,7 +793,7 @@ local function resolve(env, ref, s, peer, offset)
 	end
 	local matches = {}
 	for _, id in ipairs(ids(env, ref.kind)) do
-		if owned(env, id) then
+		if station_parent or owned(env, id) then
 			local found = false
 			if ref.kind == "construction" then
 				local c = component(env, id, "CONSTRUCTION")
