@@ -22,7 +22,7 @@ local wire = require("/mp_probe/wire.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 44
+main.PROBE_VERSION = 45
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -996,7 +996,7 @@ function main.vehicle_entry(env, p)
 	if p.command == "line" then
 		assert(type(p.value) == "number" and p.value % 1 == 0, "invalid line id")
 		if p.value >= 0 then e.line = actions.line_ref(env, p.value) end
-		e.stop = type(p.stop) == "number" and p.stop >= 0 and p.stop % 1 == 0 and p.stop or 0
+		e.stop = type(p.stop) == "number" and p.stop >= -1 and p.stop % 1 == 0 and p.stop or 0
 	else e.value = p.value == true end
 	return e
 end
@@ -1056,7 +1056,28 @@ function main.vehicle_intent(env, state, param)
 	end
 end
 
-function main.send_vehicle_command(env, e, ids, line)
+function main.vehicle_line_failure(env, id, line, stop)
+	local detail = "line assignment rejected (vehicle " .. id .. ", line " .. line .. ", stop " .. tostring(stop) .. ")"
+	-- Same native diagnosis used by TF3's vehicle manager. It can be unavailable
+	-- in a simulation context; diagnostic failure must preserve the rejection.
+	local ok, reason = pcall(function()
+		local failure = env.api.engine.util.line.getFailedPathReason(id, line, true)
+		local descriptions = { NoPath = "no path", NoElectric = "missing electrification", NoRail = "missing rail",
+			NoRoad = "missing road", NoTram = "missing tram", NoTramButTramTrack = "incompatible tram track",
+			NoTramTrackButRail = "incompatible rail", NoSmallAircraft = "aircraft incompatible with airport",
+			NoSmallShip = "ship incompatible with port" }
+		local text = "path reason " .. tostring(failure.reason):sub(1, 70)
+		local types = env.api.type.Failure.Reason
+		for name, description in pairs(descriptions) do
+			if types[name] ~= nil and types[name] == failure.reason then text = description; break end
+		end
+		if failure.pos then text = text .. string.format(" at %.1f, %.1f", failure.pos.x, failure.pos.y) end
+		return text
+	end)
+	return detail .. (ok and (": " .. reason) or ": path diagnosis unavailable")
+end
+
+function main.send_vehicle_command(env, e, ids, line, state, confirmed)
 	local cmd = env.api.cmd
 	local c, id = nil, ids[1]
 	if e.command == "reverse" then c = cmd.makeVehicleReverseCmd(id)
@@ -1068,6 +1089,11 @@ function main.send_vehicle_command(env, e, ids, line)
 	local name = main.entry_name(e)
 	cmd.sendCommand(c, function(_, success)
 		logger.info("vehicle " .. name .. (success == false and " REJECTED by the game" or " done"))
+		if success == false and e.command == "line" then
+			local reason = main.vehicle_line_failure(env, id, line, e.stop or 0)
+			logger.info("vehicle " .. name .. ": " .. reason)
+			if state then transport.fail(state, reason); return true end
+		elseif success == true and confirmed then confirmed() end
 	end)
 end
 
@@ -1092,12 +1118,14 @@ function main.run_vehicle_command(env, state, action)
 	for i, e in ipairs(entries) do
 		local f = found[i]
 		local line_ref = f.line and f.line >= 0 and actions.line_ref(env, f.line) or nil
-		for _, id in ipairs(f.ids) do actions.vehicle_command_done(s, id, e.command, e.value, line_ref, e.stop) end
-	end
-	state:set(s)
-	for i, e in ipairs(entries) do
 		logger.info("vehicle " .. main.entry_name(e) .. " at the common tick")
-		main.send_vehicle_command(env, e, found[i].ids, found[i].line)
+		main.send_vehicle_command(env, e, f.ids, f.line, state, function()
+			-- A rejected assignment must not be recorded as applied: the next poll
+			-- would otherwise send a spurious opposite action from the old state.
+			local live = state:get() or {}
+			for _, id in ipairs(f.ids) do actions.vehicle_command_done(live, id, e.command, e.value, line_ref, e.stop) end
+			state:set(live)
+		end)
 	end
 	return true
 end

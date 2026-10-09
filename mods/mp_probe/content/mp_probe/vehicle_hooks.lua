@@ -25,7 +25,9 @@ function hooks.vehicle_args(command, a, b, c)
 	if not id(a) then return nil end
 	if command == "line" then
 		if type(b) ~= "number" or b % 1 ~= 0 then return nil end
-		return { command = command, vehicle = a, value = b, stop = id(c) and c or 0 }
+		-- TF3's default "next reachable" scheme deliberately sends -1.
+		local stop = type(c) == "number" and c % 1 == 0 and c >= -1 and c or 0
+		return { command = command, vehicle = a, value = b, stop = stop }
 	end
 	return { command = command, vehicle = a, value = b == true }
 end
@@ -50,7 +52,16 @@ function hooks.watch_vehicles(env, m, options)
 			local hook = function(a, b, c, ...)
 				local made = original(a, b, c, ...)
 				local args = hooks.vehicle_args(command, a, b, c)
-				if args and made ~= nil then pcall(function() m.marked[made] = args end) end
+				if args and made ~= nil then
+					-- sendCommand callbacks receive ICommandData, not the opaque Command.
+					-- Native manager callbacks read these entity fields even on success.
+					local data = { vehicleEntity = a }
+					if command == "line" then data.lineEntity, data.stopIndex = b, args.stop
+					elseif command == "stopped" then data.userStopped = b
+					elseif command == "depot" then data.sellOnArrival, data.jumpToDepotEntity = b, c
+					elseif command == "sell" then data = { vehicleEntities = a } end
+					pcall(function() m.marked[made] = { args = args, data = data } end)
+				end
 				return made
 			end
 			cmd[maker] = hook
@@ -63,7 +74,8 @@ function hooks.watch_vehicles(env, m, options)
 		assert(send ~= nil, "sendCommand missing")
 		m.send = send
 		local hook = function(c, callback, ...)
-			local args = c ~= nil and m.marked[c] or nil
+			local marked = c ~= nil and m.marked[c] or nil
+			local args = marked and marked.args
 			if args then m.marked[c] = nil end
 			if args and m.options.timed() then
 				-- A large manager selection must not let command 41 bypass the timeline.
@@ -72,7 +84,7 @@ function hooks.watch_vehicles(env, m, options)
 				m.options.log("vehicle " .. describe(args) .. " clicked; both games run it at a common tick")
 				if callback then
 					-- As if it had run: TF3's windows count their open commands down in the callback.
-					local ok_cb, why = pcall(callback, c, true, {})
+					local ok_cb, why = pcall(callback, marked.data, true, {})
 					if not ok_cb then m.options.log("vehicle " .. args.command .. ": the window's callback failed (" .. tostring(why):sub(1, 120) .. ")") end
 				end
 				return

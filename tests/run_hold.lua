@@ -135,7 +135,8 @@ test("in a session vehicle commands of one frame travel as one script event (v36
 	cmd.sendCommand(cmd.makeVehicleSellCmd({ 7, 8 }), cb)
 	cmd.sendCommand(cmd.makeVehicleSetStoppedByUserCmd(9, true))
 	assert(#e.sent == 0, "nothing runs before the common tick")
-	assert(#answers == 4 and answers[1].ok == true and answers[1].r == c, "the window's callbacks run as if done")
+	assert(#answers == 4 and answers[1].ok == true and answers[1].r.vehicleEntity == 117350,
+		"the window's callbacks receive command data as if done")
 	assert(has("vehicle line for 5 clicked; both games run it at a common tick"))
 	hold.step(e)
 	assert(#e.sent == 1 and e.sent[1].c.kind == "event" and e.sent[1].c.name == "mp_probe_vehicle")

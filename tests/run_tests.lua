@@ -3190,6 +3190,48 @@ test("v36: buses sent to a line and sold in one frame are one timed batch", func
 	assert(not pcall(main.vehicle_intent, solo, mock_state(), { batch = "nonsense" }))
 end)
 
+test("native next-reachable-stop choice survives GUI intent and both scheduled replays", function()
+	local main = fresh_main()
+	local wire = require("/mp_probe/wire.lua")
+	local actions = require("/mp_probe/actions.lua")
+	local env = vehicle_world("host", { TF3MP_ORDERING = "1" })
+	local state = mock_state()
+	main.vehicle_intent(env, state, { command = "line", vehicle = 30, value = 40, stop = -1 })
+	local line = state:get().timeline.queue[1].line
+	local action = assert(actions.decode(line)); assert(action.commands[1].stop == -1)
+	for _, role in ipairs({ "host", "client" }) do
+		local dest, sent = vehicle_world(role)
+		assert(main.replay_line(dest, line, "scheduled_host.1", mock_state(), 0))
+		assert(#sent == 1 and sent[1].name == "line" and sent[1].stop == -1)
+	end
+	local solo, sent = vehicle_world("host")
+	main.vehicle_intent(solo, mock_state(), { command = "line", vehicle = 30, value = 40, stop = -1 })
+	assert(sent[1].stop == -1, "fallback must preserve the UI choice too")
+end)
+
+test("rejected timed line assignment retains the old snapshot and reports TF3's path diagnosis", function()
+	local main = fresh_main()
+	local actions = require("/mp_probe/actions.lua")
+	local transport = require("/mp_probe/transport.lua")
+	local env, sent = vehicle_world("host")
+	env.api.type.Failure = { Reason = { NoPath = 7 } }
+	env.api.engine.util.line = { getFailedPathReason = function(id, line, full)
+		assert(id == 30 and line == 40 and full)
+		return { reason = 7, pos = { x = 123.5, y = -50 } }
+	end }
+	env.api.cmd.sendCommand = function(c, callback) sent[#sent + 1] = c; callback({}, false) end
+	local state = mock_state()
+	state:set({ actions = { snapshots = { vehicle = { ["30"] = { name = "Zug 1", held = true } } } } })
+	assert(transport.begin(state, "scheduled_host.1"))
+	main.run_vehicle_command(transport.env(env, state), state, { origin = "host", commands = {
+		{ command = "line", target = actions.vehicle_ref(env, 30), line = actions.line_ref(env, 40), stop = -1 } } })
+	local s = state:get()
+	assert(s.actions.snapshots.vehicle["30"].held and not s.actions.snapshots.vehicle["30"].line)
+	assert(s.network_work.pending == 0 and s.network_work.error:find("no path at 123.5, -50.0", 1, true))
+	env.api.engine.util.line.getFailedPathReason = function() error("not available") end
+	assert(main.vehicle_line_failure(env, 30, 40, -1):find("diagnosis unavailable", 1, true))
+end)
+
 test("v36: at the common tick the other game finds the bus and the line it bound earlier", function()
 	local main = fresh_main()
 	local actions = require("/mp_probe/actions.lua")

@@ -13,6 +13,10 @@ foreach($part in @('Bahnhof Süd','5245.3','TF3 hat die Ausführung abgelehnt','
 }
 foreach($bad in @($one.Replace('partial','invalid'),$one+' injected', '[mp_probe]action issue local I1 p.1 none zz aa')){Add-ActionIssueLine $r $bad}
 if($r.Count -ne 2){throw 'Malformed issue accepted'}; $passed++
+Add-ActionIssueLine $r $one.Replace('issue local','issue peer')
+if($r.Count -ne 2 -or $r.Issues.Count -ne 3){throw 'Same failure on both PCs counted twice or details lost'}; $passed++
+if(-not (Get-ActionReasonText 'line assignment rejected: no path at 12.0, -30.0').Contains('keinen befahrbaren Weg')){throw 'Path diagnosis not explained'}; $passed++
+if(-not (Get-ActionReasonText 'line assignment rejected: missing electrification').Contains('Elektrifizierung')){throw 'Electrification diagnosis not explained'}; $passed++
 Add-ActionIssueLine $r 'Loading game from file common.sav'
 if($r.Count -ne 0 -or $r.Issues.Count){throw 'Old session issues retained after reload'}; $passed++
 $path=Join-Path $env:TEMP ('tf3mp-issues-'+[guid]::NewGuid().ToString('N')+'.log')

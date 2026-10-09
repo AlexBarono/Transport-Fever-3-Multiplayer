@@ -25,7 +25,10 @@ function Add-ActionIssueLine($reader, [string]$line) {
 		try { $time=[datetime]::ParseExact($matches[1],'yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture,
 			[Globalization.DateTimeStyles]::AssumeUniversal).ToLocalTime().ToString('HH:mm:ss') } catch {}
 	}
-	$reader.Seen[$key]=$true; $reader.Count++
+	# Keep both PCs' details, but one shared action is not two failed actions.
+	$other=if($place -eq 'local'){'peer'}else{'local'}
+	if(-not $reader.Seen.ContainsKey("$other/$token")) { $reader.Count++ }
+	$reader.Seen[$key]=$true
 	[void]$reader.Issues.Add(@{ Token=$token; Place=$place; Partial=($partial -eq 'partial'); Label=$label; Reason=$reason; Time=$time })
 	while($reader.Issues.Count -gt 30) {
 		$old=$reader.Issues[0]; $reader.Seen.Remove("$($old.Place)/$($old.Token)"); $reader.Issues.RemoveAt(0)
@@ -61,6 +64,9 @@ function Update-ActionIssues($reader, [string]$path, [string]$gamePid='') {
 
 function Get-ActionReasonText([string]$reason) {
 	$explanation = switch -Regex ($reason) {
+		'no path' { 'TF3 findet keinen befahrbaren Weg zur Linie. Depotanschluss, Gleisrichtung und Haltestellen prüfen.'; break }
+		'missing electrification' { 'Auf dem Fahrweg fehlt die benötigte Elektrifizierung.'; break }
+		'missing rail|missing road|missing tram|incompatible rail|incompatible tram' { 'Der Fahrweg passt nicht zum Fahrzeugtyp.'; break }
 		'construction-owned' { 'Eine zum Gebäude gehörende Zufahrt konnte nicht sicher geändert werden.'; break }
 		'node configurations|existing node|node.*not found|node.*resolved' { 'Ein benötigter Gleis-/Straßenanschluss wurde nicht gefunden.'; break }
 		'bridge|tunnel|resource' { 'Eine benötigte Bauressource fehlt oder ist nicht zuordenbar.'; break }

@@ -94,6 +94,26 @@ test("normal vehicle manager selections above forty stay on the common timeline"
 	assert(total==85)
 end)
 
+test("native manager callbacks receive command data and reachable-stop sentinel survives",function()
+	local g=gui("client",true); local callbacks=0
+	local function send(c, expected)
+		g.cmd.sendCommand(c,function(result,ok)
+			assert(ok)
+			for key,value in pairs(expected) do assert(result[key]==value, "missing command result "..key) end
+			callbacks=callbacks+1
+		end)
+	end
+	send(g.cmd.makeVehicleSetLineCmd(7,9,-1),{vehicleEntity=7,lineEntity=9,stopIndex=-1})
+	send(g.cmd.makeVehicleReverseCmd(7),{vehicleEntity=7})
+	send(g.cmd.makeVehicleSetStoppedByUserCmd(7,true),{vehicleEntity=7,userStopped=true})
+	send(g.cmd.makeVehicleSendToDepotCmd(7,true),{vehicleEntity=7,sellOnArrival=true})
+	local sold={7,8}; send(g.cmd.makeVehicleSellCmd(sold),{vehicleEntities=sold})
+	assert(callbacks==5, "native callbacks must complete without missing entity fields")
+	g.step(); local batch=assert(wire.decode(g.sent[1].param.batch))
+	assert(batch[1].stop==-1, "-1 asks TF3 for the next reachable stop; never force stop zero")
+	for _,line in ipairs(g.logs) do assert(not line:find("callback failed",1,true),line) end
+end)
+
 test("single-player and a failed timeline pass through, remounts do not stack interception",function()
 	local solo=gui("off",false)
 	solo.cmd.sendCommand(solo.cmd.makeVehicleReverseCmd(7)); solo.step()
