@@ -87,7 +87,7 @@ local function game(role)
 		local out = {}; for i = 1, g.lines do out[i] = 500 + i end; return out
 	end
 	function engine.getComponent(id, c)
-		if c == "GAME_SPEED" then return { speedup = g.speed, millisPerDay = g.speed > 0 and g.ms_per_day or 0 } end
+		if c == "GAME_SPEED" then return { speedup = g.speed, millisPerDay = g.ms_per_day } end
 		if c == "GAME_TIME" then return { gameTime = g.gt } end
 		if c == "ACCOUNT" then assert(id == 7); return { balance = g.balance, loan = g.loan } end
 		if c == "PLAYER_OWNED" then return id < 3000 + g.con and { player = 7 } or { player = 9 } end
@@ -115,6 +115,7 @@ local function game(role)
 	end
 	function cmd.makeGameSetDateCmd(date) return { name = "date", date = date } end
 	function cmd.makeGameSetSpeedCmd(speed) return { name = "speed", speed = speed } end
+	function cmd.makeGameSetCalendarSpeedCmd(value) return { name = "calendar", value = value } end
 	function cmd.makeScriptingSendEventCmd(a, b, c, d) return { name = "event", args = { a, b, c, d } } end
 	function cmd.sendCommand(c, callback)
 		if callback and g.context == "update" then error("Callbacks are currently disallowed") end
@@ -133,6 +134,8 @@ local function game(role)
 			g.date_shift = g.date_shift + sync.days(c.date.year, c.date.month, c.date.day) - today(g.gt)
 		elseif c.name == "speed" and not g.speed_broken then
 			g.speed = c.speed
+		elseif c.name == "calendar" and not g.calendar_broken then
+			g.ms_per_day = c.value
 		end
 		if callback then callback({}, not (c.name == "book" and g.book_rejects)) end
 	end
@@ -936,6 +939,99 @@ test("invalid, fractional, non-finite and unsafe journal amounts are rejected be
 	end
 	local ok, notes = sync.book(g.env, 5000, "MADE_UP")
 	assert(ok == false and notes:find("unsupported journal category", 1, true) and #g.sent == 0)
+end)
+
+local function gui_pair_steps(host, client, n)
+	for _ = 1, n or 4 do host.gui(); client.gui() end
+end
+
+test("calendar initially follows host and changes propagate in both directions", function()
+	local h, c = pair(); h.ms_per_day, c.ms_per_day = 2000, 600000
+	gui_pair_steps(h, c)
+	assert(c.ms_per_day == 2000)
+	h.ms_per_day = 4000; gui_pair_steps(h, c)
+	assert(c.ms_per_day == 4000)
+	c.ms_per_day = 8000; gui_pair_steps(h, c)
+	assert(h.ms_per_day == 8000)
+	assert(h.speed == 1 and c.speed == 1)
+	assert(not has(h.logs, "gui sync failed") and not has(c.logs, "gui sync failed"))
+end)
+
+test("calendar stopped and resumed while simulation remains paused", function()
+	local h, c = pair(); h.speed, c.speed = 0, 0
+	gui_pair_steps(h, c)
+	h.ms_per_day = 0; gui_pair_steps(h, c)
+	assert(c.ms_per_day == 0 and h.speed == 0 and c.speed == 0)
+	c.ms_per_day = 12000; gui_pair_steps(h, c)
+	assert(h.ms_per_day == 12000 and h.speed == 0 and c.speed == 0)
+end)
+
+test("simultaneous calendar changes converge to host", function()
+	local h, c = pair(); gui_pair_steps(h, c)
+	local previous_host = c.vars.TF3MP_PEER_GUI
+	h.ms_per_day, c.ms_per_day = 4000, 8000
+	h.gui(); local new_host = c.vars.TF3MP_PEER_GUI
+	c.vars.TF3MP_PEER_GUI = previous_host; c.gui(); c.vars.TF3MP_PEER_GUI = new_host
+	gui_pair_steps(h, c)
+	assert(h.ms_per_day == 4000 and c.ms_per_day == 4000)
+end)
+
+test("calendar and simulation changes do not overwrite each other", function()
+	local h, c = pair(); gui_pair_steps(h, c)
+	h.speed, c.ms_per_day = 2, 3000
+	gui_pair_steps(h, c)
+	assert(h.speed == 2 and c.speed == 2 and h.ms_per_day == 3000 and c.ms_per_day == 3000)
+end)
+
+test("calendar survives GUI memory loss without rebroadcasting an applied command", function()
+	local h, c = pair(); gui_pair_steps(h, c)
+	h.ms_per_day = 4000; gui_pair_steps(h, c)
+	local before = sync.decode(c.vars.TF3MP_OWN_GUI)
+	c.env = { api = c.api, os = c.os }; c.gui()
+	local after = sync.decode(c.vars.TF3MP_OWN_GUI)
+	assert(after.cal == before.cal and after.cv == before.cv and after.cb == before.cb)
+	assert(h.ms_per_day == 4000 and c.ms_per_day == 4000)
+end)
+
+test("invalid and stale calendar packets never reach command API", function()
+	for _, value in ipairs({ -1, 0.5, math.huge, 2147483648, "1000" }) do
+		local out = sync.calendar_step({}, { calendar = 1000, role = "client", now = 0, src = "gui",
+			peer = { cal = value, cv = 1, hb = 1, cb = "host" } })
+		assert(out.command == nil)
+	end
+	local mem, peer = {}, { cal = 1000, cv = 0, hb = 1, cb = "host" }
+	sync.calendar_step(mem, { calendar = 1000, role = "client", now = 0, peer = peer })
+	peer.cal, peer.cv = 2000, 1
+	local out = sync.calendar_step(mem, { calendar = 1000, role = "client", now = 20, peer = peer })
+	assert(out.command == nil and mem.value == 1000)
+end)
+
+test("calendar commands retry without producing new user versions", function()
+	local mem, peer = {}, { cal = 2000, cv = 3, hb = 1, cb = "host" }
+	local function step(now)
+		return sync.calendar_step(mem, { calendar = 1000, role = "client", now = now, peer = peer })
+	end
+	assert(step(0).command == 2000)
+	assert(step(1).command == nil and mem.ver == 3)
+	assert(step(3.5).command == 2000 and mem.ver == 3)
+	step(7); step(10.5); local out = step(14)
+	assert(mem.broken and out.command == nil and has(out.logs, "could not be applied"))
+end)
+
+test("catchup changes only simulation speed, never calendar day length", function()
+	local h, c = pair(); gui_pair_steps(h, c)
+	h.gt = 60000
+	for _ = 1, 5 do h.gui(2.1); c.gui(2.1) end
+	assert(c.speed == 2 and h.ms_per_day == 600000 and c.ms_per_day == 600000)
+end)
+
+test("calendar commands also work through the simulation fallback without callbacks", function()
+	local h, c = pair(); h.ms_per_day = 4000
+	for _ = 1, main.SYNC_FALLBACK_AFTER + 10 do
+		h.clock, c.clock = h.clock + 0.3, c.clock + 0.3
+		h.tick(); c.tick()
+	end
+	assert(c.ms_per_day == 4000 and not has(c.logs, "Callbacks are currently disallowed"))
 end)
 
 print(string.format("%d sync tests passed, %d failed", passed, failed))

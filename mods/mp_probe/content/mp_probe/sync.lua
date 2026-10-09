@@ -155,11 +155,67 @@ end
 
 --- One step of the shared game speed, from the GUI script or (without it) from the simulation.
 -- @param mem table kept between calls
--- @param input table own (speedup now), own_t (game time in ms), role ("host" or "client"),
+-- @param input table own (speedup now), calendar (calendar editor milliseconds per day),
+--   own_t (game time in ms), role ("host" or "client"),
 --   peer (decoded gui state of the other game or nil), now (real seconds), hold (the game ahead
 --   may wait at speed 0), src ("gui" or "sim"), restore (decoded TF3MP_OWN_GUI, used when mem is
 --   empty: the DLL keeps what this game said last, in case the Lua state lost its memory)
 -- @return table command (speed to set or nil), logs (list of texts), publish (state text or nil)
+local function calendar_value(value)
+	return type(value) == "number" and value == value and value >= 0 and value <= 2147483647 and value == math.floor(value)
+end
+
+--- Independent calendar register: milliseconds per day, including 0 (calendar stopped).
+-- Both players may change it; higher version wins, host wins simultaneous changes.
+function sync.calendar_step(mem, input)
+	local out = { logs = {} }
+	local own, peer, now, role = input.calendar, input.peer, input.now, input.role
+	if not calendar_value(own) then return out end
+	if mem.value == nil then
+		local r = input.restore
+		if r and r.src == input.src and calendar_value(r.cal) and calendar_value(r.cv) then
+			mem.value, mem.ver, mem.by = r.cal, r.cv, r.cb
+			mem.target = calendar_value(r.ct) and r.ct or own
+		else mem.value, mem.ver, mem.by, mem.target = own, 0, role, own end
+	end
+	if peer and peer.hb ~= nil and peer.hb ~= mem.peer_hb then
+		mem.peer_hb, mem.peer_seen = peer.hb, now
+	end
+	local fresh = peer and mem.peer_seen and now - mem.peer_seen <= sync.PEER_STALE_S
+	local valid_peer = fresh and calendar_value(peer.cal) and calendar_value(peer.cv)
+	if mem.pending ~= nil then
+		if own == mem.pending then mem.pending = nil
+		elseif own ~= mem.pending_from then mem.pending = nil -- a new local user change
+		elseif now - mem.pending_at > sync.APPLY_WAIT_S then
+			if mem.tries < sync.APPLY_TRIES then
+				mem.tries, mem.pending_at = mem.tries + 1, now
+				out.command = mem.pending
+				out.logs[#out.logs + 1] = "calendar command not applied yet, retrying"
+			else
+				mem.broken, mem.pending, mem.target = true, nil, own
+				out.logs[#out.logs + 1] = "calendar command could not be applied; this game no longer follows"
+			end
+		end
+	end
+	if mem.pending == nil and own ~= mem.target then
+		mem.ver = math.max(mem.ver, valid_peer and peer.cv or 0) + 1
+		mem.value, mem.by = own, role
+		out.logs[#out.logs + 1] = "calendar changed here: " .. own .. " ms/day (version " .. mem.ver .. ")"
+	end
+	if valid_peer and (peer.cv > mem.ver or (peer.cv == mem.ver and peer.cal ~= mem.value and role == "client")) then
+		mem.value, mem.ver, mem.by = peer.cal, peer.cv, peer.cb
+		out.logs[#out.logs + 1] = "calendar from the other game: " .. mem.value .. " ms/day (version " .. mem.ver .. ")"
+	end
+	mem.target = mem.broken and own or mem.value
+	if own == mem.target then mem.pending = nil
+	elseif mem.pending ~= mem.target then
+		out.command = mem.target
+		mem.pending, mem.pending_from, mem.pending_at, mem.tries = mem.target, own, now, 0
+	end
+	out.state = { cal = mem.value, cv = mem.ver, cb = mem.by, ct = mem.target, cr = own }
+	return out
+end
+
 function sync.speed_step(mem, input)
 	local out = { logs = {} }
 	local function log(text) out.logs[#out.logs + 1] = text end
@@ -220,6 +276,11 @@ function sync.speed_step(mem, input)
 		mem.pending, mem.pending_from, mem.pending_at, mem.tries = target, own, now, 0
 	end
 	local state = { speed = mem.speed, ver = mem.ver, by = mem.by, run = own, tg = mem.target, src = input.src }
+	mem.calendar = mem.calendar or {}
+	local calendar = sync.calendar_step(mem.calendar, input)
+	out.calendar_command = calendar.command
+	for _, line in ipairs(calendar.logs) do log(line) end
+	for k, v in pairs(calendar.state or {}) do state[k] = v end
 	if mem.restores then state.rs = mem.restores end
 	local key = sync.encode(state)
 	if key ~= mem.published or now - (mem.published_at or -1e9) >= sync.HEARTBEAT_S then
@@ -562,6 +623,13 @@ function sync.set_speed(env, speed, callback)
 	else
 		cmd.sendCommand(cmd.makeGameSetSpeedCmd(speed))
 	end
+end
+
+function sync.set_calendar(env, millis_per_day, callback)
+	assert(calendar_value(millis_per_day), "invalid calendar day length")
+	local cmd = env.api.cmd
+	local command = cmd.makeGameSetCalendarSpeedCmd(millis_per_day)
+	if callback then cmd.sendCommand(command, callback) else cmd.sendCommand(command) end
 end
 
 return sync

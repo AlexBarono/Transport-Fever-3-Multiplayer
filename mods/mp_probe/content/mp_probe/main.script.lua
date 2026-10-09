@@ -22,7 +22,7 @@ local wire = require("/mp_probe/wire.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 38
+main.PROBE_VERSION = 39
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -1506,9 +1506,10 @@ function main.sync_speed_fallback(env, ss, role, gt, getenv)
 			"(a pause of the other game cannot be lifted from here)")
 	end
 	ss.speed_mem = ss.speed_mem or {}
+	local speed, calendar = sync.read_speed(env)
 	local out = sync.speed_step(ss.speed_mem, {
-		own = sync.read_speed(env), own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")),
-		now = clock(), hold = false, src = "sim",
+		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")),
+		now = clock(), hold = false, src = "sim", restore = own_gui,
 	})
 	for _, line in ipairs(out.logs) do logger.info("sync " .. line) end
 	if out.command then
@@ -1517,6 +1518,7 @@ function main.sync_speed_fallback(env, ss, role, gt, getenv)
 		sync.set_speed(env, target)
 	end
 	if out.publish then logger.info(main.STATE_MARKER .. "gui " .. out.publish) end
+	if out.calendar_command ~= nil then sync.set_calendar(env, out.calendar_command) end
 end
 
 --- Once per savegame and version: how the game's journal entries look (read only). Nothing is

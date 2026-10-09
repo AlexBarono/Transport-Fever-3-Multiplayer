@@ -277,6 +277,10 @@ while ((Now) -lt $deadline -and -not $replayFailure) {
 		$gt = Client-Gt
 		if ($phase -eq 'ahead') { $gt = $catchup.gt + ($now - $catchup.start) * 1000 * $hostReg.speed }
 		$state = @{ speed = $hostReg.speed; ver = $hostReg.ver; by = $hostReg.by; run = $run; tg = $run; src = 'gui'; hb = $hb; gt = $gt }
+		# The simulated peer mirrors calendar changes; it has no independent calendar.
+		foreach ($field in 'cal', 'cv', 'cb', 'ct', 'cr') {
+			if ($client.ContainsKey($field)) { $state[$field] = $client[$field] }
+		}
 		Send-Text ("TF3MP/1 STATE gui " + (Format-State $state))
 		if ($hostSim) { Send-Text ("TF3MP/1 STATE sim " + (Format-State $hostSim)) }
 	}

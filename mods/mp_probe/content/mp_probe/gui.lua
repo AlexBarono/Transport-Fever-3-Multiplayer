@@ -111,7 +111,7 @@ function gui.step(env, g, now)
 	if not getenv then return end
 	local role = sync.role(getenv)
 	if not role then return end
-	local speed = sync.read_speed(env)
+	local speed, calendar = sync.read_speed(env)
 	local gt = sync.read_time(env)
 	if not g.tested and not restore then
 		g.tested = true
@@ -166,7 +166,7 @@ function gui.step(env, g, now)
 		return
 	end
 	local out = sync.speed_step(g.speed, {
-		own = speed, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
+		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
 		hold = true, src = "gui", restore = restore,
 	})
 	for _, line in ipairs(out.logs) do logger.info("sync " .. line) end
@@ -177,6 +177,12 @@ function gui.step(env, g, now)
 		end)
 	end
 	if out.publish then logger.info("net state gui " .. out.publish) end
+	if out.calendar_command ~= nil then
+		local target = out.calendar_command
+		sync.set_calendar(env, target, function(_, success)
+			if success == false then logger.info("sync calendar " .. target .. " ms/day rejected by the game") end
+		end)
+	end
 end
 
 --- Host: saves this game once the world check reports a difference (TF3MP_OWN_HEALTH status=diff),
