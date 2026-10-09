@@ -1,7 +1,7 @@
 ﻿# Offline-Test der Spielstand-Übertragung (tools\save-transfer.ps1) über 127.0.0.1.
 # Aufruf aus dem Hauptordner: pwsh -File tests\run_save_transfer.ps1  (oder powershell -File ...)
 [CmdletBinding()]
-param([string]$Only = '')
+param([string]$Only = '', [int]$Port = 47950)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $root 'tools\save-transfer.ps1')
@@ -24,11 +24,11 @@ function New-RandomFile($path, $size) {
 }
 New-RandomFile (Join-Path $hostDir 'Det.sav') 3000000
 New-RandomFile (Join-Path $hostDir 'Det.jpg') 80000
-$port = 47950
 
 # Der Mitspieler läuft in einem zweiten PowerShell-Prozess.
 $shell = (Get-Process -Id $PID).Path
-function Start-Receiver($answer, $manifest = $null, $preparedPath = '') {
+$testPeers = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
+function Start-Receiver($answer, $manifest = $null, $preparedPath = '', [int]$Connections = 4, [string]$StatsPath = '', [string]$TracePath = '') {
 	$manifestPath = ''
 	if ($manifest) { $manifestPath = Join-Path $base 'receiver-manifest.json'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8 }
 	$script = @"
@@ -39,7 +39,8 @@ try {
 	Start-Sleep -Milliseconds 500
 	`$manifest = if ('$($manifestPath.Replace("'", "''"))') { Get-Content -LiteralPath '$($manifestPath.Replace("'", "''"))' -Raw | ConvertFrom-Json } else { `$null }
 	`$out = [pscustomobject]@{ Text = '' }  # wie das Textfeld im Launcher
-	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$out.Text = `$a; `$false } { param(`$q) `$$answer } -LocalManifest `$manifest
+	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$out.Text = `$a; if ('$($TracePath.Replace("'", "''"))') { [IO.File]::AppendAllText('$($TracePath.Replace("'", "''"))', "`$a`r`n") }; `$false } { param(`$q) `$$answer } -LocalManifest `$manifest -Connections $Connections
+	if ('$($StatsPath.Replace("'", "''"))') { `$script:LastSaveTransfer | ConvertTo-Json | Set-Content -LiteralPath '$($StatsPath.Replace("'", "''"))' -Encoding UTF8 }
 	if ('$($preparedPath.Replace("'", "''"))' -and `$t.Session) { Save-PreparedSession -Path '$($preparedPath.Replace("'", "''"))' -Session `$t.Session -SavePath `$t.SavePath | Out-Null }
 	`$text = if (`$t.Session) { `$t.Text } else { `$t }
 	Write-Output "OK `$text"
@@ -51,6 +52,7 @@ try {
 	$hidden = @{}
 	if ($IsWindows -ne $false) { $hidden.WindowStyle = 'Hidden' }  # Windows PowerShell 5.1 kennt $IsWindows nicht
 	$p = Start-Process -FilePath $shell -ArgumentList '-NoProfile', '-File', $file -RedirectStandardOutput $out -PassThru @hidden
+	$testPeers.Add($p)
 	return @{ Process = $p; Out = $out }
 }
 function Wait-Receiver($r) {
@@ -323,6 +325,7 @@ $body
 	$hidden = @{}
 	if ($IsWindows -ne $false) { $hidden.WindowStyle = 'Hidden' }
 	$p = Start-Process -FilePath $shell -ArgumentList '-NoProfile', '-File', $file -RedirectStandardOutput $out -PassThru @hidden
+	$testPeers.Add($p)
 	return @{ Process = $p; Out = $out }
 }
 # Liest Kopf und den Anfang der ersten Datei wie ein Mitspieler, danach entscheidet $then.
@@ -414,7 +417,218 @@ Test 'Neuabgleich: without a host the waiting player stops after its time' {
 	Assert ($out.Text -like 'Warte auf den Gastgeber*' -or $out.Text -like 'Verbinde mit*') "tick: $($out.Text)"
 }
 
+Test 'parallel: four connections transfer odd file sizes and unicode names with verified hashes' {
+	$path = Join-Path $hostDir 'Parallel ä .sav'; New-RandomFile $path 12000007
+	New-RandomFile ([IO.Path]::ChangeExtension($path, '.jpg')) 123457
+	$newSession = New-MultiplayerSession $manifest $path
+	$statsPath = Join-Path $base 'parallel-stats.json'
+	$r = Start-Receiver 'true' $manifest '' 4 $statsPath
+	Send-Savegame $path $port $tick 30 -Session $newSession | Out-Null
+	$got = Wait-Receiver $r
+	Assert ($got -like 'OK *gespeichert*') $got
+	$remoteStats = Get-Content -LiteralPath $statsPath -Raw | ConvertFrom-Json
+	Assert ($script:LastSaveTransfer.Streams -eq 4 -and $remoteStats.Streams -eq 4) 'four actual streams on both peers'
+	Assert ($script:LastSaveTransfer.Bytes -eq 12123464 -and $remoteStats.Bytes -eq 12123464) 'exact disjoint ranges'
+	Assert ($script:LastSaveTransfer.Seconds -gt 0 -and $remoteStats.Seconds -gt 0) 'data-only telemetry'
+	foreach ($f in 'Parallel ä .sav','Parallel ä .jpg') { Assert (Test-SameBytes (Get-FileSha256 (Join-Path $hostDir $f)) (Get-FileSha256 (Join-Path $clientDir $f))) $f }
+	Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'no parts'
+}
+
+Test 'parallel: a single-stream receiver keeps the session protocol compatible' {
+	$newSession = New-MultiplayerSession $manifest (Join-Path $hostDir 'Det.sav')
+	$r = Start-Receiver 'true' $manifest '' 1
+	Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30 -Session $newSession | Out-Null
+	Assert ((Wait-Receiver $r) -like 'OK *gespeichert*') 'legacy payload after capability negotiation'
+	Assert ($null -eq $script:LastSaveTransfer) 'parallel mode was not used'
+}
+
+Test 'parallel: the sender can cancel while the peer never answers compatibility' {
+	$newSession = New-MultiplayerSession $manifest (Join-Path $hostDir 'Det.sav')
+	$r = Start-Peer @"
+	`$c = New-Object Net.Sockets.TcpClient; `$c.Connect('127.0.0.1', $port)
+	`$br = New-Object IO.BinaryReader(`$c.GetStream(), [Text.Encoding]::UTF8)
+	`$null = `$br.ReadString(); `$n = `$br.ReadInt32(); `$null = `$br.ReadBytes(`$n)
+	Start-Sleep -Seconds 2; `$c.Close(); Write-Output 'OK'
+"@
+	$watch = [Diagnostics.Stopwatch]::StartNew(); $err = ''
+	try { Send-Savegame (Join-Path $hostDir 'Det.sav') $port { param($text) $text -like '*Kompatibilitätsprüfung*' } 30 -Session $newSession -MaxAttempts 1 | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -eq 'Abgebrochen.' -and $watch.Elapsed.TotalSeconds -lt 5) "responsive compatibility cancel: $err"
+	Wait-Receiver $r | Out-Null
+}
+
+Test 'parallel: the receiver can cancel while the sender never supplies a header' {
+	$listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $port); $listener.Start()
+	try {
+		$watch = [Diagnostics.Stopwatch]::StartNew(); $err = ''
+		try { Receive-Savegame '127.0.0.1' $port $clientDir { param($text) $text -like '*Übertragungsdaten*' } { $true } -LocalManifest $manifest -MaxAttempts 1 | Out-Null } catch { $err = $_.Exception.Message }
+		Assert ($err -eq 'Abgebrochen.' -and $watch.Elapsed.TotalSeconds -lt 3) "responsive header cancel: $err"
+	} finally { if ($listener.Pending()) { $listener.AcceptTcpClient().Close() }; $listener.Stop() }
+}
+
+Test 'parallel: a refused replacement preserves the existing world and clears every part' {
+	$path = Join-Path $hostDir 'Parallel ä .sav'; New-RandomFile $path 9000001
+	$before = Get-FileSha256 (Join-Path $clientDir 'Parallel ä .sav')
+	$newSession = New-MultiplayerSession $manifest $path
+	$r = Start-Receiver 'false' $manifest
+	$err = ''; try { Send-Savegame $path $port $tick 30 -Session $newSession | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like '*wollte seinen Spielstand*') $err
+	Assert ((Wait-Receiver $r) -like 'ERROR Nicht gespeichert*') 'refused'
+	Assert (Test-SameBytes $before (Get-FileSha256 (Join-Path $clientDir 'Parallel ä .sav'))) 'original unchanged'
+	Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'all parts deleted'
+}
+
+Test 'parallel: cancelling a receiver stops all sockets and never replaces its existing save' {
+	$path = Join-Path $hostDir 'Abbruch.sav'; $newSession = New-MultiplayerSession $manifest $path
+	$target = Join-Path $clientDir 'Abbruch.sav'; [IO.File]::WriteAllText($target, 'keep existing world')
+	$before = Get-FileSha256 $target
+	$manifestPath = Join-Path $base 'cancel-manifest.json'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+	$r = Start-Peer @"
+	`$manifest = Get-Content -LiteralPath '$($manifestPath.Replace("'", "''"))' -Raw | ConvertFrom-Json
+	Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$text) `$text -like 'Empfange *Datenverbindungen*' } { `$true } -LocalManifest `$manifest -MaxAttempts 1 | Out-Null
+"@
+	$err = ''; try { Send-Savegame $path $port $tick 30 -Session $newSession -MaxAttempts 1 | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err.Length -gt 0) 'host observes cancellation'
+	Assert ((Wait-Receiver $r) -like 'ERROR Abgebrochen.*') 'receiver cancellation'
+	Assert (Test-SameBytes $before (Get-FileSha256 $target)) 'original remains'
+	Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'no orphan worker files'
+	# Reuse the same port and names immediately: no orphan listeners/files from the cancelled attempt.
+	$r = Start-Receiver 'true' $manifest
+	Send-Savegame $path $port $tick 30 -Session $newSession | Out-Null
+	Assert ((Wait-Receiver $r) -like 'OK *gespeichert*') 'next attempt succeeds'
+}
+
+Test 'parallel: invalid stream counts are rejected before opening files or sockets' {
+	foreach ($n in 0,5,-1) {
+		$err = ''; try { Send-Savegame 'does-not-exist.sav' $port $tick -Connections $n | Out-Null } catch { $err = $_.Exception.Message }
+		Assert ($err -like '*zwischen 1 und 4*') $err
+	}
+}
+
+Test 'parallel: a blocked writer remains cancellable' {
+	Add-Type -TypeDefinition @'
+public sealed class TF3MPStalledWriter : System.IO.MemoryStream {
+    private volatile bool closed;
+    public override void Write(byte[] b, int offset, int count) {
+        while (!closed) System.Threading.Thread.Sleep(10);
+        throw new System.IO.IOException("cancelled blocked write");
+    }
+    protected override void Dispose(bool disposing) { closed = true; base.Dispose(disposing); }
+}
+'@
+	$stalled = New-Object TF3MPStalledWriter
+	try {
+		$err = ''; $watch = [Diagnostics.Stopwatch]::StartNew()
+		try { Write-SaveData $stalled (New-Object byte[] 1000) 0 1000 (New-SaveProgress) { $true } 'Schicke ...' 0 1000 } catch { $err = $_.Exception.Message }
+		Assert ($err -eq 'Abgebrochen.' -and $watch.Elapsed.TotalSeconds -lt 3) "write cancellation: $err"
+	} finally { $stalled.Dispose() }
+}
+
+Test 'parallel: cancellation works while waiting for the final confirmation' {
+	$path = Join-Path $hostDir 'Ack.sav'; New-RandomFile $path 1000
+	$r = Start-Peer @"
+	`$c = New-Object Net.Sockets.TcpClient; `$c.Connect('127.0.0.1', $port); `$c.ReceiveTimeout = 5000
+	`$br = New-Object IO.BinaryReader(`$c.GetStream(), [Text.Encoding]::UTF8)
+	`$null = `$br.ReadString(); `$null = `$br.ReadString(); `$null = `$br.ReadInt32(); `$null = `$br.ReadInt64()
+	`$null = `$br.ReadString(); `$null = `$br.ReadInt64(); `$null = `$br.ReadBytes(32); `$null = `$br.ReadBytes(1000)
+	Start-Sleep -Seconds 2; `$c.Close(); Write-Output 'OK'
+"@
+	$seen = @{ Waiting = 0 }; $err = ''; $watch = [Diagnostics.Stopwatch]::StartNew()
+	try { Send-Savegame $path $port { param($text) if ($text -like '*Bestätigung*') { $seen.Waiting++ }; $seen.Waiting -ge 3 } 30 -MaxAttempts 1 | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -eq 'Abgebrochen.' -and $watch.Elapsed.TotalSeconds -lt 5 -and $seen.Waiting -ge 3) "confirmation cancel: $err"
+	Wait-Receiver $r | Out-Null
+}
+
+Test 'parallel: wrong data tokens are refused and valid connections still succeed' {
+	$listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $listener.Start()
+	$sendJob = $null; $receiveJob = $null; $bad = $null
+	try {
+		$path = Join-Path $hostDir 'Det.sav'; $token = ('a' * 64)
+		$source = New-Object TF3MP.TransferFile; $source.Path = $path; $source.Name = 'Det.sav'; $source.Length = (Get-Item $path).Length; $source.Hash = Get-FileSha256 $path
+		$dest = New-Object TF3MP.TransferFile; $dest.Path = Join-Path $clientDir 'token-check.part'; $dest.Name = 'Det.sav'; $dest.Length = $source.Length; $dest.Hash = $source.Hash
+		$sendJob = [TF3MP.TransferJob]::Send($listener, [Net.IPAddress]::Loopback, $token, [TF3MP.TransferFile[]]@($source), 4)
+		$bad = New-Object Net.Sockets.TcpClient; $bad.Connect('127.0.0.1', $listener.LocalEndpoint.Port)
+		$writer = New-Object IO.BinaryWriter($bad.GetStream(), [Text.Encoding]::UTF8); $writer.Write('TF3MPRANGE1'); $writer.Write(('b' * 64)); $writer.Write([int]0); $writer.Flush()
+		$receiveJob = [TF3MP.TransferJob]::Receive('127.0.0.1', $listener.LocalEndpoint.Port, $token, [TF3MP.TransferFile[]]@($dest), 4)
+		Wait-SaveJob $sendJob $tick 'Schicke ...' $source.Length | Out-Null
+		Wait-SaveJob $receiveJob $tick 'Empfange ...' $source.Length | Out-Null
+		Assert ($sendJob.Streams -eq 4 -and $receiveJob.Streams -eq 4) 'wrong token consumed no slot'
+		Assert (Test-SameBytes $source.Hash (Get-FileSha256 $dest.Path)) 'valid ranges intact'
+		Remove-Item -LiteralPath $dest.Path
+	} finally { if ($bad) { $bad.Close() }; if ($sendJob) { $sendJob.Cancel() }; if ($receiveJob) { $receiveJob.Cancel() }; $listener.Stop() }
+}
+
+Test 'parallel: corrupted payloads fail the worker hash check' {
+	$listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $listener.Start()
+	$sendJob = $null; $receiveJob = $null
+	try {
+		$path = Join-Path $hostDir 'Det.sav'; $token = ('c' * 64)
+		$source = New-Object TF3MP.TransferFile; $source.Path = $path; $source.Name = 'Det.sav'; $source.Length = (Get-Item $path).Length; $source.Hash = Get-FileSha256 $path
+		$dest = New-Object TF3MP.TransferFile; $dest.Path = Join-Path $clientDir 'hash-check.part'; $dest.Name = 'Det.sav'; $dest.Length = $source.Length; $dest.Hash = [byte[]]$source.Hash.Clone(); $dest.Hash[0] = $dest.Hash[0] -bxor 255
+		$sendJob = [TF3MP.TransferJob]::Send($listener, [Net.IPAddress]::Loopback, $token, [TF3MP.TransferFile[]]@($source), 4)
+		$receiveJob = [TF3MP.TransferJob]::Receive('127.0.0.1', $listener.LocalEndpoint.Port, $token, [TF3MP.TransferFile[]]@($dest), 4)
+		Wait-SaveJob $sendJob $tick 'Schicke ...' $source.Length | Out-Null
+		$err = ''; try { Wait-SaveJob $receiveJob $tick 'Empfange ...' $source.Length | Out-Null } catch { $err = $_.Exception.Message }
+		Assert ($err -like '*kam beschädigt an*') $err
+		Remove-Item -LiteralPath $dest.Path
+	} finally { if ($sendJob) { $sendJob.Cancel() }; if ($receiveJob) { $receiveJob.Cancel() }; $listener.Stop() }
+}
+
+Test 'parallel: a dropped data connection is retried with clean parts on the same port' {
+	$path = Join-Path $hostDir 'Det.sav'; $newSession = New-MultiplayerSession $manifest $path
+	$listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, $port); $listener.Start(); $sockets = @()
+	try {
+		$tracePath = Join-Path $base 'retry-progress.log'
+		$r = Start-Receiver 'true' $manifest '' 4 '' $tracePath
+		$c = $listener.AcceptTcpClient(); $sockets += $c; $c.ReceiveTimeout = 5000
+		$writer = New-Object IO.BinaryWriter($c.GetStream(), [Text.Encoding]::UTF8); $reader = New-Object IO.BinaryReader($c.GetStream(), [Text.Encoding]::UTF8)
+		$metadata = [Text.Encoding]::UTF8.GetBytes(($newSession | ConvertTo-Json -Depth 6 -Compress))
+		$writer.Write($SaveSessionMagic); $writer.Write([int]$metadata.Length); $writer.Write($metadata); $writer.Flush()
+		Assert ($reader.ReadByte() -eq 1) 'compatible'; Assert ($reader.ReadString() -like '*parallel=4*') 'four lanes advertised'
+		$writer.Write($SaveParallelMagic); $writer.Write('Det'); $writer.Write([int]1); $writer.Write([int64](Get-Item $path).Length)
+		$writer.Write(('d' * 64)); $writer.Write([int]4); $writer.Write('Det.sav'); $writer.Write([int64](Get-Item $path).Length); $writer.Write([byte[]](Get-FileSha256 $path)); $writer.Flush()
+		$deadline = [DateTime]::UtcNow.AddSeconds(10)
+		while ($sockets.Count -lt 5) { if ([DateTime]::UtcNow -gt $deadline) { throw 'missing data socket' }; if ($listener.Pending()) { $sockets += $listener.AcceptTcpClient() } else { Start-Sleep -Milliseconds 10 } }
+		foreach ($socket in $sockets) { $socket.Close() }
+		# The real host keeps its listener for retries, too. Avoid a loopback/Any rebind race
+		# in the test fixture while old accepted Windows sockets are still closing.
+		$deadline = [DateTime]::UtcNow.AddSeconds(15)
+		while (-not $listener.Pending()) { if ([DateTime]::UtcNow -gt $deadline) { throw 'receiver did not retry' }; Start-Sleep -Milliseconds 50 }
+		$retryClient = $listener.AcceptTcpClient(); $sockets += $retryClient
+		$files = Get-SaveFiles $path; $hashes = @{}; $total = [int64]0
+		foreach ($f in $files) { $hashes[$f.Name] = Get-FileSha256 $f.FullName; $total += $f.Length }
+		Send-SaveToClient $retryClient $newSession $metadata 'Det' $files $hashes $total $tick $listener 4 | Out-Null
+	} finally { foreach ($socket in $sockets) { $socket.Close() }; $listener.Stop() }
+	$got = Wait-Receiver $r; Assert ($got -like 'OK *gespeichert*') $got
+	Assert ($script:LastSaveTransfer.Streams -eq 4) 'retry uses parallel transfer'
+	Assert (Test-SameBytes (Get-FileSha256 $path) (Get-FileSha256 (Join-Path $clientDir 'Det.sav'))) 'retry bytes intact'
+	Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'failed attempt removed every part'
+}
+
+Test 'parallel: wire text lengths are bounded before allocation' {
+	$memory = New-Object IO.MemoryStream; $writer = New-Object IO.BinaryWriter($memory, [Text.Encoding]::UTF8)
+	$writer.Write(('x' * 1000)); $writer.Flush(); $memory.Position = 0
+	$reader = New-Object IO.BinaryReader($memory, [Text.Encoding]::UTF8)
+	$job = [TF3MP.TransferJob]::Read($reader, 'text', 32)
+	$err = ''; try { Wait-SaveJob $job $tick 'Kopf ...' | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like '*Übertragungstext zu lang*') $err
+}
+
+Test 'parallel: leftover data sockets do not consume the host retry budget' {
+	$path = Join-Path $hostDir 'Det.sav'; $newSession = New-MultiplayerSession $manifest $path
+	$stray = Start-Peer @"
+	`$c = New-Object Net.Sockets.TcpClient; `$c.Connect('127.0.0.1', $port)
+	`$writer = New-Object IO.BinaryWriter(`$c.GetStream(), [Text.Encoding]::UTF8)
+	`$writer.Write('TF3MPRANGE1'); `$writer.Write(('e' * 64)); `$writer.Write([int]0); `$writer.Flush()
+	Start-Sleep -Seconds 1; `$c.Close(); Write-Output 'OK'
+"@
+	$r = Start-Receiver 'true' $manifest
+	Send-Savegame $path $port $tick 30 -Session $newSession -MaxAttempts 1 | Out-Null
+	Assert ((Wait-Receiver $r) -like 'OK *gespeichert*') 'real control connection succeeds on first attempt'
+	Wait-Receiver $stray | Out-Null
+}
+
 $resolvedBase = [IO.Path]::GetFullPath($base)
+foreach ($peerProcess in $testPeers) { if (-not $peerProcess.HasExited) { $peerProcess.Kill(); $peerProcess.WaitForExit() } }
 if (-not $resolvedBase.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Test cleanup escaped TEMP.' }
 Remove-Item -LiteralPath $resolvedBase -Recurse -Force
 Write-Host "$passed save transfer tests passed, $failed failed"

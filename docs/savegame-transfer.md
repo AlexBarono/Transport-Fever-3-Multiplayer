@@ -1,18 +1,38 @@
-# Spielstand an den Mitspieler schicken (Launcher)
+# Spielstand übertragen — v37
 
-Beide Spiele müssen denselben Spielstand laden. Damit der Mitspieler ihn nicht per Chat oder USB-Stick bekommen muss, kann der Launcher ihn übertragen (`tools/save-transfer.ps1`).
+Stand: 9. Oktober 2026. Beide PCs verwenden dasselbe portable Paket und sind im gemeinsamen VPN. Der Gastgeber wählt den Spielstand; der Mitspieler holt ihn über die VPN-Adresse des Gastgebers. Der Launcher prüft vor der Übertragung Spielversion, Modpaket und zusätzliche Mods. Nach erfolgreicher Übertragung laden beide denselben Stand. Der automatische Neuabgleich im laufenden Spiel verwendet dieselbe Übertragung.
 
-1. Gastgeber: im Launcher "Gastgeber" wählen, auf "Spielstand übertragen" klicken und den Spielstand auswählen. Der Launcher wartet bis zu 10 Minuten. Beim ersten Mal fragt Windows evtl. nach einer Firewall-Freigabe für PowerShell: erlauben.
-2. Mitspieler: "Mitspieler" wählen, die IP des Gastgebers eintragen und auf "Spielstand übertragen" klicken.
-3. Danach laden beide diesen Spielstand. Wer früher fertig ist, wartet im Spiel automatisch (Abgleich der Spielzeit, siehe `docs/phase3-sync.md`).
+Die Übertragung benutzt TCP auf dem eingestellten Port (Standard 47800). Die laufenden Spielaktionen benutzen UDP auf diesem Port. Für die zusätzlichen Verbindungen sind keine weiteren Ports nötig. Die Windows-Firewall muss den Launcher beziehungsweise PowerShell über den VPN-Adapter zulassen.
 
-Ein zweiter Klick auf den Knopf (er heißt dann "Abbrechen") bricht ab.
+## Vier Datenverbindungen
 
-## Technik
+Nach der Sitzungsprüfung vereinbaren die Launcher vier Datenverbindungen und behalten die ursprüngliche Verbindung für Steuerdaten und die abschließende Empfangsbestätigung. Jede Datei wird in vier disjunkte, möglichst gleich große Bereiche geteilt. Das gilt für den Spielstand und das optionale Vorschaubild, auch bei ungerader Dateigröße. Jeder Bereich wird an seiner vorgegebenen Position in die vorläufige Empfangsdatei geschrieben.
 
-- TCP auf demselben Port wie das Spiel (Standard 47800; das Spiel selbst nutzt UDP). Übers Internet braucht der Gastgeber deshalb eine Portfreigabe für UDP **und** TCP, oder beide nutzen ein VPN wie Tailscale oder ZeroTier.
-- Spielstände liegen in `<Steam>\userdata\<Konto>\3493540\local\save\` als `<name>.sav` mit Vorschaubild `<name>.jpg` (Lauf 25: `Det.sav` 33 MB, `Det.jpg` 0,8 MB; die größten Spielstände rund 80 MB). Bei mehreren Steam-Konten nimmt der Launcher den Ordner mit dem zuletzt geänderten Spielstand.
-- Übertragen werden `.sav` und, falls vorhanden, `.jpg`. Der Mitspieler prüft jede Datei mit SHA-256, schreibt sie zuerst als `.part` und legt sie erst danach unter dem richtigen Namen ab. Dateinamen vom Gastgeber dürfen keinen Pfad enthalten und müssen auf `.sav` oder `.jpg` enden.
-- Gibt es beim Mitspieler schon einen anderen Spielstand mit diesem Namen, fragt der Launcher. Bei "Ja" bleibt der alte als `<datei>.bak` liegen.
+Die zusätzlichen Verbindungen müssen die IP-Adresse der Steuerverbindung, die zufällige Kennung dieses Übertragungsversuchs und einen freien Bereichsindex vorweisen. Eine andere Kennung belegt keinen Bereich. Es werden höchstens vier Datenverbindungen angenommen; ungültige Verbindungen und die Wartezeit auf fehlende Verbindungen sind begrenzt. Je Verbindung wird spätestens nach einem MiB Empfang bestätigt. Das begrenzt ausstehende Daten und verhindert, dass die Geschwindigkeitsmessung nur große Windows-Sendepuffer zählt. Die Kennung ist eine Zuordnung innerhalb des VPN, keine Verschlüsselung des Spielstands.
 
-Offline-Test: `pwsh -File tests/run_save_transfer.ps1` (8 Tests, zwei PowerShell-Prozesse über 127.0.0.1).
+Anschließend wird jede komplette Datei mit SHA-256 geprüft. Eine fehlende, doppelte, zu große oder beschädigte Datei ersetzt keinen vorhandenen Spielstand. Empfangene Dateien liegen zunächst als `.part` vor. Vor dem Ersetzen eines anderen gleichnamigen Spielstands fragt der Launcher nach; bei Zustimmung bleibt die alte Datei als `.bak`. Der automatische Neuabgleich stimmt dem Ersetzen selbst zu und behält ebenfalls die Sicherung.
+
+## Oberfläche und Abbruch
+
+`tools/save-transfer-net.cs` führt Netzwerkzugriffe und Fingerabdruckprüfungen auf Hintergrundthreads aus. PowerShell ruft den Fortschritts- und Abbruch-Callback während wartender Zugriffe spätestens nach etwa 100 ms wieder auf. Die Hintergrundthreads greifen nicht auf WinForms zu. Das gilt auch für ausbleibende Kopfdaten, die Kompatibilitätsantwort, einen blockierten Schreibzugriff und die abschließende Bestätigung. Ein Abbruch schließt die betroffenen Verbindungen und wartet kurz auf deren Ende; vorläufige Dateien werden entfernt.
+
+Bei getrennten Verbindungen versucht der Mitspieler den Empfang bis zu fünfmal neu. Der Gastgeber behält dafür seinen Listener. Zurückgebliebene Datenverbindungen verbrauchen das Wiederholungsbudget nicht. Jeder Versuch verwendet eine neue Kennung; unvollständige Dateien werden neu übertragen. Fortsetzen innerhalb einer Teildatei ist nicht implementiert.
+
+`alut_launcher.log` nennt die übertragenen Nutzdaten, die reine Datenzeit, MB/s und die tatsächliche Zahl der Datenverbindungen. Die Datenzeit umfasst weder das Warten auf den Partner noch die anschließende Dateiprüfung oder das Laden der Welt in TF3. Vier Verbindungen können eine Begrenzung pro TCP-Verbindung im VPN besser ausnutzen; die erreichbare Gesamtrate hängt weiter von VPN, Internetverbindung und Datenträger ab. Das Laden innerhalb von TF3 wird hierdurch nicht verändert.
+
+## Verträglichkeit
+
+Die Sitzungsprüfung verwendet weiterhin `TF3MPSAVE2`. Der Empfänger meldet seine Parallel-Unterstützung in der Kompatibilitätsantwort. Erst danach kündigt der Gastgeber mit `TF3MPDATA3` die Bereichsübertragung an. Fehlt die Unterstützung auf einer Seite, bleibt es beim bisherigen Dateistrom über die Steuerverbindung. Lokale Aufrufe ohne Sitzung verwenden unverändert `TF3MPSAVE1`. Mit `-Connections 1` lässt sich der bisherige Dateistrom ausdrücklich wählen.
+
+Spielstände werden aus dem Ordner des aktiven Steam-Kontos ermittelt. Bei mehreren Konten ohne eindeutige Anmeldung fordert der Launcher eine eindeutige Auswahl über Steam; er nimmt keinen beliebigen zuletzt geänderten Ordner.
+
+## Gegenprüfung
+
+`tests/run_save_transfer.ps1` prüft über echte lokale TCP-Verbindungen mit getrennten PowerShell-Prozessen: vollständige Dateien und Vorschauen, Sitzungsablehnung, falsche Hashes, Namens- und Größenprüfung, Überschreibschutz, vier tatsächliche Datenverbindungen, ungerade Bereiche und Unicode-Namen, Rückfall auf eine Verbindung, Abbruch in den Wartephasen, blockierte Schreibzugriffe, falsche Bereichskennungen, getrennte Datenverbindungen und Wiederholung samt Bereinigung. Der blockierte Schreibzugriff verwendet zusätzlich einen gezielt wartenden Test-Stream, damit der Test unabhängig von Windows-Socketpuffern ist.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_save_transfer.ps1
+pwsh -NoProfile -File tests/run_save_transfer.ps1
+```
+
+Für parallele Testläufe kann ein anderer Testport mit `-Port 47970` gewählt werden; auch der jeweilige Folgeport muss frei bleiben. Diese Tests verändern keine installierten Spielstände und starten TF3 nicht. Die Geschwindigkeit und Bedienbarkeit müssen zusätzlich auf den beiden tatsächlichen VPN-PCs geprüft werden.

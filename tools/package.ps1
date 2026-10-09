@@ -81,6 +81,7 @@ foreach ($file in 'Start.bat', 'Test-letzte-Aufnahme.bat', 'README.md', 'launche
 foreach ($pattern in @(
 	@{ Directory = 'launcher'; Filter = '*.ps1' },
 	@{ Directory = 'tools'; Filter = '*.ps1' },
+	@{ Directory = 'tools'; Filter = '*.cs' },
 	@{ Directory = 'docs'; Filter = '*.md' }
 )) {
 	foreach ($file in Get-ChildItem -LiteralPath (Join-Path $packageRoot $pattern.Directory) -File -Filter $pattern.Filter -Force) {
