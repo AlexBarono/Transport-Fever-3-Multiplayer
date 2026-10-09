@@ -107,6 +107,7 @@ function hold.serialize(env, p)
 		to_add = p.toAdd,
 		to_remove = p.toRemove,
 		construction = function(id) return world.construction_info(env, id) end,
+		edge_structure = function(comp) return world.edge_structure(env, comp) end,
 		edge_object = function(id, from_proposal) return world.edge_object_info(env, id, from_proposal) end,
 		read_transf = function(t) return build.read_transf(t) end,
 	}

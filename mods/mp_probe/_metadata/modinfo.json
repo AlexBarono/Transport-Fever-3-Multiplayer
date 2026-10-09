@@ -5,7 +5,7 @@
             "role": "CREATOR"
         }
     ],
-    "description": "Experimental TF3 multiplayer prototype. Probe v41 / bridge v13: prepared VPN sessions exchange builds, lines, vehicles, loans and live calendar speed. v41 preserves rail junctions during replay, prevents repeated construction stages and fixes module loading in GUI build hooks. World differences remain diagnostic; a shared save is reloaded only on explicit resync request. Both PCs need the same package. Ships, planes and large maps still need real two-PC testing.",
+    "description": "Experimental TF3 multiplayer prototype. Probe v42 / bridge v13: prepared VPN sessions exchange builds, lines, vehicles, loans and live calendar speed. v42 replaces industry field modules through native commands before station builds and transfers rail bridge and tunnel resource types. v41 preserves rail junctions and guards replay stages. World differences remain diagnostic; a shared save is reloaded only on explicit resync request. Both PCs need the same package. Real two-PC regression tests are still required.",
     "name": "Multiplayer Probe (dev)",
     "summary": "Logs the TF3 Lua sandbox and engine API for multiplayer research.",
     "tags": [

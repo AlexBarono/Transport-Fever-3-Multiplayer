@@ -223,7 +223,7 @@ function world.construction_info(env, id)
 	local ok, file = pcall(function() return con.fileName end)
 	local m = nil
 	pcall(function() m = world.read_transf(con.transf) end)
-	if not ok or type(file) ~= "string" or not m then return nil end
+	if not ok or type(file) ~= "string" or file == "" or not m then return nil end
 	return { file = file, position = { x = m[13], y = m[14], z = m[15] } }
 end
 
@@ -236,16 +236,32 @@ function world.is_player_owned(env, id)
 end
 
 --- Constructions owned by a player, as { [id] = { file, position } }. Used once per savegame;
--- afterwards the list is kept up to date from build events.
-function world.player_constructions(env)
+-- afterwards the list is kept up to date from build events. include_industries also remembers
+-- the unowned constructions whose field modules a player build can replace automatically.
+function world.player_constructions(env, include_industries)
 	local list = {}
 	each_with(env, "CONSTRUCTION", function(id)
-		if world.is_player_owned(env, id) then
-			local info = world.construction_info(env, id)
-			if info then list[id] = info end
+		local info = world.construction_info(env, id)
+		if info and (world.is_player_owned(env, id) or (include_industries and info.file:match("^::/industries/"))) then
+			list[id] = info
 		end
 	end)
 	return list
+end
+
+--- Bridge/tunnel resource names travel instead of per-process repository indexes.
+function world.edge_structure(env, comp)
+	local kind = comp.type
+	if kind == nil or kind == 0 then return nil end
+	local types = env.api.type.BaseEdgeType
+	if types and kind == types.NORMAL then return nil end
+	local name, rep
+	if types and kind == types.BRIDGE then name, rep = "BRIDGE", env.api.res.bridgeTypeRep
+	elseif types and kind == types.TUNNEL then name, rep = "TUNNEL", env.api.res.tunnelTypeRep
+	else error("unknown bridge/tunnel edge type " .. tostring(kind), 0) end
+	local resource = rep.getName(comp.typeIndex)
+	assert(type(resource) == "string" and resource ~= "", "bridge/tunnel resource name unavailable")
+	return { kind = name, resource = resource }
 end
 
 --- The construction of `file` closest to `pos` within `radius` metres, or nil.

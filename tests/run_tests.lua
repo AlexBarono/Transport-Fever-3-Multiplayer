@@ -3453,5 +3453,167 @@ test("a failed follow-up clears its reentrancy guard and reports the failure", f
 	assert(not state:get().network_followup.running)
 end)
 
+test("rail bridges and tunnels travel with their kind and resolve resource indexes locally", function()
+	local world = require("/mp_probe/world.lua")
+	for _, kind in ipairs({ "BRIDGE", "TUNNEL" }) do
+		local env, sent = mock_build_api()
+		env.api.type.BaseEdgeType = { NORMAL = 0, BRIDGE = 1, TUNNEL = 2 }
+		local resource = "::/infrastructure/" .. kind:lower() .. "/stone.lua"
+		env.api.res = { bridgeTypeRep = {}, tunnelTypeRep = {} }
+		local rep = kind == "BRIDGE" and env.api.res.bridgeTypeRep or env.api.res.tunnelTypeRep
+		rep.getName = function(index) assert(index == 7); return resource end
+		rep.find = function(name) assert(name == resource); return 23 end
+		local p = run5_street()
+		p.addedSegments[1].type = 1 -- railway, independent of BaseEdgeType
+		p.addedSegments[1].comp.type = env.api.type.BaseEdgeType[kind]
+		p.addedSegments[1].comp.typeIndex = 7
+		local line = build.serialize(p, { edge_structure = function(c) return world.edge_structure(env, c) end })
+		local parsed = assert(build.deserialize(line))
+		assert(parsed.segments[1].structure.kind == kind and parsed.segments[1].structure.resource == resource)
+		assert(build.replay(env, parsed, {}))
+		local edge = sent[1].proposal.streetProposal.edgesToAdd[1]
+		assert(edge.type == 1 and edge.comp.type == env.api.type.BaseEdgeType[kind])
+		assert(edge.comp.typeIndex == 23, "use receiver's repository index instead of sender's index 7")
+		local x, y = edge.comp.position0, edge.comp.position1
+		assert(math.abs(x.z - parsed.nodes[1].position.z) < 0.001 and y.z ~= x.z, "height and slope retained")
+		rep.find = function() return -1 end
+		local count = #sent
+		local ok = build.replay(env, parsed, {})
+		assert(not ok and #sent == count, "missing bridge resource must not become a ground track")
+	end
+	assert(not build.deserialize("B5 b-9;BRIDGE;stone.lua"))
+	assert(not build.deserialize("B5 b-1;BOGUS;stone.lua"))
+end)
+
+test("automatic field removals ignore empty construction placeholders", function()
+	local frame = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 }
+	local line, info = build.serialize({}, { to_add = { { fileName = "", transf = frame, params = {} } },
+		to_remove = { 700 }, construction = function() return { file = "::/industries/forest/forest.con",
+			position = { x = 1, y = 2, z = 3 } } end })
+	assert(info.constructions == 0 and info.demolished == 1)
+	assert(#assert(build.deserialize(line)).demolished == 1)
+	assert(not line:find("c;;;", 1, true))
+end)
+
+test("unowned industries are cached for automatic field replacement captures", function()
+	local main, world = fresh_main(), require("/mp_probe/world.lua")
+	local frame = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 10,20,0,1 }
+	local env = { api = { type = { ComponentType = { CONSTRUCTION = 1, PLAYER_OWNED = 2 } }, engine = {
+		getComponent = function(id, ct)
+			if ct == 2 then return { player = -1 } end
+			return { fileName = id == 700 and "::/industries/farm/farm.con" or "town.con", transf = frame }
+		end,
+		forEachEntityWithComponent = function(fn) fn(700); fn(701) end,
+	} } }
+	assert(not next(world.player_constructions(env)))
+	assert(world.player_constructions(env, true)[700] and not world.player_constructions(env, true)[701])
+	local s = {}; main.remember_constructions(env, s, { { toRemove = {} }, {}, { 700, 701 } })
+	assert(s.constructions['700'] and not s.constructions['701'])
+	local line, info = build.serialize({}, { to_remove = { 700 }, construction = function(id) return s.constructions[tostring(id)] end })
+	assert(info.demolished == 1 and #assert(build.deserialize(line)).demolished == 1)
+end)
+
+local function forest_crash_fixture()
+	local f = assert(io.open("tests/fixtures/v41-station-over-forest.b5", "r"))
+	local line = f:read("*a"); f:close()
+	return line, assert(build.deserialize(line))
+end
+
+local function forest_crash_finder()
+	local coords = {
+		[1] = { x = 5248.647, y = -7529.928, z = 54.6 },
+		[2] = { x = 5240.815, y = -7522.935, z = 54.6 },
+		[3] = { x = 5193.967, y = -7591.17, z = 54.6 },
+		[4] = { x = 5280.549, y = -7494.198, z = 54.6 },
+	}
+	local finder = {
+		find_node = function(p) for id, v in pairs(coords) do if build.near(p, v) then return id end end end,
+		find_edge = function(a, b) if (a == 1 and b == 2) or (a == 2 and b == 1) then return 115277 end end,
+		edge_construction = function(id) if id == 115277 then return 700 end end,
+		node_construction = function(id) if id == 1 or id == 2 then return 700 end end,
+		find_construction = function(file) if file == "::/industries/forest/forest.con" then return 700 end end,
+	}
+	return finder
+end
+
+test("the recorded field crash never removes the industry's frozen entrance as a loose street", function()
+	local _, data = forest_crash_fixture()
+	assert(#data.constructions == 2 and #data.demolished == 0 and #data.removed_segments == 1)
+	local gates = require("/mp_probe/weld.lua").gate_positions(data)
+	build.drop_access(data); data.gate_positions = gates
+	local jobs = build.plan_environment(data, forest_crash_finder())
+	assert(#jobs == 1 and jobs[1].require_native and jobs[1].demolished[1].entity == 700)
+	assert(jobs[1].constructions[1].params.modules[3] and not jobs[1].constructions[1].params.modules[7],
+		"retain exactly the captured field modules")
+	assert(#data.constructions == 1 and data.constructions[1].file:match("/stations/rail/"))
+	assert(#data.nodes == 0 and #data.segments == 0 and #data.removed_segments == 0 and #data.removed_nodes == 0)
+	assert(#data.configs == 25 and not next(data.foreign) and not data.replay_has_gates)
+	-- Defense in depth for a capture whose construction replacement cannot be resolved.
+	local bad = assert(build.deserialize("B5 r;5248.647,-7529.928,54.6;5240.815,-7522.935,54.6;0"))
+	local ok, err = build.resolve(bad, forest_crash_finder())
+	assert(not ok and err:find("construction-owned", 1, true))
+end)
+
+test("the recorded station waits for the native field callback; rejection never starts the station", function()
+	for _, reject in ipairs({ false, true }) do
+		local line, original_data = forest_crash_fixture()
+		local forest = original_data.constructions[2]
+		local env, sent = mock_build_api()
+		env.api.type.ComponentType = { CONSTRUCTION = 100 }
+		env.api.engine = { getComponent = function(id, ct)
+			assert(id == 700 and ct == 100); return { fileName = forest.file, transf = forest.transf }
+		end, util = { proposal = { createProposalReplaceConstruction = function(id, params)
+			assert(id == 700 and build.params_to_string(params) == build.params_to_string(forest.params))
+			return { native = true, toAdd = { { fileName = forest.file, transf = forest.transf, params = params } },
+				toRemove = { 700 }, old2new = { [700] = 0 } }
+		end } } }
+		local make, send = env.api.cmd.makeWorldBuildProposalCmd, env.api.cmd.sendCommand
+		local main, state, transport = fresh_main(), mock_state(), require("/mp_probe/transport.lua")
+		local field_callback, field_done
+		env.api.cmd.makeWorldBuildProposalCmd = function(p, context, ignore, player)
+			if type_name_of(p) == nil and p.native then return { proposal = p, native = true } end
+			assert(field_done, "station must wait for the native field command")
+			assert(#p.streetProposal.edgesToRemove == 0 and #p.streetProposal.nodesToRemove == 0)
+			assert(#p.constructionsToAdd == 1 and p.constructionsToAdd[1].fileName:match("/stations/rail/"))
+			return make(p, context, ignore)
+		end
+		env.api.cmd.sendCommand = function(cmd, cb)
+			if not cmd.native then
+				send(cmd, cb)
+				transport.check(state, function() error("station was acknowledged before its finish stage") end, true)
+				assert(state:get().network_work and not state:get().network_done)
+				return
+			end
+			sent[#sent + 1] = cmd
+			field_callback = function()
+				field_done = true
+				cb({ resultEntities = reject and {} or { 700 }, resultProposalData = {
+					costs = 1, errorState = { critical = reject } } }, not reject)
+			end
+		end
+		main.finder = forest_crash_finder
+		-- This test models native command order; station geometry verification has separate tests.
+		main.apply_node_configs, main.verify_node_configs = function() end, function() end
+		assert(transport.begin(state, "field.1"))
+		local wrapped = transport.env(env, state)
+		assert(main.replay_line(wrapped, line, "field.1", state, 0))
+		main.network_run(wrapped, state); transport.dispatched(state)
+		assert(#sent == 1 and state:get().network_work.pending == 1 and not state:get().network_done)
+		field_callback(); main.network_run(wrapped, state)
+		transport.check(state, function() end, true)
+		assert(#sent == (reject and 1 or 2), "native field edit once, then station only on success: " .. #sent .. "; " .. table.concat(logged, "\n"))
+		assert(state:get().network_done.skipped == (reject or nil))
+	end
+end)
+
+test("industry field replacements never fall back to an unsafe simple construction command", function()
+	local _, data = forest_crash_fixture()
+	build.drop_access(data)
+	local job = build.plan_environment(data, forest_crash_finder())[1]
+	local env, sent = mock_build_api()
+	local ok, err = build.replay(env, job, {})
+	assert(not ok and #sent == 0 and err:find("native construction helper", 1, true))
+end)
+
 print(string.format("%d passed, %d failed", passed, failures))
 if failures > 0 then os.exit(1) end

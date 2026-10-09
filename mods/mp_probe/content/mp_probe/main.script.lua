@@ -22,7 +22,7 @@ local wire = require("/mp_probe/wire.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 41
+main.PROBE_VERSION = 42
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -340,6 +340,7 @@ function main.finder(env)
 	return {
 		find_node = function(position) return world.find_node(nodes(), position) end,
 		find_edge = function(a, b) return world.find_edge(env, a, b) end,
+		node_construction = function(node) return world.node_construction(env, node) end,
 		find_construction = function(file, position) return world.find_construction(env, file, position) end,
 		edge_objects_of = function(edge) return world.edge_objects_of(env, edge) end,
 		edge_construction = function(edge) return world.edge_construction(env, edge) end,
@@ -400,8 +401,15 @@ function main.replay_line(env, line, number, state, distance)
 		"%d constructions, %d demolished, %d node configs, moved by %.1f,%.1f, player %s", tostring(number),
 		#data.nodes, #data.segments, main.count_keys(data.foreign), #data.removed_segments, #data.constructions,
 		#data.demolished, #data.configs, dx, dy, tostring(player)))
-	local has_gates = next(data.gates or {}) ~= nil and #data.constructions > 0
-	if has_gates then
+	return main.replay_data(env, data, state, player, number)
+end
+
+--- Continue a build after native field replacements have finished. Resolve graph IDs only then,
+-- because refreshing an industry's entrance can change its entities.
+function main.replay_data(env, data, state, player, number)
+	local has_gates = data.replay_has_gates
+	if has_gates == nil then has_gates = next(data.gates or {}) ~= nil and #data.constructions > 0 end
+	if has_gates and data.replay_has_gates == nil then
 		-- Run 20b: the copied construction lays its own entrance, and the copied entrance street
 		-- came on top of it as a second one ending in a second node on the gate. v21 leaves the
 		-- street out; weld.lua checks that the construction's own entrance meets the road.
@@ -411,6 +419,34 @@ function main.replay_line(env, line, number, state, distance)
 		logger.info(string.format("replay: %d entrance segment(s) left out, the construction lays its own",
 			before - #data.segments))
 	end
+	data.replay_has_gates = has_gates
+	if not data.environment_planned then
+		local jobs = build.plan_environment(data, main.finder(env))
+		data.environment_planned = true
+		has_gates = data.replay_has_gates
+		if #jobs > 0 then
+			logger.info("replay: " .. #jobs .. " industry field replacement(s) through the native helper before building")
+			if state and (state:get() or {}).network_work then
+				local live = state:get() or {}
+				live.network_followup = { phase = "environment", jobs = jobs, index = 1,
+					data = data, player = player, number = number }
+				state:set(live)
+				return true, "industry field replacements queued"
+			end
+			for _, job in ipairs(jobs) do
+				local opts, completed = main.replay_options(player, false, state), false
+				opts.on_result = function(...)
+					completed = true; main.log_replay_result(...)
+				end
+				local ok, err = build.replay(env, job, opts)
+				if not ok then return false, err end
+				if not completed then return false, "asynchronous field replacement needs a network execution receipt" end
+			end
+		end
+	end
+	-- A field-only event needs no empty player proposal after its native replacements.
+	if #data.constructions + #data.demolished + #data.nodes + #data.segments + #data.removed_segments +
+		#data.removed_nodes + #data.configs == 0 then return true end
 	local configs_only = #data.nodes == 0 and #data.segments == 0 and #data.removed_segments == 0 and
 		#data.removed_nodes == 0 and #data.constructions == 0 and #data.demolished == 0 and #data.configs > 0
 	if configs_only then
@@ -543,7 +579,21 @@ function main.network_continue(env, state)
 	state:set(live)
 	logger.info("net step " .. tostring(live.network_work and live.network_work.token) .. ": " .. tostring(follow.phase))
 	local ok, err = pcall(function()
-		if follow.phase == "street_configs" then
+		if follow.phase == "environment" then
+			local ok, err = build.replay(env, follow.jobs[follow.index], main.replay_options(follow.player, false, state))
+			if not ok then transport.fail(state, err) end
+			follow.index = follow.index + 1
+			if follow.index > #follow.jobs then follow.phase = "environment_build"; follow.jobs = nil end
+		elseif follow.phase == "environment_build" then
+			-- replay_data installs its own finish/verification stages. Do not overwrite them
+			-- with this completed environment stage when returning from the command callback.
+			-- Keep the running guard visible until it returns, including while a synchronous
+			-- callback has reached pending=0 but the new finish stage is not installed yet.
+			local ok, err = main.replay_data(env, follow.data, state, follow.player, follow.number)
+			if not ok then transport.fail(state, err) end
+			follow = (state:get() or {}).network_followup
+			if follow and follow.phase == "environment_build" then follow = nil end
+		elseif follow.phase == "street_configs" then
 			main.apply_node_configs(env, follow.streets, follow.player)
 			follow.phase = "street_verify"
 		elseif follow.phase == "street_verify" then
@@ -775,7 +825,7 @@ function main.update(_user_params, state, _dt)
 	end
 
 	if s.constructions_scanned ~= main.PROBE_VERSION then
-		local ok, list = pcall(world.player_constructions, _G)
+		local ok, list = pcall(world.player_constructions, _G, true)
 		if ok then
 			s.constructions = {}
 			local n = 0
@@ -783,7 +833,7 @@ function main.update(_user_params, state, _dt)
 				s.constructions[tostring(id)] = info
 				n = n + 1
 			end
-			logger.info("constructions of players found: " .. n)
+			logger.info("player and industry constructions found: " .. n)
 		else
 			logger.info("constructions scan failed: " .. tostring(list):sub(1, 200))
 		end
@@ -1628,6 +1678,7 @@ function main.capture_build(state, s, param, label)
 		to_add = param[1].toAdd,
 		to_remove = param[1].toRemove,
 		construction = function(id) return cons[tostring(id)] end,
+		edge_structure = function(comp) return world.edge_structure(env, comp) end,
 		edge_object = function(id, from_proposal)
 			local o = world.edge_object_info(env, id, from_proposal)
 			if s.edge_object_logged ~= main.PROBE_VERSION then
@@ -1720,10 +1771,11 @@ function main.remember_constructions(env, s, param)
 	pcall(function()
 		local ids = param[3]
 		for i = 1, #ids do
-			-- Town buildings come through here too; only player constructions are kept.
-			if world.is_player_owned(env, ids[i]) then
-				local info = world.construction_info(env, ids[i])
-				if info then s.constructions[tostring(ids[i])] = info end
+			-- Fields are industry modules. Their automatic replacement must retain the old
+			-- construction too, otherwise a station over a field duplicates its industry.
+			local info = world.construction_info(env, ids[i])
+			if info and (world.is_player_owned(env, ids[i]) or info.file:match("^::/industries/")) then
+				s.constructions[tostring(ids[i])] = info
 			end
 		end
 	end)

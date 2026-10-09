@@ -418,6 +418,14 @@ function build.serialize(proposal, opts)
 			comp.roadType or -1, comp.distance or 0, road,
 			precedence_to_string(seg, "params"), precedence_to_string(seg, "streetEdge"),
 		}, ";")
+		local structure = opts.edge_structure and opts.edge_structure(comp)
+		if structure then
+			assert(structure.kind == "BRIDGE" or structure.kind == "TUNNEL", "invalid bridge/tunnel type")
+			assert(type(structure.resource) == "string" and structure.resource ~= "", "missing bridge/tunnel resource")
+			parts[#parts + 1] = "b" .. (-i) .. ";" .. structure.kind .. ";" .. build.escape(structure.resource)
+		elseif not opts.edge_structure and comp.type ~= nil and comp.type ~= 0 then
+			error("bridge/tunnel capture needs its resource lookup", 0)
+		end
 		-- Stops, waypoints and signals on the segment (v15). TF3 places one by removing the edge and
 		-- adding it again with the object in comp.objects (run 14). Each object travels with its
 		-- position, so the receiver can tell its own existing objects from new ones.
@@ -483,6 +491,9 @@ function build.serialize(proposal, opts)
 	end
 
 	for _, con in ipairs(list_items(opts.to_add)) do
+		-- TF3 emits an empty construction entry for certain field removals. It is a deletion
+		-- placeholder, not a building at the origin. The real deletion is in to_remove.
+		if con.fileName == "" then goto next_construction end
 		local m, how = (opts.read_transf or build.read_transf)(con.transf)
 		if not m then error("construction " .. tostring(con.fileName) .. ": transf unreadable (" .. tostring(how) .. ")", 0) end
 		local numbers = {}
@@ -491,6 +502,7 @@ function build.serialize(proposal, opts)
 		info.constructions = info.constructions + 1
 		parts[#parts + 1] = table.concat({ "c", build.escape(con.fileName), build.escape(con.name or ""),
 			table.concat(numbers, ","), params }, ";")
+		::next_construction::
 	end
 	for _, id in ipairs(list_items(opts.to_remove)) do
 		local con = opts.construction and opts.construction(id)
@@ -666,6 +678,7 @@ function build.deserialize(line)
 		constructions = {}, demolished = {}, objects = {}, access = {}, gates = {}, configs = {},
 		config_segments = {} }
 	local roads = {}
+	local structures = {}
 	for token in string.gmatch(line, "%S+") do
 		local kind = token:sub(1, 1)
 		if kind == "B" then
@@ -673,6 +686,13 @@ function build.deserialize(line)
 			if data.version ~= build.VERSION then
 				return nil, "unsupported version " .. tostring(token:sub(2))
 			end
+		elseif kind == "b" then
+			local id, edge_kind, resource = token:match("^b(%-%d+);(%u+);([^;]+)$")
+			id = tonumber(id)
+			if not id or (edge_kind ~= "BRIDGE" and edge_kind ~= "TUNNEL") or structures[id] then
+				return nil, "bad bridge/tunnel token " .. token
+			end
+			structures[id] = { kind = edge_kind, resource = build.unescape(resource) }
 		elseif kind == "t" then
 			local id, template, style, lanes_text = string.match(token, "^t(%d+);([^;]+);([^;]+);([^;]+)$")
 			if not id then return nil, "bad road token " .. token end
@@ -785,10 +805,13 @@ function build.deserialize(line)
 		if not found then return nil, "stop/signal on unknown segment " .. o.segment end
 	end
 	for _, seg in ipairs(data.segments) do
+		seg.structure = structures[seg.id]
+		structures[seg.id] = nil
 		for _, ref in ipairs({ seg.node0, seg.node1 }) do
 			if type(ref) == "string" and not data.foreign[ref] then return nil, "unknown existing node " .. ref end
 		end
 	end
+	if next(structures) then return nil, "bridge/tunnel on unknown segment" end
 	for _, c in ipairs(data.configs) do
 		for k in pairs(build.config_refs(c)) do
 			if not data.config_segments[k] then return nil, "node config names unknown segment e" .. k end
@@ -895,6 +918,10 @@ function build.resolve(data, finder)
 		if r.entity and owner and demolished[owner] then
 			notes[#notes + 1] = "removed segment belongs to a demolished construction, the game removes it"
 			dropped_nodes[a], dropped_nodes[b] = true, true
+		elseif r.entity and owner then
+			-- Removing a frozen entrance without replacing/removing its construction can corrupt
+			-- TransportNetwork before TF3 returns an error (v41 station over a forest field).
+			return false, "removes a construction-owned road or track without its construction", notes
 		elseif not r.entity and #data.demolished > 0 then
 			-- Run 15: a depot's own access segment lies a little differently in the copy. Its end
 			-- nodes stay too (run 16: removing one that is still used asserts).
@@ -968,6 +995,79 @@ function build.resolve(data, finder)
 		end
 	end
 	return true, nil, notes
+end
+
+--- A player build can prune field modules of an existing industry. Replace that industry through
+-- TF3's own helper first; its frozen entrance and configurations must never be removed as loose
+-- streets. This also repairs v41 captures that omitted the unowned industry's old construction.
+-- Called after drop_access, before resolving the remaining player's graph against the world.
+function build.plan_environment(data, finder)
+	local jobs, owners, kept = {}, {}, {}
+	for _, c in ipairs(data.constructions or {}) do
+		local p = { x = c.transf[13], y = c.transf[14], z = c.transf[15] }
+		local id = c.file:match("^::/industries/") and finder.find_construction(c.file, p)
+		if id then
+			assert(not owners[id], "duplicate industry replacement in one build")
+			local job = assert(build.deserialize("B" .. build.VERSION))
+			job.constructions = { c }
+			job.demolished = { { file = c.file, position = p, entity = id } }
+			job.require_native = true
+			jobs[#jobs + 1] = job; owners[id] = true
+		else kept[#kept + 1] = c end
+	end
+	if #jobs == 0 then return jobs end
+	local function node_owner(p)
+		local id = finder.find_node(p)
+		return id and finder.node_construction and finder.node_construction(id)
+	end
+	local function edge_owner(a, b)
+		local na, nb = finder.find_node(a), finder.find_node(b)
+		local id = na and nb and finder.find_edge(na, nb)
+		return id and finder.edge_construction and finder.edge_construction(id)
+	end
+	data.constructions = kept
+	kept = {}
+	for _, d in ipairs(data.demolished or {}) do
+		local id = finder.find_construction(d.file, d.position)
+		if not owners[id] then kept[#kept + 1] = d end
+	end
+	data.demolished = kept
+	local ends = {}
+	kept = {}
+	for _, r in ipairs(data.removed_segments or {}) do
+		if owners[edge_owner(r.p0, r.p1)] then
+			ends[#ends + 1], ends[#ends + 2] = r.p0, r.p1
+		else kept[#kept + 1] = r end
+	end
+	data.removed_segments = kept
+	kept = {}
+	for _, n in ipairs(data.removed_nodes or {}) do
+		local owned = owners[node_owner(n)]
+		for _, p in ipairs(ends) do if build.near(n, p) then owned = true end end
+		if not owned then kept[#kept + 1] = n end
+	end
+	data.removed_nodes = kept
+	kept = {}
+	for _, c in ipairs(data.configs or {}) do
+		local owned = owners[node_owner(c.position)]
+		for k in pairs(build.config_refs(c)) do
+			local e = data.config_segments[k]
+			if e and owners[edge_owner(e.p0, e.p1)] then owned = true end
+		end
+		if not owned then kept[#kept + 1] = c end
+	end
+	data.configs = kept
+	kept = {}
+	for _, p in ipairs(data.gate_positions or {}) do
+		if not owners[node_owner(p)] then kept[#kept + 1] = p end
+	end
+	data.gate_positions = kept
+	data.replay_has_gates = #kept > 0
+	-- drop_access can leave foreign references that only the discarded entrance used.
+	local used = {}
+	for _, s in ipairs(data.segments or {}) do used[s.node0], used[s.node1] = true, true end
+	for ref in pairs(data.foreign or {}) do if not used[ref] then data.foreign[ref] = nil end end
+	return jobs
 end
 
 --- Writes obj[key] = value. A failure goes into `errors` as "label: message" instead of raising,
@@ -1187,6 +1287,15 @@ end
 -- @param positions table node positions by line id, for comp.position0/position1
 -- @param player number|nil player entity that will own the segment
 function build.make_segment(api, data, seg, positions, player, errors)
+	local edge_kind, resource_index
+	if seg.structure then
+		local s = seg.structure
+		assert(s.kind == "BRIDGE" or s.kind == "TUNNEL", "invalid bridge/tunnel kind")
+		edge_kind = assert(api.type.BaseEdgeType[s.kind], "bridge/tunnel enum unavailable")
+		local rep = s.kind == "BRIDGE" and api.res.bridgeTypeRep or api.res.tunnelTypeRep
+		resource_index = rep.find(s.resource)
+		assert(type(resource_index) == "number" and resource_index >= 0, "bridge/tunnel resource missing: " .. s.resource)
+	end
 	local entry = api.type.SegmentAndEntity.new()
 	try_set(entry, "entity", seg.id, errors, "edge.entity")
 	try_set(entry, "type", seg.type, errors, "edge.type")
@@ -1197,7 +1306,10 @@ function build.make_segment(api, data, seg, positions, player, errors)
 		set_vec(api, comp, "tangent1", seg.tangent1, errors, "edge.comp.tangent1")
 		if positions[seg.node0] then set_vec(api, comp, "position0", positions[seg.node0], errors, "edge.comp.position0") end
 		if positions[seg.node1] then set_vec(api, comp, "position1", positions[seg.node1], errors, "edge.comp.position1") end
-		if seg.typeIndex then try_set(comp, "typeIndex", seg.typeIndex, errors, "edge.comp.typeIndex") end
+		if edge_kind ~= nil then
+			comp.type, comp.typeIndex = edge_kind, resource_index
+			assert(comp.type == edge_kind and comp.typeIndex == resource_index, "bridge/tunnel fields did not read back")
+		elseif seg.typeIndex then try_set(comp, "typeIndex", seg.typeIndex, errors, "edge.comp.typeIndex") end
 		local objects = {}
 		for _, o in ipairs(data.objects or {}) do
 			if o.segment == seg.id and o.proposal_id then objects[#objects + 1] = { o.proposal_id, o.side } end
@@ -1224,6 +1336,9 @@ function build.make_segment(api, data, seg, positions, player, errors)
 			end
 		end
 	end, errors, "edge.comp")
+	if edge_kind ~= nil then
+		assert(entry.comp.type == edge_kind and entry.comp.typeIndex == resource_index, "proposal lost bridge/tunnel fields")
+	end
 	if seg.params then set_precedence(api, entry, "params", seg.params, errors, "edge.params") end
 	if seg.streetEdge then set_precedence(api, entry, "streetEdge", seg.streetEdge, errors, "edge.streetEdge") end
 	if player then
@@ -1393,6 +1508,17 @@ function build.make_proposal(env, data, layout, player, list_kind)
 		if seen[e].n > 1 then unique[i] = e .. " (" .. seen[e].n .. "x)" end
 	end
 	local check = build.check(layout, proposal, data)
+	local _, checked_edges = layout.read(proposal)
+	for i, seg in ipairs(data.segments) do
+		if seg.structure then
+			local ok, matches = pcall(function()
+				local rep = seg.structure.kind == "BRIDGE" and api.res.bridgeTypeRep or api.res.tunnelTypeRep
+				local comp = checked_edges[i].comp
+				return comp.type == api.type.BaseEdgeType[seg.structure.kind] and comp.typeIndex == rep.find(seg.structure.resource)
+			end)
+			if not ok or not matches then check.complete = false; check.text = check.text .. ", bridge/tunnel fields lost on edge " .. i end
+		end
+	end
 	-- Removals and constructions read back as well; a list the proposal dropped must not be sent.
 	local readback = {
 		{ "edgesToRemove", #extra.edges_to_remove, function() return proposal.streetProposal.edgesToRemove end },
@@ -1940,6 +2066,7 @@ function build.replay(env, data, opts)
 	local log = opts.log or function() end
 	local replacement_ok, replacement_message = replay_replacement(env, data, opts)
 	if replacement_ok ~= nil then return replacement_ok, replacement_message end
+	if data.require_native then return false, "industry field replacement requires the native construction helper" end
 	local needs_numbering = false
 	for _, o in ipairs(data.objects or {}) do
 		if not o.entity then needs_numbering = true end
