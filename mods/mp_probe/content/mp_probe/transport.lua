@@ -89,16 +89,19 @@ end
 -- as skipped. DLL v13 stops both games' queues for good on FAIL ("game rejected"), and the only way
 -- out was reloading a 90 MB save; one line the host could not build stopped the whole session.
 -- Now the session carries on; the world check shows whether the games really differ.
+-- A failed S1 line (the common timeline itself, w.noskip) still reports FAIL: a stopped timeline
+-- holds both games, and only the resync that the DLL's stop starts gets them going again.
 function transport.check(state, log, skip)
 	local s = state:get() or {}; local w = s.network_work
 	if not w or not w.dispatched or w.pending > 0 or s.action_busy then return end
 	if not w.error and (s.network_followup or (s.action_work and #s.action_work > 0) or (s.action_inbox and #s.action_inbox > 0) or
 		(s.weld_checks and #s.weld_checks > 0)) then return end
-	local skipped = w.error ~= nil and skip == true
+	local skipped = w.error ~= nil and skip == true and not w.noskip
 	local result = (w.error and not skipped) and "FAIL" or "OK"
 	s.network_done = { token = w.token, result = result, skipped = skipped or nil }
 	s.network_work = nil
-	if w.error then s.action_work, s.action_inbox, s.network_followup = nil, nil, nil end
+	-- The later entrance checks belong to this replay; left over, they would fail the next one.
+	if w.error then s.action_work, s.action_inbox, s.network_followup, s.weld_checks = nil, nil, nil, nil end
 	if skipped then
 		s.skipped = (s.skipped or 0) + 1
 		s.last_skipped = { token = w.token, error = w.error:sub(1, 160) }

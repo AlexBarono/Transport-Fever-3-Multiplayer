@@ -29,7 +29,7 @@ function Find-ResyncSave([string]$saveDir, [datetime]$since) {
 }
 
 # Ob niemand mehr in die Datei schreibt (das Spiel hält sie beim Speichern offen).
-# v37: mit FileShare Delete, damit TF3 die Datei genau in diesem Moment trotzdem ersetzen kann.
+# v37: für einen Augenblick geöffnet, mit FileShare Delete (stört TF3 so wenig wie möglich).
 function Test-FileClosed([string]$path) {
 	try { $stream = [IO.File]::Open($path, 'Open', 'Read', 'Delete'); $stream.Dispose(); return $true } catch { return $false }
 }
@@ -128,11 +128,17 @@ $LiveResyncErrors = '^(peer rejected|game rejected|save reloaded with pending)'
 # weil TF3s eigene Fenster Fahrzeugbefehle sofort ausführen; dafür ging jedes Mal das Spiel kurz aus
 # der Hand. Sie bleiben ein Hinweis, 'Neu abgleichen' bleibt für Hand.
 $LiveResyncStructural = @('hcon', 'hedge', 'hline', 'hveh', 'loan')
-# Eine Abweichung im Aufbau muss so lange und noch über eine weitere Weltprüfung hinweg bleiben.
-# Ein Bau, der beim Mitspieler gerade erst ankommt, verschwindet bis dahin von selbst.
-$LiveResyncConfirmSeconds = 30
+# Jedes dieser Felder muss für sich bei so vielen Weltprüfungen hintereinander abweichen und so
+# lange. Eine Aktion, die beim Mitspieler gerade erst ankommt (ein gekaufter Bus, eine geänderte
+# Linie), ist bis dahin auch dort; zwei verschiedene solche Momente zählen nicht zusammen.
+$LiveResyncConfirmChecks = 3
+$LiveResyncConfirmSeconds = 60
+# Der gemeinsame Zeitplan ist stehen geblieben (world_fields 'clock'): Beide Spiele halten an und
+# es gibt keine Weltprüfungen mehr, deshalb zählt hier nur die Zeit.
+$LiveResyncClockSeconds = 30
 # Nach einem fehlgeschlagenen Neuabgleich versucht der Launcher es nach dieser Zeit noch einmal,
-# solange der Grund bleibt (statt auf einen Klick zu warten).
+# solange der Grund bleibt (statt auf einen Klick zu warten); jeder weitere Fehlschlag verdoppelt sie
+# bis zur normalen Wartezeit.
 $LiveResyncRetrySeconds = 30
 # Eigene Namen für die Kopien, die der Gastgeber schickt; die neuesten bleiben liegen.
 $LiveResyncSavePrefix = 'TF3MP-Sync-'
@@ -147,7 +153,8 @@ function Read-ProxyStatusValues([string]$Path) {
 }
 
 function New-LiveResyncMemory {
-	return @{ Pid = ''; Count = 0; LastUtc = [datetime]::MinValue; PeerReq = ''; Failed = $false; DiffCk = ''; DiffSinceUtc = [datetime]::MinValue }
+	return @{ Pid = ''; Count = 0; LastUtc = [datetime]::MinValue; PeerReq = ''; Failures = 0
+		Ck = $null; Fields = @{}; ClockSinceUtc = [datetime]::MinValue; LastSave = ''; CatchUp = '' }
 }
 
 # Die Felder aus world_fields, die mehr als Drift sind (siehe $LiveResyncStructural), als Liste.
@@ -155,60 +162,127 @@ function Get-StructuralDifference([string]$Fields) {
 	return @(@($Fields -split '[,\s]+') | Where-Object { $_ -and $LiveResyncStructural -contains $_ })
 }
 
-# Warum dieses Spiel jetzt im laufenden Spiel neu abgleichen soll: @{Kind='diff'|'error'|'peer'; Detail}
+# Führt bei jeder neuen Weltprüfung (world_ck) mit, seit wann und bei wie vielen Prüfungen
+# hintereinander jedes Feld im Aufbau abweicht. Gibt die bestätigten Felder zurück.
+function Update-LiveResyncDifference($Values, $Memory, [datetime]$NowUtc) {
+	$ck = [string]$Values.world_ck
+	if ($ck -ne $Memory.Ck) {
+		$Memory.Ck = $ck
+		$listed = @()
+		if ($Values.world -eq 'diff' -or $Values.world -eq 'checking') { $listed = @(Get-StructuralDifference ([string]$Values.world_fields)) }
+		$next = @{}
+		foreach ($field in $listed) {
+			if ($Memory.Fields.ContainsKey($field)) { $entry = $Memory.Fields[$field]; $entry.Checks++; $next[$field] = $entry }
+			else { $next[$field] = @{ Checks = 1; SinceUtc = $NowUtc } }
+		}
+		$Memory.Fields = $next
+	}
+	$confirmed = @()
+	foreach ($field in $LiveResyncStructural) {
+		$entry = $Memory.Fields[$field]
+		if ($entry -and $entry.Checks -ge $LiveResyncConfirmChecks -and ($NowUtc - $entry.SinceUtc).TotalSeconds -ge $LiveResyncConfirmSeconds) { $confirmed += $field }
+	}
+	return $confirmed
+}
+
+# Warum dieses Spiel jetzt im laufenden Spiel neu abgleichen soll: @{Kind='diff'|'clock'|'error'|'peer'; Detail}
 # oder $null. Kind 'peer': der Launcher des Mitspielers hat einen Neuabgleich verlangt (DLL-Status
 # resync_peer, neu seit dem letzten Mal). Zählt nichts mit; das macht Register-LiveResync beim Start.
-# v37: 'diff' nur bei einer Abweichung im Aufbau, die dieses Spiel selbst sieht, die mindestens
-# $LiveResyncConfirmSeconds dauert und eine spätere Weltprüfung (world_ck) übersteht. Sieht nur der
-# Mitspieler sie, fragt sein Launcher (dann Kind 'peer').
+# v37: 'diff' nur bei einer Abweichung im Aufbau, die dieses Spiel selbst sieht und die bleibt
+# (Update-LiveResyncDifference). Sieht nur der Mitspieler sie, fragt sein Launcher (dann 'peer').
+# 'clock': der gemeinsame Zeitplan dieses Spiels steht seit $LiveResyncClockSeconds.
 function Get-LiveResyncReason($Values, $Memory, [datetime]$NowUtc) {
 	if (-not $Values -or ($Values.mode -ne 'host' -and $Values.mode -ne 'client')) { return $null }
-	# Ein neu gestartetes TF3 (andere Prozessnummer) beginnt wieder bei null.
+	# Ein neu gestartetes TF3 (andere Prozessnummer) oder ein neu gestarteter Launcher beginnt wieder
+	# bei null. Eine Bitte des Mitspielers, die schon dasteht, ist älter und gilt nicht mehr.
 	if ($Values.pid -and $Values.pid -ne $Memory.Pid) {
-		$Memory.Pid = $Values.pid; $Memory.Count = 0; $Memory.LastUtc = [datetime]::MinValue; $Memory.PeerReq = ''
-		$Memory.Failed = $false; $Memory.DiffCk = ''; $Memory.DiffSinceUtc = [datetime]::MinValue
+		$fresh = New-LiveResyncMemory
+		foreach ($key in @($fresh.Keys)) { $Memory[$key] = $fresh[$key] }
+		$Memory.Pid = $Values.pid; $Memory.PeerReq = [string]$Values.resync_peer
 	}
 	$peerReq = [string]$Values.resync_peer
 	$peerNew = $peerReq -and $peerReq -ne $Memory.PeerReq
 	# Eine Bitte gilt einmal, auch wenn sie in die Wartezeit fällt (dann gleichen beide schon ab).
 	if ($peerReq) { $Memory.PeerReq = $peerReq }
-	# Wie lange die Abweichung im Aufbau schon besteht; zählt auch während der Wartezeit weiter.
-	$structural = @()
-	if ($Values.world -eq 'diff') { $structural = @(Get-StructuralDifference ([string]$Values.world_fields)) }
-	$confirmed = $false
-	if ($structural.Count) {
-		$ck = [string]$Values.world_ck
-		if (-not $Memory.DiffCk) { $Memory.DiffCk = $ck; $Memory.DiffSinceUtc = $NowUtc }
-		elseif ($ck -ne $Memory.DiffCk -and ($NowUtc - $Memory.DiffSinceUtc).TotalSeconds -ge $LiveResyncConfirmSeconds) { $confirmed = $true }
-	} else { $Memory.DiffCk = ''; $Memory.DiffSinceUtc = [datetime]::MinValue }
-	if ($Values.resync -eq 'armed' -or $Values.ready -ne '1') { return $null }
+	# Wie lange die Abweichungen schon bestehen; zählt auch während der Wartezeit weiter.
+	$structural = @(Update-LiveResyncDifference $Values $Memory $NowUtc)
+	$clock = $Values.world -eq 'diff' -and @([string]$Values.world_fields -split '[,\s]+') -contains 'clock'
+	if (-not $clock) { $Memory.ClockSinceUtc = [datetime]::MinValue }
+	elseif ($Memory.ClockSinceUtc -eq [datetime]::MinValue) { $Memory.ClockSinceUtc = $NowUtc }
+	# Eine angenommene Bitte zum Neuladen wartet auf TF3. Ist der letzte Versuch gescheitert, hängt sie
+	# nur noch; die DLL nimmt eine neue an.
+	if (($Values.resync -eq 'armed' -and $Memory.Failures -le 0) -or $Values.ready -ne '1') { return $null }
 	if ($Memory.Count -ge $LiveResyncMax) { return $null }
-	$pause = if ($Memory.Failed) { $LiveResyncRetrySeconds } else { $LiveResyncCooldownSeconds }
-	if (($NowUtc - $Memory.LastUtc).TotalSeconds -lt $pause) { return $null }
-	if ($confirmed) { return @{ Kind = 'diff'; Detail = ($structural -join ',') } }
+	if (($NowUtc - $Memory.LastUtc).TotalSeconds -lt (Get-LiveResyncPause $Memory)) { return $null }
+	if ($structural.Count) { return @{ Kind = 'diff'; Detail = ($structural -join ',') } }
+	if ($clock -and ($NowUtc - $Memory.ClockSinceUtc).TotalSeconds -ge $LiveResyncClockSeconds) { return @{ Kind = 'clock'; Detail = 'clock' } }
 	if ([string]$Values.error -match $LiveResyncErrors) { return @{ Kind = 'error'; Detail = [string]$Values.error } }
 	if ($peerNew) { return @{ Kind = 'peer'; Detail = $peerReq } }
 	return $null
 }
 
-function Register-LiveResync($Memory, [datetime]$NowUtc) {
-	$Memory.Count++; $Memory.LastUtc = $NowUtc; $Memory.Failed = $false
-	# Nach dem Neuladen zählt eine Abweichung neu.
-	$Memory.DiffCk = ''; $Memory.DiffSinceUtc = [datetime]::MinValue
+# Wartezeit nach dem letzten Neuabgleich: nach Erfolg $LiveResyncCooldownSeconds, nach Fehlschlägen
+# $LiveResyncRetrySeconds, mit jedem weiteren Fehlschlag doppelt so lang (höchstens die normale).
+function Get-LiveResyncPause($Memory) {
+	if ($Memory.Failures -le 0) { return $LiveResyncCooldownSeconds }
+	return [Math]::Min($LiveResyncCooldownSeconds, $LiveResyncRetrySeconds * [Math]::Pow(2, [Math]::Min(10, $Memory.Failures - 1)))
 }
 
-# v37: Nach einem fehlgeschlagenen Neuabgleich kommt der nächste Versuch schon nach $LiveResyncRetrySeconds.
+function Register-LiveResync($Memory, [datetime]$NowUtc) {
+	$Memory.Count++; $Memory.LastUtc = $NowUtc
+	# Nach dem Neuladen zählen Abweichungen neu.
+	$Memory.Ck = $null; $Memory.Fields = @{}; $Memory.ClockSinceUtc = [datetime]::MinValue
+}
+
+# v37: Nach einem fehlgeschlagenen Neuabgleich kommt der nächste Versuch früher (Get-LiveResyncPause).
 function Complete-LiveResync($Memory, [bool]$Success, [datetime]$NowUtc) {
-	$Memory.Failed = -not $Success
+	if ($Success) { $Memory.Failures = 0 } else { $Memory.Failures++ }
 	$Memory.LastUtc = $NowUtc
 }
 
-# v37 (Lauf 39): Der Gastgeber schickt eine eigene Kopie des frischen Spielstands. Während er die
-# Kopie liest und sendet, darf TF3 das Original wieder speichern (TF3 schreibt <name>.sav.tmp und
-# benennt die Datei dann über <name>.sav; liest dabei jemand ohne FileShare Delete, klappt das nicht
-# und TF3 hält das Spiel an). Auch die Kopie selbst liest das Original mit ReadWrite|Delete.
+# v37: Die Runde (epoch), in der das Spiel des Mitspielers ist, aus dem Protokoll der DLL
+# ("net: peer in resync epoch P, this game in E", nur von diesem TF3-Prozess); -1, wenn unbekannt.
+function Get-PeerEpoch([string]$LogPath, [string]$ProcessId, [int]$TailBytes = 262144) {
+	if (-not $LogPath -or -not $ProcessId -or -not (Test-Path -LiteralPath $LogPath -PathType Leaf)) { return -1 }
+	try {
+		$stream = [IO.File]::Open($LogPath, 'Open', 'Read', [IO.FileShare]'ReadWrite, Delete')
+		try {
+			$start = [Math]::Max([int64]0, $stream.Length - $TailBytes)
+			[void]$stream.Seek($start, 'Begin')
+			$reader = New-Object IO.StreamReader($stream, [Text.Encoding]::ASCII)
+			$tail = $reader.ReadToEnd()
+		} finally { $stream.Dispose() }
+	} catch { return -1 }
+	$found = [regex]::Matches($tail, '\[' + [regex]::Escape($ProcessId) + '\] net: peer in resync epoch (\d+), this game in (\d+)')
+	if ($found.Count -eq 0) { return -1 }
+	return [int]$found[$found.Count - 1].Groups[1].Value
+}
+
+# v37: Ein Neuabgleich, der nur auf einem PC geklappt hat, lässt die beiden DLLs in verschiedenen
+# Runden; sie verbinden sich dann nie wieder. Ist der Mitspieler genau eine Runde weiter, hat er den
+# Stand geladen, den beide zuletzt ausgetauscht haben (der Mitspieler bestätigt erst nach dem
+# Speichern, der Gastgeber lädt erst danach). Dieses Spiel lädt ihn dann auch. Gibt den Pfad
+# zurück oder $null; einmal pro Rundenpaar.
+function Get-EpochCatchUp($Values, $Memory, [int]$PeerEpoch) {
+	if (-not $Values -or ($Values.mode -ne 'host' -and $Values.mode -ne 'client')) { return $null }
+	# Eine hängende Bitte zum Neuladen (resync=armed) stört nicht: die DLL nimmt eine neue an.
+	if ($Values.connected -eq '1' -or $Values.ready -ne '1') { return $null }
+	if ($Values.epoch -notmatch '^\d+$' -or $PeerEpoch -ne [int]$Values.epoch + 1) { return $null }
+	$pair = "$($Values.epoch)>$PeerEpoch"
+	if ($Memory.CatchUp -eq $pair -or -not $Memory.LastSave -or -not (Test-Path -LiteralPath $Memory.LastSave -PathType Leaf)) { return $null }
+	$Memory.CatchUp = $pair
+	return $Memory.LastSave
+}
+
+# v37 (Lauf 39): Der Gastgeber schickt eine eigene Kopie des frischen Spielstands. TF3 schreibt beim
+# Speichern <name>.sav.tmp und benennt die Datei dann über <name>.sav; hält jemand <name>.sav in
+# diesem Moment offen, scheitert das und TF3 hält das Spiel an. In Lauf 39 war das Original während
+# der ganzen Übertragung offen; jetzt nur für die Kopie (etwa eine Sekunde, mit ReadWrite|Delete
+# geöffnet), und nicht, solange TF3 gerade speichert (<name>.sav.tmp da). Gesendet wird die Kopie.
 # Gibt die neue .sav als FileInfo zurück; die Vorschau (.jpg) kommt mit, wenn es sie gibt.
-function Copy-SaveSnapshot($File, [string]$SaveDir, [datetime]$NowLocal = (Get-Date)) {
+function Copy-SaveSnapshot($File, [string]$SaveDir, [datetime]$NowLocal = (Get-Date), [int]$BusyWaitSeconds = 30) {
+	$until = [DateTime]::UtcNow.AddSeconds($BusyWaitSeconds)
+	while ((Test-Path -LiteralPath "$($File.FullName).tmp") -and [DateTime]::UtcNow -lt $until) { Start-Sleep -Milliseconds 200 }
 	$base = $LiveResyncSavePrefix + $NowLocal.ToString('yyyyMMdd-HHmmss')
 	$name = $base; $n = 1
 	while (Test-Path -LiteralPath (Join-Path $SaveDir "$name.sav")) { $n++; $name = "$base-$n" }
@@ -290,8 +364,8 @@ function Wait-LiveReload([string]$StatusPath, [int]$EpochBefore, $tick, [int]$Ti
 		}
 		if ([DateTime]::UtcNow -gt $deadline) {
 			if ($ReloadPath -and (Test-Path -LiteralPath $ReloadPath)) { Remove-Item -LiteralPath $ReloadPath -Force -ErrorAction SilentlyContinue }
-			if ($armed) { throw 'TF3 hat den gemeinsamen Spielstand nicht geladen. Bitte auf beiden PCs "Neu abgleichen" klicken.' }
-			throw 'Die Multiplayer-DLL hat das Neuladen nicht angenommen (alte DLL oder Fehler in der Sitzung). Bitte auf beiden PCs "Neu abgleichen" klicken.'
+			if ($armed) { throw 'TF3 hat den gemeinsamen Spielstand nicht geladen.' }
+			throw 'Die Multiplayer-DLL hat das Neuladen nicht angenommen (alte DLL oder Fehler in der Sitzung).'
 		}
 		$text = if ($armed) { 'TF3 lädt den gemeinsamen Spielstand ...' } else { 'Bitte TF3, den gemeinsamen Spielstand zu laden ...' }
 		if (& $tick $text 0 0) { throw 'Abgebrochen.' }

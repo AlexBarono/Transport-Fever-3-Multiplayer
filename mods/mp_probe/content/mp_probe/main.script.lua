@@ -363,6 +363,8 @@ function main.replay_line(env, line, number, state, distance)
 		local now = main.game_time(env)
 		if not now then return false, "game time unreadable" end
 		local ok, err = timeline.receive(main.timeline_of(s, role), line, now)
+		-- v37: a failed timeline message is never skipped (transport.check).
+		if s.network_work and s.network_work.token == tostring(number) then s.network_work.noskip = true end
 		state:set(s)
 		return ok, err
 	end
@@ -1006,11 +1008,15 @@ function main.intent_ready(env, s, intent, role)
 	return true
 end
 
---- v37: in a session with a partner (host or client) a replay that fails here is skipped and the
--- session carries on (transport.check); 'Allein testen' and the local tests keep FAIL.
+--- v37: in a session with a partner (host or client with the host's ordering, which the DLL turns
+-- on only between two PCs) a replay that fails here is skipped and the session carries on
+-- (transport.check); 'Allein testen' and the local tests ('Gastgeber simulieren', same spot) keep FAIL.
 function main.skip_failures(env)
-	local ok, role = pcall(function() return sync.role(env.os.getenv) end)
-	return ok and (role == "host" or role == "client")
+	local ok, skip = pcall(function()
+		local role = sync.role(env.os.getenv)
+		return (role == "host" or role == "client") and env.os.getenv("TF3MP_ORDERING") == "1"
+	end)
+	return ok and skip == true
 end
 
 function main.check_network(state)
@@ -1087,7 +1093,9 @@ function main.paused_network_tick(env, state)
 	local role = sync.role(getenv)
 	if (role ~= "host" and role ~= "client") or getenv("TF3MP_ORDERING") ~= "1" then return end
 	local wrapped = transport.env(env, state)
-	main.network_run(wrapped, state)
+	-- v37: a failing step fails only this replay, as in handleEvent's network_continue.
+	local ok_run, err_run = pcall(main.network_run, wrapped, state)
+	if not ok_run then transport.fail(state, main.error_text(err_run)) end
 	local s = state:get() or {}
 	if actions.has_work(s) then
 		local ok, err = pcall(actions.tick, wrapped, state, transport.action_log(state, logger.info))
@@ -1784,8 +1792,20 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 				logger.info("net result " .. tostring(number) .. " " .. live.network_done.result)
 				return
 			end
-			if live.network_work and live.network_work.dispatched then return end
-			if not transport.begin(state, tostring(number)) then return end
+			-- v37: a common-tick command that meets another replay still running is executed again
+			-- on a later step (both games stay held); returning without that left it hanging for good.
+			local busy = live.network_work and live.network_work.dispatched
+			if busy or not transport.begin(state, tostring(number)) then
+				live = state:get() or {}
+				local other = live.network_work and live.network_work.token ~= tostring(number)
+				local a = live.timeline and live.timeline.active
+				if other and type(param) == "table" and param.schedule_seq and a and a.seq == param.schedule_seq then
+					timeline.retry(live.timeline); state:set(live)
+					logger.info("timeline execution of " .. tostring(number) .. " waits for replay " ..
+						tostring(live.network_work.token) .. " before it")
+				end
+				return
+			end
 		end
 		local env = transport.env(_G, state)
 		local ok, applied, err = pcall(main.replay_line, env, line, number, state, distance)

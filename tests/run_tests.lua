@@ -3238,11 +3238,14 @@ test("v37: a replay that fails in a session is skipped; the common timeline carr
 	local timeline = require("/mp_probe/timeline.lua")
 	local wire = require("/mp_probe/wire.lua")
 	local real_os = os
-	local vars = { TF3MP_ROLE = "client" }
+	local vars = { TF3MP_ROLE = "client", TF3MP_ORDERING = "1" }
 	os = setmetatable({ getenv = function(k) return vars[k] end }, { __index = real_os })
 	local ok, err = pcall(function()
 		local main = fresh_main()
 		assert(main.skip_failures(_G), "a client session skips")
+		vars.TF3MP_ORDERING = "0"
+		assert(not main.skip_failures(_G), "'Gastgeber simulieren' (client without the host's ordering) keeps FAIL")
+		vars.TF3MP_ORDERING = "1"
 		-- A common-tick command that this game could not run (its target is missing here).
 		local m = timeline.new("client")
 		assert(timeline.receive(m, "S1 " .. wire.encode({ op = "plan", seq = 1, at = 200, line = "A1 x", origin = "host" }), 0))
@@ -3259,6 +3262,17 @@ test("v37: a replay that fails in a session is skipped; the common timeline carr
 		assert(contains(logged, "timeline result host.1 OK"))
 		local after = state:get().timeline
 		assert(not after.error and after.active.own_done, "the timeline did not stop")
+		-- A failed message of the timeline itself still stops the session, so the launcher resyncs.
+		state:set({ network_work = { token = "999-2.1", pending = 0, dispatched = true, noskip = true,
+			error = "partner timeline failure: x" } })
+		logged = {}
+		main.check_network(state)
+		assert(contains(logged, "net result 999-2.1 FAIL partner timeline failure: x"), table.concat(logged, "\n"))
+		-- Entrance checks of a skipped replay do not fail the next one.
+		state:set({ network_work = { token = "999-3.1", pending = 0, dispatched = true, error = "game command rejected" },
+			weld_checks = { { file = "depot.con", position = {}, due = 0 } } })
+		main.check_network(state)
+		assert(state:get().weld_checks == nil, "weld checks dropped with the failed replay")
 		-- Without a partner ('Allein testen') a failure stays a failure.
 		vars.TF3MP_ROLE = "loopback"
 		assert(not main.skip_failures(_G))
@@ -3267,6 +3281,103 @@ test("v37: a replay that fails in a session is skipped; the common timeline carr
 		main.check_network(state)
 		assert(contains(logged, "net result loop.1 FAIL nope"), table.concat(logged, "\n"))
 	end)
+	os = real_os
+	assert(ok, err)
+end)
+
+test("v37: a failed S1 line is marked so it is never skipped", function()
+	local timeline = require("/mp_probe/timeline.lua")
+	local wire = require("/mp_probe/wire.lua")
+	local real_os = os
+	local vars = { TF3MP_ROLE = "client", TF3MP_ORDERING = "1" }
+	os = setmetatable({ getenv = function(k) return vars[k] end }, { __index = real_os })
+	local saved_api = api
+	local ok, err = pcall(function()
+		api = { type = { ComponentType = { GAME_TIME = 100 } },
+			engine = { util = { getWorld = function() return 10 end }, getComponent = function() return { gameTime = 500 } end } }
+		local main = fresh_main()
+		local state = mock_state()
+		state:set({ network_work = { token = "999-4.1", pending = 0, dispatched = false } })
+		local applied = main.replay_line(_G, "S1 " .. wire.encode({ op = "fail", seq = 0, reason = "boom" }), "999-4.1", state)
+		assert(not applied, "the partner's failure fails here too")
+		assert(state:get().network_work.noskip == true, "marked")
+	end)
+	api = saved_api
+	os = real_os
+	assert(ok, err)
+end)
+
+test("v37: a common-tick command that meets another replay runs again later instead of hanging", function()
+	local timeline = require("/mp_probe/timeline.lua")
+	local actions = require("/mp_probe/actions.lua")
+	local real_os = os
+	local aline = actions.encode({ op = "line_remove", targets = {} })
+	local vars = { TF3MP_ROLE = "client", TF3MP_ORDERING = "1", TF3MP_PEER_CLOCK = "gt=4200",
+		TF3MP_IN = "part 999-1.5 net 0 1 " .. aline }
+	os = setmetatable({ getenv = function(k) return vars[k] end }, { __index = real_os })
+	local saved_api = api
+	local queue = {}
+	local ok, err = pcall(function()
+		api = {
+			type = { ComponentType = { GAME_TIME = 100 } },
+			engine = { util = { getWorld = function() return 10 end, getPlayer = function() return 1 end },
+				getComponent = function(_, c) if c == 100 then return { gameTime = 4200 } end end },
+			cmd = { makeScriptingSendEventCmd = function(a, b, c, d) return { event = { a, b, c, d } } end,
+				makeGameSetSpeedCmd = function(speed) return { speed = speed } end,
+				-- TF3 runs the events later, in the order they were sent (run 39).
+				sendCommand = function(c) if c.event then queue[#queue + 1] = c.event end end },
+		}
+		local state = mock_state()
+		local m = timeline.new("client")
+		m.active = { seq = 1, at = 4000, line = "B5 x", origin = "host", phase = "committed", arrived = true, go = true }
+		m.gt = 4000
+		state:set({ timeline = m, updates = 7 })
+		fresh_main().handleEvent(nil, state, "mp_probe", "mp_probe_replay", "mp_probe_replay", { timeline_tick = true })
+		assert(#queue == 2 and tostring(queue[1][4].number) == "999-1.5" and tostring(queue[2][4].number) == "scheduled_host.1",
+			"the DLL line and the execution in one tick")
+		logged = {}
+		for _, ev in ipairs(queue) do fresh_main().handleEvent(nil, state, ev[1], ev[2], ev[3], ev[4]) end
+		local s = state:get()
+		assert(s.network_work and s.network_work.token == "999-1.5", "the DLL line runs")
+		assert(not s.timeline.active.executed and s.timeline.active.phase == "committed", "the held command is open again")
+		assert(timeline.step(s.timeline, 4400, 4400) ~= nil, "a later step executes it")
+		assert(contains(logged, "timeline execution of scheduled_host.1 waits for replay 999-1.5 before it"), table.concat(logged, "\n"))
+	end)
+	api = saved_api
+	os = real_os
+	assert(ok, err)
+end)
+
+test("v37: a staged step that throws while paused fails only its replay", function()
+	local timeline = require("/mp_probe/timeline.lua")
+	local real_os = os
+	local vars = { TF3MP_ROLE = "host", TF3MP_ORDERING = "1", TF3MP_PEER_CLOCK = "gt=10000" }
+	os = setmetatable({ getenv = function(k) return vars[k] end }, { __index = real_os })
+	local saved_api = api
+	local ok, err = pcall(function()
+		api = {
+			type = { ComponentType = { GAME_TIME = 100 } },
+			engine = { util = { getWorld = function() return 10 end, getPlayer = function() return 1 end },
+				getComponent = function(_, c) if c == 100 then return { gameTime = 10000 } end end },
+			cmd = { makeScriptingSendEventCmd = function(...) return { event = { ... } } end,
+				makeGameSetSpeedCmd = function(speed) return { speed = speed } end, sendCommand = function() end },
+		}
+		local main = fresh_main()
+		local state = mock_state()
+		local m = timeline.new("host")
+		m.active = { seq = 1, at = 9800, line = "B5 x", origin = "host", phase = "executing", executed = true,
+			arrived = true, peer_arrived = true, go = true }
+		m.gt = 9800
+		state:set({ timeline = m, network_work = { token = "scheduled_host.1", pending = 0, dispatched = true },
+			network_followup = { phase = "construction", data = { constructions = {} }, player = 1, gates = true } })
+		main.network_continue = function() error("boom in staged step") end
+		logged = {}
+		main.handleEvent(nil, state, "mp_probe", "mp_probe_replay", "mp_probe_replay", { timeline_tick = true })
+		local s = state:get()
+		assert(not s.timeline.error and s.network_work == nil, "the timeline carries on, the replay is closed")
+		assert(contains(logged, "net skipped scheduled_host.1") and contains(logged, "timeline result host.1 OK"), table.concat(logged, "\n"))
+	end)
+	api = saved_api
 	os = real_os
 	assert(ok, err)
 end)

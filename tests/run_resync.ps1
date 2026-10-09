@@ -165,39 +165,80 @@ function Live($extra) {
 	foreach ($k in $extra.Keys) { $v[$k] = $extra[$k] }
 	return $v
 }
-# v37: eine Abweichung im Aufbau, die zwei Weltprüfungen und $LiveResyncConfirmSeconds übersteht.
+# v37: eine Abweichung im Aufbau bei $LiveResyncConfirmChecks Weltprüfungen hintereinander und
+# $LiveResyncConfirmSeconds lang. Gibt den Grund der letzten Abfrage zurück.
 function Confirm-Diff($m, [datetime]$t, $extra = @{}) {
-	$first = @{ world = 'diff'; world_fields = 'hcon'; world_ck = '5' }
-	foreach ($k in $extra.Keys) { $first[$k] = $extra[$k] }
-	$null = Get-LiveResyncReason (Live $first) $m $t
-	$later = @{} + $first; $later.world_ck = '6'
-	return Get-LiveResyncReason (Live $later) $m $t.AddSeconds($LiveResyncConfirmSeconds + 1)
+	$r = $null
+	for ($i = 0; $i -lt $LiveResyncConfirmChecks; $i++) {
+		$v = @{ world = 'diff'; world_fields = 'hcon'; world_ck = [string](5 + $i) }
+		foreach ($k in $extra.Keys) { $v[$k] = $extra[$k] }
+		$r = Get-LiveResyncReason (Live $v) $m $t.AddSeconds($i * ($LiveResyncConfirmSeconds + 1) / ($LiveResyncConfirmChecks - 1))
+	}
+	return $r
+}
+function Check($m, [datetime]$t, [string]$ck, [string]$fields, [string]$world = 'diff') {
+	return Get-LiveResyncReason (Live @{ world = $world; world_fields = $fields; world_ck = $ck }) $m $t
 }
 Test 'live resync starts on a lasting difference in the build-up, not on drift' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
 	Assert ($null -eq (Get-LiveResyncReason (Live @{}) $m $t)) 'nothing while the worlds agree'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos,htown,hcargo'; world_ck = '5' }) $m $t)) 'drift'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos,htown,hcargo'; world_ck = '9' }) $m $t.AddMinutes(10))) 'drift stays drift'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world_peer = 'diff'; world_ck = '9' }) $m $t.AddMinutes(10))) 'only the partner sees it: its launcher asks'
+	for ($i = 0; $i -lt 10; $i++) { Assert ($null -eq (Check $m $t.AddMinutes($i) ([string](5 + $i)) 'hpos,htown,hcargo')) "drift $i" }
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world_peer = 'diff'; world_ck = '20' }) $m $t.AddMinutes(20))) 'only the partner sees it: its launcher asks'
 	$m = New-LiveResyncMemory
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos,hcon'; world_ck = '5' }) $m $t)) 'first seen'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos,hcon'; world_ck = '5' }) $m $t.AddSeconds(60))) 'same check only'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hcon,hpos'; world_ck = '6' }) $m $t.AddSeconds(10))) 'too short'
-	$r = Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hcon,hpos'; world_ck = '6' }) $m $t.AddSeconds($LiveResyncConfirmSeconds + 1)
+	Assert ($null -eq (Check $m $t '5' 'hpos,hcon')) 'first check'
+	Assert ($null -eq (Check $m $t.AddSeconds(20) '6' 'hcon,hpos')) 'second check'
+	Assert ($null -eq (Check $m $t.AddSeconds(40) '7' 'hcon')) 'third check, but too short'
+	$r = Check $m $t.AddSeconds($LiveResyncConfirmSeconds + 1) '7' 'hcon'
 	Assert ($r.Kind -eq 'diff' -and $r.Detail -eq 'hcon') "reason $($r.Kind) $($r.Detail)"
+	$m = New-LiveResyncMemory
+	Assert ($null -eq (Check $m $t '5' 'hline')) 'one'
+	Assert ($null -eq (Check $m $t.AddSeconds(90) '5' 'hline')) 'the same check does not count twice'
+	Assert ($null -eq (Check $m $t.AddSeconds(100) '6' 'hline')) 'two'
+	Assert ((Check $m $t.AddSeconds(110) '7' 'hline' 'checking').Kind -eq 'diff') 'three, also while the mod still says checking'
 	foreach ($field in 'hedge', 'hline', 'hveh', 'loan') { Assert ((Confirm-Diff (New-LiveResyncMemory) $t @{ world_fields = $field }).Kind -eq 'diff') $field }
 	Assert ($null -eq (Confirm-Diff (New-LiveResyncMemory) $t @{ mode = 'loopback' })) 'not in the solo test'
 	Assert ($null -eq (Confirm-Diff (New-LiveResyncMemory) $t @{ ready = '0' })) 'not before the world is ready'
 	Assert ($null -eq (Confirm-Diff (New-LiveResyncMemory) $t @{ resync = 'armed' })) 'not while a reload is armed'
 }
+Test 'short differences in different fields do not add up' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	$fields = 'hveh', 'hline', 'hveh', 'hline', 'hveh', 'hline'
+	for ($i = 0; $i -lt $fields.Count; $i++) {
+		Assert ($null -eq (Check $m $t.AddSeconds(60 * $i) ([string](10 + $i)) "hpos,$($fields[$i])")) "check $i"
+	}
+	Assert ($null -eq (Check $m $t.AddSeconds(400) '16' 'hpos,hline')) 'hline twice in a row'
+	Assert ((Check $m $t.AddSeconds(460) '17' 'hpos,hline').Kind -eq 'diff') 'three times in a row'
+}
 Test 'a difference that goes away in between starts counting again' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
-	$null = Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hveh'; world_ck = '5' }) $m $t
-	$null = Get-LiveResyncReason (Live @{ world = 'checking'; world_fields = ''; world_ck = '6' }) $m $t.AddSeconds(20)
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hveh'; world_ck = '7' }) $m $t.AddSeconds(40))) 'seen again: first time'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos'; world_ck = '8' }) $m $t.AddSeconds(80))) 'now drift only'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hveh'; world_ck = '9' }) $m $t.AddSeconds(100))) 'first time again'
-	Assert ((Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hveh'; world_ck = '10' }) $m $t.AddSeconds(140)).Kind -eq 'diff') 'lasting'
+	$null = Check $m $t '5' 'hveh'
+	$null = Check $m $t.AddSeconds(30) '6' 'hveh'
+	$null = Check $m $t.AddSeconds(60) '7' '' 'same'
+	Assert ($null -eq (Check $m $t.AddSeconds(90) '8' 'hveh')) 'seen again: first time'
+	Assert ($null -eq (Check $m $t.AddSeconds(120) '9' 'hveh')) 'second'
+	Assert ($null -eq (Check $m $t.AddSeconds(150) '10' 'hpos')) 'now drift only'
+	Assert ($null -eq (Check $m $t.AddSeconds(180) '11' 'hveh')) 'first time again'
+	Assert ($null -eq (Check $m $t.AddSeconds(210) '12' 'hveh')) 'second again'
+	Assert ((Check $m $t.AddSeconds(240) '13' 'hveh').Kind -eq 'diff') 'lasting'
+}
+Test 'a stopped common timeline resyncs after half a minute without world checks' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	Assert ($null -eq (Check $m $t '9' 'clock')) 'just stopped'
+	Assert ($null -eq (Check $m $t.AddSeconds(20) '9' 'clock')) 'not yet'
+	$r = Check $m $t.AddSeconds($LiveResyncClockSeconds + 1) '9' 'clock'
+	Assert ($r.Kind -eq 'clock') "reason $($r.Kind)"
+	$m = New-LiveResyncMemory
+	$null = Check $m $t '9' 'clock'
+	$null = Check $m $t.AddSeconds(20) '10' 'hpos'
+	Assert ($null -eq (Check $m $t.AddSeconds(40) '10' 'clock')) 'gone in between: counts again'
+}
+Test 'a reload request left hanging by a failed attempt does not stop the next one' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	$hanging = Live @{ error = 'game rejected 1-2-3'; resync = 'armed' }
+	Assert ($null -eq (Get-LiveResyncReason $hanging $m $t)) 'armed while nothing failed: TF3 is loading'
+	Register-LiveResync $m $t
+	Complete-LiveResync $m $false $t.AddSeconds(130)
+	Assert ((Get-LiveResyncReason $hanging $m $t.AddSeconds(130 + $LiveResyncRetrySeconds + 1)).Kind -eq 'error') 'tried again'
 }
 Test 'live resync starts on a rejected action but not on a broken session' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
@@ -218,43 +259,90 @@ Test 'live resync waits between attempts and stops after the most per game' {
 	Assert ($null -eq (Get-LiveResyncReason $broken $m $t)) 'no attempt beyond the most'
 	Assert ((Get-LiveResyncReason (Live @{ error = 'game rejected 1-2-3'; pid = '42' }) $m $t).Kind -eq 'error') 'a new TF3 starts again'
 }
-Test 'a failed live resync is tried again after a short wait, a good one only after the cooldown' {
+Test 'a failed live resync is tried again soon, each further failure waits longer' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
 	$broken = Live @{ error = 'game rejected 1-2-3' }
-	Assert ((Get-LiveResyncReason $broken $m $t).Kind -eq 'error') 'first attempt'
+	$expected = @($LiveResyncRetrySeconds, ($LiveResyncRetrySeconds * 2), ($LiveResyncRetrySeconds * 4), $LiveResyncCooldownSeconds)
+	foreach ($pause in $expected) {
+		Assert ((Get-LiveResyncReason $broken $m $t).Kind -eq 'error') "attempt before pause $pause"
+		Register-LiveResync $m $t
+		$t = $t.AddSeconds(90)
+		Complete-LiveResync $m $false $t
+		Assert ((Get-LiveResyncPause $m) -eq $pause) "pause $(Get-LiveResyncPause $m), expected $pause"
+		Assert ($null -eq (Get-LiveResyncReason $broken $m $t.AddSeconds($pause - 1))) "still waiting before $pause"
+		$t = $t.AddSeconds($pause + 1)
+	}
 	Register-LiveResync $m $t
-	$end = $t.AddSeconds(90)
-	Complete-LiveResync $m $false $end
-	Assert ($null -eq (Get-LiveResyncReason $broken $m $end.AddSeconds(10))) 'short pause'
-	Assert ((Get-LiveResyncReason $broken $m $end.AddSeconds($LiveResyncRetrySeconds + 1)).Kind -eq 'error') 'tried again'
-	Register-LiveResync $m $end.AddSeconds($LiveResyncRetrySeconds + 1)
-	Assert (-not $m.Failed -and $m.Count -eq 2) 'a new attempt is not failed yet'
-	$end = $end.AddSeconds(120)
-	Complete-LiveResync $m $true $end
-	Assert ($null -eq (Get-LiveResyncReason $broken $m $end.AddSeconds($LiveResyncRetrySeconds + 1))) 'after success the long cooldown'
-	Assert ((Get-LiveResyncReason $broken $m $end.AddSeconds($LiveResyncCooldownSeconds + 1)).Kind -eq 'error') 'then again'
+	Complete-LiveResync $m $true $t
+	Assert ((Get-LiveResyncPause $m) -eq $LiveResyncCooldownSeconds -and $m.Failures -eq 0) 'success resets'
 	# A difference has to last again after a reload.
 	$m = New-LiveResyncMemory
 	Assert ((Confirm-Diff $m $t).Kind -eq 'diff') 'difference'
-	Register-LiveResync $m $t.AddSeconds(40)
-	Complete-LiveResync $m $false $t.AddSeconds(60)
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hcon'; world_ck = '6' }) $m $t.AddSeconds(100))) 'counts again from the start'
-	Assert ((Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hcon'; world_ck = '7' }) $m $t.AddSeconds(140)).Kind -eq 'diff') 'still there: again'
+	Register-LiveResync $m $t.AddSeconds(200)
+	Complete-LiveResync $m $false $t.AddSeconds(220)
+	Assert ($null -eq (Check $m $t.AddSeconds(260) '5' 'hcon')) 'counts again from the start'
+	Assert ($null -eq (Check $m $t.AddSeconds(290) '6' 'hcon')) 'second'
+	Assert ((Check $m $t.AddSeconds(330) '7' 'hcon').Kind -eq 'diff') 'still there: again'
 }
 Test 'a request of the partner counts once' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '' }) $m $t)) 'nothing yet'
 	$r = Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '1' }) $m $t
 	Assert ($r.Kind -eq 'peer') 'first request'
 	Register-LiveResync $m $t
 	$t = $t.AddSeconds($LiveResyncCooldownSeconds + 1)
 	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '1' }) $m $t)) 'same request again'
 	Assert ((Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '2' }) $m $t).Kind -eq 'peer') 'next request'
+	# A request that is already there when the launcher (or a new TF3) starts is old.
+	$fresh = New-LiveResyncMemory
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '7' }) $fresh $t)) 'old request at the start'
 	# Both games noticed it themselves: the partner's request inside the waiting time is used up.
 	$m2 = New-LiveResyncMemory; $t2 = [DateTime]::UtcNow
 	Assert ((Confirm-Diff $m2 $t2).Kind -eq 'diff') 'own difference'
 	Register-LiveResync $m2 $t2
 	Assert ($null -eq (Get-LiveResyncReason (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds(5))) 'inside the waiting time'
 	Assert ($null -eq (Get-LiveResyncReason (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds($LiveResyncCooldownSeconds + 1))) 'not again later'
+}
+Test 'the epoch of the partner comes from the DLL log of this TF3' {
+	$dir = Join-Path $base 'epoch'; New-Item -ItemType Directory -Force $dir | Out-Null
+	$log = Join-Path $dir 'alut_proxy.log'
+	Assert ((Get-PeerEpoch $log '41') -eq -1) 'no log'
+	[IO.File]::WriteAllText($log, ("2026-10-09 10:00:00 [41] net: peer in resync epoch 1, this game in 0`r`n" +
+		"2026-10-09 10:00:01 [77] net: peer in resync epoch 9, this game in 9`r`n" +
+		"2026-10-09 10:00:02 [41] net: in-game resync 1 armed`r`n" +
+		"2026-10-09 10:00:03 [41] net: peer in resync epoch 2, this game in 1`r`n"))
+	Assert ((Get-PeerEpoch $log '41') -eq 2) 'latest of this TF3'
+	Assert ((Get-PeerEpoch $log '77') -eq 9) 'other process'
+	Assert ((Get-PeerEpoch $log '5') -eq -1) 'never logged'
+	Assert ((Get-PeerEpoch $log '41' 60) -eq 2) 'from the tail only'
+}
+Test 'a resync that worked only on the partner is caught up once with the last shared save' {
+	$dir = Join-Path $base 'catch'; New-Item -ItemType Directory -Force $dir | Out-Null
+	$save = Join-Path $dir 'TF3MP-Sync-20261009-100000.sav'; [IO.File]::WriteAllText($save, 's')
+	$m = New-LiveResyncMemory; $m.LastSave = $save
+	$behind = Live @{ connected = '0'; epoch = '1' }
+	Assert ($null -eq (Get-EpochCatchUp $behind $m -1)) 'partner epoch unknown'
+	Assert ($null -eq (Get-EpochCatchUp $behind $m 1)) 'same epoch'
+	Assert ($null -eq (Get-EpochCatchUp $behind $m 3)) 'more than one ahead'
+	Assert ($null -eq (Get-EpochCatchUp (Live @{ connected = '1'; epoch = '1' }) $m 2)) 'connected'
+	Assert ((Get-EpochCatchUp (Live @{ connected = '0'; epoch = '1'; resync = 'armed' }) $m 2) -eq $save) 'one ahead (a stuck reload request does not matter): load the last shared save'
+	Assert ($null -eq (Get-EpochCatchUp $behind $m 2)) 'only once'
+	$m2 = New-LiveResyncMemory; $m2.LastSave = (Join-Path $dir 'fehlt.sav')
+	Assert ($null -eq (Get-EpochCatchUp $behind $m2 2)) 'no save, nothing to load'
+	Assert ($null -eq (Get-EpochCatchUp (Live @{ connected = '0'; epoch = '1'; mode = 'loopback' }) $m 2)) 'not in the solo test'
+}
+Test 'the copy waits while TF3 is still saving' {
+	$dir = Join-Path $base 'busy'; New-Item -ItemType Directory -Force $dir | Out-Null
+	$orig = Join-Path $dir "$ResyncSaveName.sav"; [IO.File]::WriteAllText($orig, 'alt')
+	[IO.File]::WriteAllText("$orig.tmp", 'neu')
+	$writer = Start-Job -ScriptBlock { param($p) Start-Sleep -Milliseconds 800; Remove-Item -LiteralPath "$p.tmp"; [IO.File]::WriteAllText($p, 'neu') } -ArgumentList $orig
+	try {
+		$t0 = [DateTime]::UtcNow
+		$copy = Copy-SaveSnapshot (Get-Item -LiteralPath $orig) $dir (Get-Date) 10
+		Wait-Job $writer -Timeout 30 | Out-Null
+		Assert (([DateTime]::UtcNow - $t0).TotalSeconds -ge 0.5) 'waited for TF3'
+		Assert ((Get-Content -LiteralPath $copy.FullName -Raw) -eq 'neu') 'copied the finished save'
+	} finally { Remove-Job $writer -Force }
 }
 Test 'the host sends its own copy of the fresh save' {
 	$dir = Join-Path $base 'snap'; New-Item -ItemType Directory -Force $dir | Out-Null
@@ -277,7 +365,8 @@ Test 'the host sends its own copy of the fresh save' {
 	$err = ''; try { Copy-SaveSnapshot $gone $dir $when.AddSeconds(2) | Out-Null } catch { $err = $_.Exception.Message }
 	Assert ($err -like '*nicht für den Neuabgleich kopiert*') $err
 	Assert (@(Get-ChildItem -LiteralPath $dir -Filter '*.part').Count -eq 0) 'no part file left'
-	# Opened the way the copy opens it, the save can still be deleted (on Windows this needs FileShare Delete).
+	# Opened the way the copy opens it, the save can still be deleted (on Windows this needs FileShare Delete;
+	# whether TF3's rename over an open save works depends on Windows, so the copy keeps it open only briefly).
 	$reader = [IO.File]::Open($orig, 'Open', 'Read', [IO.FileShare]'ReadWrite, Delete')
 	try {
 		$deleted = $true; try { [IO.File]::Delete($orig) } catch { $deleted = $false }
