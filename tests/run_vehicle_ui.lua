@@ -36,7 +36,8 @@ local function gui(role, connected)
 	local module
 	if setfenv then local fn=assert(loadfile(path)); setfenv(fn,env); module=fn()
 	else module=assert(loadfile(path,"t",env))() end
-	g.recipe=module.VehicleHooks; g.recipe(); g.cmd=cmd
+	assert(type(env.data)=="function" and env.data()==module, "Lua script resource must export data()")
+	g.recipe=env.data().VehicleHooks; g.recipe(); g.cmd=cmd
 	function g.step() for _, fn in ipairs(g.steps) do fn() end end
 	return g
 end

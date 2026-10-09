@@ -29,10 +29,15 @@ local function step()
 	hooks.flush_vehicles(env, memory)
 end
 
-return {
+local module = {
 	VehicleHooks = react.RegisterPluginRecipe(entry.ModEntryPointExtension, "TF3MPVehicleHooks", function()
 		step() -- Install before any clicks; react.onStep flushes all commands from one frame.
 		react.onStep(step)
 		return builtin.BoxLayout { children = {} }
 	end),
 }
+
+-- Lua resource files export through data(); ug_require callers use the returned table.
+-- Supporting both matches the script-resource loader as well as the GUI module loader.
+function data() return module end
+return module
