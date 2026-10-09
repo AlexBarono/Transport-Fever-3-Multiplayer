@@ -49,6 +49,9 @@ function gui.structural(fields)
 	return false
 end
 
+--- v37: seconds before the same reload request is tried again (gui.resync_load).
+gui.RELOAD_RETRY_S = 60
+
 --- Real time in seconds.
 function gui.now(env, g)
 	local clock = env.os and env.os.clock
@@ -234,8 +237,13 @@ function gui.resync_load(env, g, getenv)
 	local value = getenv("TF3MP_RELOAD")
 	if type(value) ~= "string" then return end
 	local epoch, name = value:match("^(%d+) (.+)$")
-	if not epoch or g.reload_epoch == epoch then return end
-	g.reload_epoch = epoch
+	if not epoch then return end
+	-- v37: a launcher that asks again after a load that never started gets the same epoch (it rises
+	-- only with a load), maybe with another save: a new request loads at once, the same one again
+	-- after RELOAD_RETRY_S (the DLL clears the request as soon as a load begins).
+	local now = gui.now(env, g)
+	if g.reload_value == value and now - (g.reload_at or now) < gui.RELOAD_RETRY_S then return end
+	g.reload_value, g.reload_at = value, now
 	logger.info("resync: loading '" .. name .. "' in the running game (resync " .. epoch .. ")")
 	local ok, err = pcall(gui.load_save, env, name)
 	if not ok then

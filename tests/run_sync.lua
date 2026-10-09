@@ -827,6 +827,24 @@ test("v35: a failed in-game load points to 'Neu abgleichen' and the GUI keeps ru
 	assert(#solo.loads == 0)
 end)
 
+test("v37: a reload request asked again (new save or after a load that never started) loads again", function()
+	local client = game("client")
+	loader(client)
+	client.vars.TF3MP_RELOAD = "1 TF3MP-Sync-1"
+	client.gui(); client.gui()
+	assert(#client.loads == 1, "one load")
+	-- The load did not start; the launcher asks again with a new copy, the DLL keeps the epoch.
+	client.vars.TF3MP_RELOAD = "1 TF3MP-Sync-2"
+	client.gui(); client.gui()
+	assert(#client.loads == 2 and client.loads[2].id.saveGameName == "TF3MP-Sync-2", "a new save at once")
+	-- The same request stays: tried again only after a while.
+	for _ = 1, 20 do client.gui() end
+	assert(#client.loads == 2, "not every frame")
+	client.clock = client.clock + gui.RELOAD_RETRY_S
+	client.gui(); client.gui()
+	assert(#client.loads == 3, "again after RELOAD_RETRY_S")
+end)
+
 test("v35: a launcher save request saves on the host and tells the partner on both", function()
 	local host, client = pair()
 	saver(host); saver(client)
