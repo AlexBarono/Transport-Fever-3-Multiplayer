@@ -51,7 +51,7 @@ $navJoin=New-Button $side 'Beitreten' 16 232 186 46
 $navTest=New-Button $side 'Testlabor' 16 288 186 46
 New-Label $side "VERBINDUNG ÜBER VPN" 24 650 180 24 9 $Accent | Out-Null
 New-Label $side "Beide PCs im selben VPN.`r`nNutze die VPN-IP des`r`nGastgebers zum Beitreten." 24 684 176 75 10 $Muted | Out-Null
-New-Label $side 'Probe v42  /  Bridge v13' 24 801 185 22 9 $Muted | Out-Null
+New-Label $side 'Probe v43  /  Bridge v13' 24 801 185 22 9 $Muted | Out-Null
 New-Label $form 'Eure nächste Verbindung.' 250 28 734 44 25 | Out-Null
 New-Label $form 'Sitzung vorbereiten, Spielstand teilen und gemeinsam loslegen.' 252 77 734 28 11 $Muted | Out-Null
 $statusLabel=New-Label $form 'Bereit zum Einrichten' 252 115 734 30 10 $Accent
@@ -126,6 +126,9 @@ $primary.Font=New-Object System.Drawing.Font('Segoe UI',12,[System.Drawing.FontS
 $transfer=New-Button $form 'Spielstand bereitstellen' 250 450 360 38
 $startGame=New-Button $form 'Spiel starten' 624 450 174 38
 $check=New-Button $form 'Details prüfen' 810 450 174 38
+$issueLabel=New-Label $form '' 252 490 732 20 9 ([System.Drawing.ColorTranslator]::FromHtml('#FFCA80'))
+$issueLabel.Cursor=[System.Windows.Forms.Cursors]::Hand
+$issueLabel.Add_Click({ $check.PerformClick() })
 
 $settings=New-Panel $form 250 510 734 98
 New-Label $settings 'SPIELORDNER' 18 12 500 21 9 $Muted | Out-Null

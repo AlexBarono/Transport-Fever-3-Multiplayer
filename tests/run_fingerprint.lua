@@ -337,6 +337,10 @@ local function world_mock(shift, reverse, cargo_id)
 		end, c)
 		return out
 	end
+	e.forEachEntity = function(fn)
+		local all = {}; for id in pairs(m.entities) do all[#all + 1] = id end
+		table.sort(all); for _, id in ipairs(all) do fn(id) end
+	end
 	local function box(x, y)
 		return { bbox = { min = xyz(x - 1, y - 1, 0), max = xyz(x + 1, y + 1, 2) } }
 	end
@@ -510,6 +514,64 @@ test("all seven hashes plus exact time and economic checkpoint fit the native st
 	values.gt, values.ck, values.money, values.loan, values.loanmanaged = 60000, 999999, -90000000000, 9999999999, 1
 	values.lines, values.veh, values.st, values.con, values.date, values.adj = 99999, 99999, 99999, 99999, "2300-12-31", -90000000000
 	assert(#sync.encode(values) <= 511, #sync.encode(values))
+end)
+
+test("TF3's non-enumerable components use complete alternative indexes", function()
+	local m = world_mock(); local original = m.env.api.engine.getEntitiesWithComponent
+	m.env.api.engine.getEntitiesWithComponent = function(c, filters)
+		if c == "LINE" or c == "BASE_EDGE" or c == "SIM_CARGO" then error("Cannot loop over this component type") end
+		return original(c, filters)
+	end
+	local baseline = finish(world_mock())
+	local actual, missing = finish(m)
+	assert(#missing == 0); same(baseline, actual)
+	m.entities[m.lineid].NAME.name = "Changed line"
+	m.entities[m.edgeid].BASE_EDGE.tangent1.y = 123
+	m.entities[m.cargoid].SIM_CARGO.pickupTime = 56000
+	local changed = finish(m)
+	for _, field in ipairs({"hline","hedge","hcargo"}) do differs(actual,changed,field) end
+end)
+
+test("whole-entity cargo scan stops at the call budget and publishes no partial equality", function()
+	local m = world_mock(); local called = 0
+	m.env.api.engine.forEachEntity = function(fn)
+		for _ = 1, 100000 do called = called + 1; fn(m.ca) end
+	end
+	local values, missing, stats = finish(m)
+	assert(values.hcargo == nil and values.hedge and values.hline)
+	assert(stats.calls <= fingerprint.CAPTURE_MAX_CALLS and called < 100000)
+end)
+
+test("a failing alternative index never becomes an empty successful world", function()
+	local m = world_mock()
+	m.env.api.engine.system.lineSystem.getLines = function() error("index unavailable") end
+	m.env.api.engine.system.streetSystem.getNode2SegmentMap = function() error("index unavailable") end
+	local values = finish(m)
+	assert(not values.hline and not values.hedge and values.hcon)
+end)
+
+test("public roads do not consume the player-built road record limit", function()
+	local m = world_mock(); local original = m.env.api.engine.system.streetSystem.getNode2SegmentMap
+	local index = original()
+	for i=1,fingerprint.STATIC_MAX_RECORDS+20 do
+		local id=200000+i; m.entities[id]={BASE_EDGE=copy(m.entities[m.edgeid].BASE_EDGE)}
+		index[id]={id,id}
+	end
+	m.env.api.engine.system.streetSystem.getNode2SegmentMap=function()return index end
+	local values = finish(m); assert(values.hedge and values.hedge==finish(world_mock()).hedge)
+end)
+
+test("native one-based cargo vectors need neither pairs nor a valid zero index", function()
+	local m = world_mock(); local expected = finish(m)
+	local file = assert(io.tmpfile())
+	local old = debug.getmetatable(file)
+	debug.setmetatable(file, { __len=function()return 2 end,
+		__index=function(_,k) if k==0 then error("index out of bounds") end; return ({3,4})[k] end,
+		__pairs=function()error("native vector cannot be iterated with pairs")end })
+	m.env.api.engine.util.cargo.getNumCargoPerTypeInVehicle=function()return file end
+	local actual = finish(m)
+	debug.setmetatable(file,old); file:close()
+	assert(actual.hcargo and actual.hcargo==expected.hcargo)
 end)
 
 print(string.format("%d fingerprint tests passed, %d failed", passed, failed))

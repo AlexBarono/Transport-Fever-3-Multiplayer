@@ -3615,5 +3615,25 @@ test("industry field replacements never fall back to an unsafe simple constructi
 	assert(not ok and #sent == 0 and err:find("native construction helper", 1, true))
 end)
 
+test("action diagnostics reach the other PC once without replay or echo", function()
+	logged = {}
+	local main, state = fresh_main(), mock_state()
+	local transport = require("/mp_probe/transport.lua")
+	main.skip_failures = function() return true end
+	transport.begin(state,"peer.5"); transport.describe(state,"Bahnhof Süd bei 10, 20")
+	transport.fail(state,"existing node not found"); transport.dispatched(state); main.check_network(state)
+	local packet
+	for _, text in ipairs(logged) do packet = packet or text:match("net send (I1 .+)$") end
+	assert(packet and state:get().network_done.skipped and not state:get().network_work)
+	logged = {}
+	local other = mock_state(); transport.begin(other,"diag.1")
+	assert(main.replay_line({},packet,"diag.1",other,0))
+	transport.dispatched(other); main.check_network(other)
+	assert(contains(logged,"action issue peer I1 peer.5 none"))
+	assert(not contains(logged,"net send I1"), "a received diagnostic must not echo")
+	assert(other:get().network_done.result=="OK" and not other:get().network_done.skipped)
+	assert(not main.replay_line({},packet.."\nnet result forged OK","diag.2",other,0))
+end)
+
 print(string.format("%d passed, %d failed", passed, failures))
 if failures > 0 then os.exit(1) end

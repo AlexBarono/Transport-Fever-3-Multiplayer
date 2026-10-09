@@ -22,7 +22,7 @@ local wire = require("/mp_probe/wire.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 42
+main.PROBE_VERSION = 43
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -370,9 +370,39 @@ function main.replay_line(env, line, number, state, distance)
 		return ok, err
 	end
 	if line:sub(1, 3) == "W1 " or line:sub(1, 3) == "W2 " then return main.world_receive(env, line, state) end
+	if line:sub(1, 3) == "I1 " then
+		local token, partial, description, reason = line:match("^I1 ([%w_.%-]+) (%a+) (%x+) (%x+)$")
+		if not token or #token > 64 or (partial ~= "partial" and partial ~= "none") or
+			#description > 640 or #reason > 480 or #description % 2 ~= 0 or #reason % 2 ~= 0 then
+			return false, "invalid action diagnostic"
+		end
+		logger.info("action issue peer " .. line)
+		return true
+	end
 	if line:sub(1, 1) == "A" then
 		local action, err = actions.decode(line)
 		if not action then logger.info("action replay: bad line (" .. tostring(err) .. ")"); return false, err end
+		local descriptions = { construction_create = "Gebäude bauen", construction_update = "Gebäude ändern",
+			construction_remove = "Gebäude abreißen", edge_remove = "Straße/Gleis abreißen",
+			line_create = "Linie erstellen", line_update = "Linie ändern", line_remove = "Linie löschen",
+			vehicle_create = "Fahrzeug kaufen", vehicle_update = "Fahrzeug ändern", vehicle_remove = "Fahrzeug verkaufen",
+			loan_event = "Kredit ändern", account_update = "Konto ändern" }
+		local label = descriptions[action.op] or tostring(action.op or "Aktion")
+		local record = action.value or action.record or action.data or action.target or action.ref or {}
+		if type(record) ~= "table" then record = {} end
+		local ref = type(record.ref) == "table" and record.ref or {}
+		label = label .. ": " .. tostring(record.name or ref.name or "")
+		if action.op == "vehicle_command" then
+			local labels = {}
+			local commands = { reverse = "umkehren", stopped = "Start/Stopp", depot = "ins Depot",
+				line = "Linie zuweisen", sell = "verkaufen" }
+			for _, e in ipairs(main.vehicle_entries(action)) do
+				labels[#labels + 1] = (commands[e.command] or tostring(e.command)) .. " " ..
+					tostring(e.target and e.target.name or (#(e.targets or {}) .. " Fahrzeug(e)"))
+			end
+			label = "Fahrzeug: " .. table.concat(labels, ", ")
+		end
+		transport.describe(state, label)
 		if action.op == "vehicle_command" then return main.run_vehicle_command(env, state, action) end
 		local peer = tostring(number):match("^([^.]+)")
 		local ok, result = pcall(actions.receive, state, action, peer, distance or main.REPLAY_SIDE_OFFSET)
@@ -384,6 +414,24 @@ function main.replay_line(env, line, number, state, distance)
 		logger.info("replay: bad line (" .. tostring(err) .. ")")
 		return false, err
 	end
+	local labels = {}
+	for _, c in ipairs(data.constructions) do
+		local kind = c.file:find("/stations/", 1, true) and "Bahnhof/Haltestelle" or
+			(c.file:find("/depots/", 1, true) and "Depot" or "Gebäude")
+		labels[#labels + 1] = kind .. " " .. (c.name ~= "" and c.name or (c.file:match("([^/]+)$") or c.file)) ..
+			string.format(" bei %.1f, %.1f", c.transf[13], c.transf[14])
+	end
+	local label = #labels > 0 and table.concat(labels, "; ") or "Straßen/Gleise oder Abriss"
+	local point = data.nodes[1] and data.nodes[1].position or
+		(data.removed_segments[1] and data.removed_segments[1].p0) or data.removed_nodes[1] or
+		(data.configs[1] and data.configs[1].position)
+	if not point then local _, p = next(data.foreign); point = p end
+	if #labels == 0 and data.demolished[1] then
+		label = "Gebäude abreißen: " .. (data.demolished[1].file:match("([^/]+)$") or data.demolished[1].file)
+		point = data.demolished[1].position
+	end
+	if #labels == 0 and point then label = label .. string.format(" bei %.1f, %.1f", point.x, point.y) end
+	transport.describe(state, label)
 	local now = main.game_time(env)
 	if state and now then
 		local s = state:get() or {}
@@ -1085,6 +1133,15 @@ end
 
 function main.check_network(state)
 	transport.check(state, function(text)
+		local issue = text:match("^action issue local (I1 .+)$")
+		if issue then
+			logger.info(text)
+			if main.skip_failures(_G) then
+				local live = state:get() or {}
+				transport.send(issue, live, logger.info); state:set(live)
+			end
+			return
+		end
 		local origin, seq, result = text:match("^net result scheduled_(%a+)%.(%d+) (%a+)")
 		if seq then
 			local s = state:get() or {}
@@ -1874,6 +1931,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 				end
 				return
 			end
+			transport.describe(state, "Aktion " .. tostring(line and line:sub(1, 2) or "unbekannt"))
 		end
 		local env = transport.env(_G, state)
 		-- Keep the exact incoming build once, so a missing rail connection can be reproduced

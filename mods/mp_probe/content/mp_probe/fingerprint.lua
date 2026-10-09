@@ -387,6 +387,44 @@ function fingerprint.begin(env, gt)
 		return c
 	end
 	local function ids(name, cap, owned)
+		-- TF3 rejects component enumeration for LINE, BASE_EDGE and SIM_CARGO.
+		-- Use the systems' complete indexes, or a bounded whole-entity scan for cargo.
+		local source
+		if name == "LINE" then source = call(engine.system.lineSystem.getLines)
+		elseif name == "BASE_EDGE" then
+			source = {}; local seen = {}
+			for _, edges in pairs(call(engine.system.streetSystem.getNode2SegmentMap)) do
+				guard()
+				for i = 1, #edges do
+					guard(); local id = edges[i]
+					if not seen[id] then
+						seen[id] = true; source[#source + 1] = id
+						assert(#source <= fingerprint.MAX_RECORDS, "checkpoint index limit: " .. name)
+					end
+				end
+			end
+		elseif name == "SIM_CARGO" then
+			source = {}
+			call(engine.forEachEntity, function(id)
+				if component(id, "SIM_CARGO", true) then
+					source[#source + 1] = id
+					assert(#source <= cap, "checkpoint entity limit: SIM_CARGO")
+				end
+			end)
+		end
+		if source then
+			assert(#source <= (owned and fingerprint.MAX_RECORDS or cap), "checkpoint entity limit: " .. name)
+			local out = {}
+			for i = 1, #source do
+				guard(); local id = source[i]
+				local owner = owned and component(id, "PLAYER_OWNED", true)
+				if not owned or (owner and owner.player == util.getPlayer()) then
+					out[#out + 1] = id
+					assert(#out <= cap, "checkpoint entity limit: " .. name)
+				end
+			end
+			return out
+		end
 		local filters = owned and { requireOwnedByPlayer = util.getPlayer() } or nil
 		local list = call(engine.getEntitiesWithComponent, assert(ct[name], "component unavailable: " .. name), filters)
 		assert(list ~= nil and #list <= cap, "checkpoint entity limit: " .. name)
@@ -497,11 +535,17 @@ function fingerprint.begin(env, gt)
 			local counts, out = call(util.cargo.getNumCargoPerTypeInVehicle, id), {}
 			local count = 0
 			-- The documented vector is 1-based (cargo id + 1). Accept an explicit 0-based map too.
-			local base = counts[0] ~= nil and 0 or 1
-			for k, n in pairs(counts) do
+			local zero_ok, zero = pcall(function() return counts[0] end)
+			local base = zero_ok and zero ~= nil and 0 or 1
+			local function add(k, n)
 				count = count + 1; assert(count <= 256, "cargo type limit")
 				assert(integer(n) >= 0, "cargo quantity unreadable")
 				if n > 0 then out[cargo_name(integer(k) - base)] = n end
+			end
+			if type(counts) == "userdata" then
+				assert(#counts <= 256, "cargo type limit")
+				for k = base, #counts - 1 + base do add(k, counts[k]) end
+			else for k, n in pairs(counts) do add(k, n) end
 			end
 			append({ scope = "vehicle", vehicle = vehicle_ref(id), counts = out })
 		end

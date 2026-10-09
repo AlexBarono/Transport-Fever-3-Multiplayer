@@ -14,6 +14,9 @@
         "mp_probe/sync.lua",
         "mp_probe/timeline.lua",
         "mp_probe/transport.lua",
+        "mp_probe/vehicle_hooks.lua",
+        "mp_probe/vehicle_ui.res.lua",
+        "mp_probe/vehicle_ui.script.lua",
         "mp_probe/weld.lua",
         "mp_probe/wire.lua",
         "mp_probe/world.lua"

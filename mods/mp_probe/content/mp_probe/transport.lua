@@ -46,6 +46,16 @@ function transport.fail(state, message)
 	if s.network_work then s.network_work.error = tostring(message):sub(1, 240); state:set(s) end
 end
 
+function transport.describe(state, description)
+	if not state then return end
+	local s = state:get() or {}
+	if s.network_work then s.network_work.description = tostring(description):sub(1, 320); state:set(s) end
+end
+
+local function hex(text)
+	return text:gsub(".", function(c) return string.format("%02x", c:byte()) end)
+end
+
 -- Wrap commands only in handleEvent, where TF3 permits callbacks. Counts asynchronous commands
 -- and all follow-up settings; enqueueing or sending a command alone never means applied.
 -- A callback may return true when it owns result validation and retry handling (build.replay).
@@ -58,7 +68,8 @@ function transport.env(env, state)
 		if not work then return env.api.cmd.sendCommand(command, callback) end
 		local token = work.token
 		local called = false
-		work.pending = work.pending + 1; state:set(s)
+		work.pending = work.pending + 1
+		work.sent = (work.sent or 0) + 1; state:set(s)
 		local function done(result, success)
 			if called then return end
 			called = true
@@ -113,6 +124,12 @@ function transport.check(state, log, skip)
 		log("net result " .. w.token .. " OK")
 	else
 		log("net result " .. w.token .. " " .. result .. reason)
+	end
+	-- Structured, data-only diagnostic; independent of the execution acknowledgement.
+	-- A submitted command may have changed part of the world before a later step failed.
+	if w.error and w.description then
+		log("action issue local I1 " .. w.token .. " " .. ((w.sent or 0) > 0 and "partial" or "none") ..
+			" " .. hex(w.description) .. " " .. hex(w.error:sub(1, 240)))
 	end
 end
 

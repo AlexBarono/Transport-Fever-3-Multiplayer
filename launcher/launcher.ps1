@@ -21,6 +21,19 @@ $ModName = 'mp_probe'
 # Neu abgleichen mit einem Klick.
 . (Join-Path $Root 'tools\resync.ps1')
 . (Join-Path $Root 'tools\fake-report.ps1')
+. (Join-Path $Root 'tools\action-issues.ps1')
+$script:actionIssues = New-ActionIssueReader
+$script:actionLogPath = ''
+$script:actionLogChecked = [datetime]::MinValue
+
+function Update-LauncherActionIssues($steam, $gameDir) {
+	if (([datetime]::UtcNow - $script:actionLogChecked).TotalSeconds -ge 10) {
+		$script:actionLogChecked = [datetime]::UtcNow
+		try { $script:actionLogPath = Find-SameSpotLog $steam } catch {}
+	}
+	$values = Read-ProxyStatusValues (Join-Path $gameDir 'alut_proxy.status')
+	Update-ActionIssues $script:actionIssues $script:actionLogPath ([string]$values.pid)
+}
 
 function Get-SteamRoot {
 	foreach ($key in 'HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam') {
@@ -494,7 +507,10 @@ $check.Add_Click({
 			$reportPath = "$hostLog.report.txt"
 			Set-Content -LiteralPath $reportPath -Value $report.Text -Encoding UTF8
 			$out.Text = $report.Text + "`r`n`r`nGespeichert: $reportPath"
-		} else { $out.Text = (Get-ConnectionStatus $gameBox.Text.Trim()) + (Get-SyncStatus $steam) }
+		} else {
+			Update-LauncherActionIssues $steam $gameBox.Text.Trim()
+			$out.Text = (Get-ActionIssueDetails $script:actionIssues) + (Get-ConnectionStatus $gameBox.Text.Trim()) + (Get-SyncStatus $steam)
+		}
 	} catch { Show-Error $_.Exception.Message }
 })
 
@@ -864,6 +880,10 @@ $timer.Interval=2000
 $timer.Add_Tick({
 	if ($script:liveBusy) { return }
 	try {
+		if (-not $Preview -and -not $script:transferBusy -and (Test-GameRunning)) {
+			Update-LauncherActionIssues $steam $gameBox.Text.Trim()
+		}
+		$issueLabel.Text = if ($script:actionIssues.Count) { "$($script:actionIssues.Count) Aktion(en) fehlgeschlagen – Details prüfen und fehlende Bauten kontrollieren." } else { '' }
 		$status = Get-SessionStatus $gameBox.Text.Trim()
 		$statusLabel.Text=$status.Text
 		$statusLabel.ForeColor = if ($status.Color -eq 'error') { [System.Drawing.ColorTranslator]::FromHtml('#FF8990') } elseif ($status.Color -eq 'ok') { $Accent } else { $Muted }

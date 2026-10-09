@@ -166,5 +166,23 @@ test("GUI never writes forbidden globals, including after module reload", functi
 	local fresh=assert(loadfile(root.."/mp_probe/gui.lua"))(); fresh.update(env)
 	assert(writes==0)
 end)
+test("failed execution emits one bounded diagnostic after its receipt, including partial effects", function()
+	local s, env, cb, logs, log = setup()
+	t.describe(s, "Bahnhof Süd bei 10, 20\nnet result fake OK")
+	env.api.cmd.sendCommand({}); cb[1]({}, false); t.dispatched(s); t.check(s, log, true)
+	assert(#logs == 3 and logs[2] == "net result peer.1 OK")
+	assert(logs[3]:match("^action issue local I1 peer%.1 partial %x+ %x+$"))
+	assert(not logs[3]:find("\n",1,true) and #logs[3] < 1300)
+	t.check(s, log, true); assert(#logs == 3)
+	t.begin(s,"peer.2"); t.dispatched(s); t.check(s,log,true)
+	assert(logs[4] == "net result peer.2 OK", "failure does not block later work")
+end)
+
+test("pre-dispatch failure is distinguished from a possibly partial build", function()
+	local s, _, _, logs, log = setup()
+	t.describe(s,"Gleis bei 50, 60"); t.fail(s,"existing node not found"); t.dispatched(s); t.check(s,log,true)
+	assert(logs[3]:match("^action issue local I1 peer%.1 none %x+ %x+$"))
+end)
+
 print(string.format("%d transport tests passed, %d failed",passed,failed))
 if failed>0 then os.exit(1) end
