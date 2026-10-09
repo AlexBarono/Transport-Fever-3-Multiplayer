@@ -197,25 +197,17 @@ function Get-SessionStatus($gameDir) {
 	$values = Read-ProxyStatusValues $path
 	if ($values.resync -eq 'armed') {
 		# Außerhalb eines Neuabgleichs heißt das: TF3 hat ihn nicht geladen (der Launcher fragt neu).
-		if ($script:liveMemory -and $script:liveMemory.Failures -gt 0) { return @{ Text='TF3 hat den gemeinsamen Spielstand nicht geladen. Der Launcher versucht es noch einmal.'; Color='error' } }
+		if ($script:liveMemory -and $script:liveMemory.Failures -gt 0) { return @{ Text="TF3 hat den gemeinsamen Spielstand nicht geladen. Bei Bedarf 'Neu abgleichen' anklicken."; Color='error' } }
 		return @{ Text='Neuabgleich: TF3 lädt den gemeinsamen Spielstand ...'; Color='idle' }
 	}
 	if ($values.blocked -eq '1' -or $values.error) { return @{ Text="Abgleich erforderlich: $($values.error)"; Color='error' } }
-	# v37: Nur eine Abweichung im Aufbau führt zum Neuabgleich; Drift (Fahrzeugpositionen, Fracht,
-	# Städte) bleibt ein Hinweis, das Spiel läuft weiter.
-	$structural = @(Get-StructuralDifference ([string]$values.world_fields))
-	$noMore = $script:liveMemory -and $script:liveMemory.Count -ge $LiveResyncMax
 	$clockStopped = $values.world -eq 'diff' -and @([string]$values.world_fields -split '[,\s]+') -contains 'clock'
-	if ($clockStopped -or ($values.world -eq 'diff' -and $structural.Count)) {
-		$what = if ($clockStopped) { 'Der gemeinsame Zeitplan ist stehen geblieben' } else { "Abweichung im Aufbau ($(Get-WorldDifferenceText ($structural -join ',')))" }
-		if ($noMore) { return @{ Text="$what. Die automatischen Neuabgleiche für dieses Spiel sind aufgebraucht: bitte auf beiden PCs 'Neu abgleichen' klicken."; Color='error' } }
-		return @{ Text="$what. Bleibt das so, gleicht der Launcher im laufenden Spiel neu ab."; Color='error' }
-	}
+	if ($clockStopped) { return @{ Text="Aktionszeitplan blockiert. Bei Bedarf 'Neu abgleichen' anklicken."; Color='error' } }
 	if ($values.connected -ne '1' -and $values.epoch -match '^\d+$' -and $script:peerEpoch -gt [int]$values.epoch + 1) {
 		return @{ Text="Der Mitspieler ist mehrere Neuabgleiche weiter. Bitte auf beiden PCs 'Neu abgleichen' klicken."; Color='error' }
 	}
 	$drift = ''
-	if ($values.world -eq 'diff' -and $values.world_fields) { $drift = "  |  kleine Abweichung ($(Get-WorldDifferenceText $values.world_fields)), Spiel läuft weiter" }
+	if ($values.world -eq 'diff' -and $values.world_fields) { $drift = "  |  Abweichung ($(Get-WorldDifferenceText $values.world_fields)), Spiel läuft weiter. Neuabgleich bei Bedarf." }
 	elseif ($values.world_peer -eq 'diff') { $drift = '  |  der Mitspieler sieht eine Abweichung' }
 	if ($values.epoch -match '^[1-9]' -and $values.connected -ne '1' -and $values.mode -in 'host','client') {
 		return @{ Text='Neu geladen - warte, bis der Mitspieler auch neu geladen hat ...'; Color='idle' }
@@ -485,7 +477,7 @@ $startGame.Add_Click({
 		if ($cfg.test -eq 'fakehost') { Start-FakeHost $cfg.port }
 		elseif ($cfg.mode -in 'host','client' -and -not $cfg.test) {
 			$session = Get-LaunchSession $gameBox.Text.Trim() $steam -Installed
-			$out.Text="Sitzung geprüft. Im Spiel '$($session.SaveName)' pausiert laden.`r`n`r`nDiesen Launcher während des Spiels offen lassen: Er gleicht Abweichungen im laufenden Spiel selbst neu ab."
+			$out.Text="Sitzung geprüft. Im Spiel '$($session.SaveName)' pausiert laden.`r`n`r`nWeltabweichungen bleiben Hinweise. Bei Bedarf 'Neu abgleichen' anklicken. Den Launcher fuer den angeforderten Spielstandaustausch offen lassen."
 		}
 	} catch { Show-Error $_.Exception.Message; return }
 	try { Start-Process "steam://rungameid/$AppId" } catch { Show-Error 'Steam konnte nicht gestartet werden.' }
@@ -700,6 +692,12 @@ $primary.Add_Click({
 # Neu abgleichen mit einem Klick: TF3 beenden, Spielstand teilen oder holen, einrichten und neu starten.
 $recover.Add_Click({
 	if ($script:transferBusy) { return }
+	$values = Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
+	$config = Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
+	if (Test-ManualLiveResyncAvailable $values $config (Test-GameRunning)) {
+		Invoke-LiveResync $values @{ Kind = 'manual'; Detail = 'button' }
+		return
+	}
 	Invoke-Transfer -Resync
 	if (-not $script:transferOK) { return }
 	$install.PerformClick()
@@ -719,12 +717,8 @@ $copyAddress.Add_Click({
 		$out.Text='Beitrittsadresse kopiert. Teile sie mit deinem Mitspieler im gemeinsamen VPN.'
 	}
 })
-# v35: Neuabgleich im laufenden Spiel. Bei einer Weltabweichung oder einem abgelehnten Bau schickt der
-# Gastgeber den Stand, den sein Spiel gerade gespeichert hat, der Mitspieler holt ihn, und beide Spiele
-# laden ihn, ohne dass TF3 beendet wird (tools\resync.ps1, DLL v13, gui.lua).
-# v37 (Lauf 39): nur bei bleibenden Abweichungen im Aufbau; der Gastgeber schickt eine eigene Kopie
-# (TF3MP-Sync-...) eines frischen Spielstands; klappt es nicht, versucht der Launcher es von selbst
-# noch einmal, statt auf einen Klick zu warten.
+# v40: explicit local/peer request. The host sends a separate copy of a fresh save;
+# both load it in the open game. World differences never start this operation.
 $script:liveMemory = New-LiveResyncMemory
 $script:liveBusy = $false
 
@@ -733,6 +727,7 @@ function Invoke-LiveResync($values, $reason) {
 	$gameDir = $gameBox.Text.Trim()
 	$others = @($install, $startGame, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox)
 	$why = switch ($reason.Kind) {
+		'manual' { 'von dir per Knopf gestartet' }
 		'diff' { "Abweichung im Aufbau ($(Get-WorldDifferenceText $reason.Detail))" }
 		'clock' { 'der gemeinsame Zeitplan ist stehen geblieben' }
 		'error' { "Fehler: $($reason.Detail)" }
@@ -740,8 +735,8 @@ function Invoke-LiveResync($values, $reason) {
 	}
 	$success = $false
 	Register-LiveResync $script:liveMemory ([DateTime]::UtcNow)
-	Write-LauncherLog "Neuabgleich im laufenden Spiel $($script:liveMemory.Count) von ${LiveResyncMax}: Rolle $($values.mode), Grund $why, epoch $($values.epoch)"
-	$script:transferHint = "`r`n`r`nNeuabgleich im laufenden Spiel ($($script:liveMemory.Count) von $LiveResyncMax), Grund: $why.`r`nTF3 bleibt offen und lädt gleich den gemeinsamen Spielstand."
+	Write-LauncherLog "Angeforderter Neuabgleich im laufenden Spiel: Rolle $($values.mode), Grund $why, epoch $($values.epoch)"
+	$script:transferHint = "`r`n`r`nManuell angeforderter Neuabgleich, Grund: $why.`r`nTF3 bleibt offen und lädt gleich den gemeinsamen Spielstand."
 	$statusLabel.Text = 'Neuabgleich im laufenden Spiel ...'; $statusLabel.ForeColor = $Muted
 	$tick = {
 		param($text, $done, $total)
@@ -804,15 +799,10 @@ function Invoke-LiveResync($values, $reason) {
 		if ($problem -eq 'Abgebrochen.') {
 			# Selbst abgebrochen: nicht gleich wieder anfangen.
 			$success = $true
-			$out.Text = "Neuabgleich im laufenden Spiel abgebrochen. Der Launcher versucht es frühestens in $([int]($LiveResyncCooldownSeconds / 60)) Minuten wieder, falls die Abweichung bleibt."
-		} elseif ($script:liveMemory.Count -lt $LiveResyncMax) {
-			# Hinweise zum Klicken aus den Meldungen weglassen: der Launcher versucht es selbst noch einmal.
-			$problem = ($problem -replace "(?s)\s*Bitte[^.]*klicken\.?", '').Trim()
-			$out.Text = "Neuabgleich im laufenden Spiel hat nicht geklappt: $problem`r`n`r`n" +
-				"Das Spiel läuft weiter. Besteht der Grund noch, versucht der Launcher es von selbst noch einmal (frühestens in $LiveResyncRetrySeconds Sekunden). Nichts klicken."
+			$out.Text = "Neuabgleich abgebrochen. Er startet erst wieder, wenn ihr 'Neu abgleichen' anklickt."
 		} else {
 			$out.Text = "Neuabgleich im laufenden Spiel hat nicht geklappt: $problem`r`n`r`n" +
-				"Das waren $LiveResyncMax Versuche in diesem Spiel. Wenn ihr weiter Abweichungen seht: auf beiden PCs 'Neu abgleichen' klicken (TF3 startet dabei neu)."
+				"Kein automatischer weiterer Versuch. Bei Bedarf erneut 'Neu abgleichen' anklicken."
 		}
 	} finally {
 		Complete-LiveResync $script:liveMemory $success ([DateTime]::UtcNow)

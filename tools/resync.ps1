@@ -196,7 +196,11 @@ function Test-AutomaticResyncEnabled($Values, $Config) {
 	return $Values.mode -in @('host', 'client') -and -not $Config.test
 }
 
-function Get-LiveResyncReason($Values, $Memory, [datetime]$NowUtc) {
+function Test-ManualLiveResyncAvailable($Values, $Config, [bool]$GameRunning) {
+	return $GameRunning -and (Test-AutomaticResyncEnabled $Values $Config) -and $Values.prepared -eq '1' -and $Values.epoch -match '^\d+$'
+}
+
+function Get-LiveResyncReason($Values, $Memory, [datetime]$NowUtc, [switch]$AutomaticRecovery) {
 	if (-not $Values -or ($Values.mode -ne 'host' -and $Values.mode -ne 'client')) { return $null }
 	# Ein neu gestartetes TF3 (andere Prozessnummer) oder ein neu gestarteter Launcher beginnt wieder
 	# bei null. Eine Bitte des Mitspielers, die schon dasteht, ist älter und gilt nicht mehr.
@@ -209,6 +213,12 @@ function Get-LiveResyncReason($Values, $Memory, [datetime]$NowUtc) {
 	$peerNew = $peerReq -and $peerReq -ne $Memory.PeerReq
 	# Eine Bitte gilt einmal, auch wenn sie in die Wartezeit fällt (dann gleichen beide schon ab).
 	if ($peerReq) { $Memory.PeerReq = $peerReq }
+	# v40: differences never interrupt building by default. Only a deliberate request
+	# from the partner starts a transfer. Manual requests have no automatic-attempt cap.
+	if (-not $AutomaticRecovery) {
+		if ($peerNew -and $Values.ready -eq '1' -and $Values.resync -ne 'armed') { return @{ Kind = 'peer'; Detail = $peerReq } }
+		return $null
+	}
 	# Wie lange die Abweichungen schon bestehen; zählt auch während der Wartezeit weiter.
 	$structural = @(Update-LiveResyncDifference $Values $Memory $NowUtc)
 	$clock = $Values.world -eq 'diff' -and @([string]$Values.world_fields -split '[,\s]+') -contains 'clock'

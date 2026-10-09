@@ -27,27 +27,8 @@ local function memory(env)
 	return g
 end
 
---- Neuabgleich (probe v32): when the world check finds a difference, the host's GUI script saves the
--- host's game under this name. The launcher's 'Neu abgleichen' then sends the newest save written
--- since the game started, so nobody has to save by hand.
+--- v40: only an explicit launcher request saves a world for a manual resync.
 gui.RESYNC_SAVE = "TF3MP-Neuabgleich"
---- At most one save per this many checkpoints while the difference lasts (saving makes the game stutter).
--- v37 (run 39): was 3. Every third check TF3 saved this name again, also while the launcher was
--- sending it or TF3's own save menu had it open; TF3 then could not rename its .tmp file over the
--- save ("Save game rename failed") and stopped the game. The live resync asks for its own save
--- (alut_proxy.save); this one is only kept for 'Neu abgleichen' after TF3 was closed.
-gui.RESYNC_EVERY = 40
---- v37: differences that only come from things drifting apart (vehicle positions, cargo, towns) do
--- not need a resync; the launcher leaves them alone, so this game does not save for them either.
-gui.DRIFT_FIELDS = { hpos = true, hcargo = true, htown = true }
-
---- Whether the comma list of differing fields names one that is more than drift.
-function gui.structural(fields)
-	for field in tostring(fields or ""):gmatch("[^,%s]+") do
-		if not gui.DRIFT_FIELDS[field] and field ~= "none" then return true end
-	end
-	return false
-end
 
 --- v37: seconds before the same reload request is tried again (gui.resync_load).
 gui.RELOAD_RETRY_S = 60
@@ -131,7 +112,7 @@ function gui.step(env, g, now)
 	end
 	-- v35: in-game resync. The launcher asks through the DLL; nobody has to leave the game.
 	gui.resync_load(env, g, getenv)
-	if role == "host" then gui.resync_save(env, g, getenv) end
+	-- v40: world differences are diagnostic only; save_request handles explicit clicks.
 	gui.save_request(env, g, getenv, role)
 	-- A common-tick intent freezes simulation time at its barrier until both results exist.
 	-- Do not feed this automatic pause into the user's shared speed register.
@@ -183,22 +164,6 @@ function gui.step(env, g, now)
 			if success == false then logger.info("sync calendar " .. target .. " ms/day rejected by the game") end
 		end)
 	end
-end
-
---- Host: saves this game once the world check reports a difference (TF3MP_OWN_HEALTH status=diff),
--- again only RESYNC_EVERY checkpoints later. "net state resync ck=N" marks the checkpoint, so a
--- GUI Lua state without memory does not save twice (the DLL keeps it as TF3MP_OWN_RESYNC).
-function gui.resync_save(env, g, getenv)
-	local health = sync.decode(getenv("TF3MP_OWN_HEALTH"))
-	if not health or health.status ~= "diff" or not gui.structural(health.fields) then return end
-	local ck = tonumber(health.ck)
-	if not ck then return end
-	local done = sync.decode(getenv("TF3MP_OWN_RESYNC"))
-	local last = g.resync_ck or (done and tonumber(done.ck))
-	if last and ck >= last and ck < last + gui.RESYNC_EVERY then return end
-	g.resync_ck = ck
-	logger.info("net state resync ck=" .. ck .. (done and done.req and (" req=" .. done.req) or ""))
-	gui.save_now(env, "at check " .. ck, "the world differs at check " .. ck)
 end
 
 --- v35: the launcher asks for a resync (TF3MP_SAVE=<n>, through the DLL), e.g. when the session

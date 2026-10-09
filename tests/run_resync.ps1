@@ -175,6 +175,29 @@ function Live($extra) {
 	foreach ($k in $extra.Keys) { $v[$k] = $extra[$k] }
 	return $v
 }
+Test 'v40 persistent differences and errors never reload without an explicit request' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	for ($i = 0; $i -lt 120; $i++) {
+		$v = Live @{ world='diff'; world_peer='diff'; world_fields='hcon,hedge,hline,hveh,hpos,hcargo,htown,loan,clock'; world_ck=[string]$i; error='game rejected example' }
+		Assert ($null -eq (Get-LiveResyncReason $v $m $t.AddMinutes($i))) "unrequested reload $i"
+	}
+}
+Test 'v40 a deliberate peer request still works after many manual reloads' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	$null = Get-LiveResyncReason (Live @{}) $m $t
+	$m.Count = 20; $m.LastUtc = $t
+	$v = Live @{ resync_peer='manual-1' }
+	Assert ((Get-LiveResyncReason $v $m $t).Kind -eq 'peer') 'manual peer request ignored'
+	Assert ($null -eq (Get-LiveResyncReason $v $m $t.AddSeconds(1))) 'same click retriggered'
+}
+Test 'v40 manual live reload requires a real prepared running session' {
+	$v = Live @{ prepared='1' }
+	Assert (Test-ManualLiveResyncAvailable $v @{} $true) 'manual button disabled'
+	Assert (-not (Test-ManualLiveResyncAvailable $v @{test='fakehost'} $true)) 'fake host live reload'
+	Assert (-not (Test-ManualLiveResyncAvailable $v @{} $false)) 'game stopped'
+	$v.prepared='0'
+	Assert (-not (Test-ManualLiveResyncAvailable $v @{} $true)) 'unprepared session'
+}
 # v37: eine Abweichung im Aufbau bei $LiveResyncConfirmChecks Weltprüfungen hintereinander und
 # $LiveResyncConfirmSeconds lang. Gibt den Grund der letzten Abfrage zurück.
 function Confirm-Diff($m, [datetime]$t, $extra = @{}) {
@@ -182,18 +205,18 @@ function Confirm-Diff($m, [datetime]$t, $extra = @{}) {
 	for ($i = 0; $i -lt $LiveResyncConfirmChecks; $i++) {
 		$v = @{ world = 'diff'; world_fields = 'hcon'; world_ck = [string](5 + $i) }
 		foreach ($k in $extra.Keys) { $v[$k] = $extra[$k] }
-		$r = Get-LiveResyncReason (Live $v) $m $t.AddSeconds($i * ($LiveResyncConfirmSeconds + 1) / ($LiveResyncConfirmChecks - 1))
+		$r = Get-LiveResyncReason -AutomaticRecovery (Live $v) $m $t.AddSeconds($i * ($LiveResyncConfirmSeconds + 1) / ($LiveResyncConfirmChecks - 1))
 	}
 	return $r
 }
 function Check($m, [datetime]$t, [string]$ck, [string]$fields, [string]$world = 'diff') {
-	return Get-LiveResyncReason (Live @{ world = $world; world_fields = $fields; world_ck = $ck }) $m $t
+	return Get-LiveResyncReason -AutomaticRecovery (Live @{ world = $world; world_fields = $fields; world_ck = $ck }) $m $t
 }
 Test 'live resync starts on a lasting difference in the build-up, not on drift' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
-	Assert ($null -eq (Get-LiveResyncReason (Live @{}) $m $t)) 'nothing while the worlds agree'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery (Live @{}) $m $t)) 'nothing while the worlds agree'
 	for ($i = 0; $i -lt 10; $i++) { Assert ($null -eq (Check $m $t.AddMinutes($i) ([string](5 + $i)) 'hpos,htown,hcargo')) "drift $i" }
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world_peer = 'diff'; world_ck = '20' }) $m $t.AddMinutes(20))) 'only the partner sees it: its launcher asks'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery (Live @{ world_peer = 'diff'; world_ck = '20' }) $m $t.AddMinutes(20))) 'only the partner sees it: its launcher asks'
 	$m = New-LiveResyncMemory
 	Assert ($null -eq (Check $m $t '5' 'hpos,hcon')) 'first check'
 	Assert ($null -eq (Check $m $t.AddSeconds(20) '6' 'hcon,hpos')) 'second check'
@@ -245,41 +268,41 @@ Test 'a stopped common timeline resyncs after half a minute without world checks
 Test 'a reload request left hanging by a failed attempt does not stop the next one' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
 	$hanging = Live @{ error = 'game rejected 1-2-3'; resync = 'armed' }
-	Assert ($null -eq (Get-LiveResyncReason $hanging $m $t)) 'armed while nothing failed: TF3 is loading'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery $hanging $m $t)) 'armed while nothing failed: TF3 is loading'
 	Register-LiveResync $m $t
 	Complete-LiveResync $m $false $t.AddSeconds(130)
-	Assert ((Get-LiveResyncReason $hanging $m $t.AddSeconds(130 + $LiveResyncRetrySeconds + 1)).Kind -eq 'error') 'tried again'
+	Assert ((Get-LiveResyncReason -AutomaticRecovery $hanging $m $t.AddSeconds(130 + $LiveResyncRetrySeconds + 1)).Kind -eq 'error') 'tried again'
 }
 Test 'live resync starts on a rejected action but not on a broken session' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
-	Assert ((Get-LiveResyncReason (Live @{ error = 'peer rejected 41-7-3' }) $m $t).Kind -eq 'error') 'peer rejected'
-	Assert ((Get-LiveResyncReason (Live @{ error = 'save reloaded with pending actions; restart' }) $m $t).Kind -eq 'error') 'pending reload'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ error = 'multiplayer package differs; use the same release' }) $m $t)) 'package differs'
+	Assert ((Get-LiveResyncReason -AutomaticRecovery (Live @{ error = 'peer rejected 41-7-3' }) $m $t).Kind -eq 'error') 'peer rejected'
+	Assert ((Get-LiveResyncReason -AutomaticRecovery (Live @{ error = 'save reloaded with pending actions; restart' }) $m $t).Kind -eq 'error') 'pending reload'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery (Live @{ error = 'multiplayer package differs; use the same release' }) $m $t)) 'package differs'
 }
 Test 'live resync waits between attempts and stops after the most per game' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
 	$broken = Live @{ error = 'game rejected 1-2-3' }
 	for ($i = 1; $i -le $LiveResyncMax; $i++) {
-		Assert ((Get-LiveResyncReason $broken $m $t).Kind -eq 'error') "attempt $i"
+		Assert ((Get-LiveResyncReason -AutomaticRecovery $broken $m $t).Kind -eq 'error') "attempt $i"
 		Register-LiveResync $m $t
 		Complete-LiveResync $m $true $t.AddSeconds(20)
-		Assert ($null -eq (Get-LiveResyncReason $broken $m $t.AddSeconds(100))) "cooldown $i"
+		Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery $broken $m $t.AddSeconds(100))) "cooldown $i"
 		$t = $t.AddSeconds($LiveResyncCooldownSeconds + 21)
 	}
-	Assert ($null -eq (Get-LiveResyncReason $broken $m $t)) 'no attempt beyond the most'
-	Assert ((Get-LiveResyncReason (Live @{ error = 'game rejected 1-2-3'; pid = '42' }) $m $t).Kind -eq 'error') 'a new TF3 starts again'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery $broken $m $t)) 'no attempt beyond the most'
+	Assert ((Get-LiveResyncReason -AutomaticRecovery (Live @{ error = 'game rejected 1-2-3'; pid = '42' }) $m $t).Kind -eq 'error') 'a new TF3 starts again'
 }
 Test 'a failed live resync is tried again soon, each further failure waits longer' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
 	$broken = Live @{ error = 'game rejected 1-2-3' }
 	$expected = @($LiveResyncRetrySeconds, ($LiveResyncRetrySeconds * 2), ($LiveResyncRetrySeconds * 4), $LiveResyncCooldownSeconds)
 	foreach ($pause in $expected) {
-		Assert ((Get-LiveResyncReason $broken $m $t).Kind -eq 'error') "attempt before pause $pause"
+		Assert ((Get-LiveResyncReason -AutomaticRecovery $broken $m $t).Kind -eq 'error') "attempt before pause $pause"
 		Register-LiveResync $m $t
 		$t = $t.AddSeconds(90)
 		Complete-LiveResync $m $false $t
 		Assert ((Get-LiveResyncPause $m) -eq $pause) "pause $(Get-LiveResyncPause $m), expected $pause"
-		Assert ($null -eq (Get-LiveResyncReason $broken $m $t.AddSeconds($pause - 1))) "still waiting before $pause"
+		Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery $broken $m $t.AddSeconds($pause - 1))) "still waiting before $pause"
 		$t = $t.AddSeconds($pause + 1)
 	}
 	Register-LiveResync $m $t
@@ -296,22 +319,22 @@ Test 'a failed live resync is tried again soon, each further failure waits longe
 }
 Test 'a request of the partner counts once' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '' }) $m $t)) 'nothing yet'
-	$r = Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '1' }) $m $t
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery (Live @{ mode = 'client'; resync_peer = '' }) $m $t)) 'nothing yet'
+	$r = Get-LiveResyncReason -AutomaticRecovery (Live @{ mode = 'client'; resync_peer = '1' }) $m $t
 	Assert ($r.Kind -eq 'peer') 'first request'
 	Register-LiveResync $m $t
 	$t = $t.AddSeconds($LiveResyncCooldownSeconds + 1)
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '1' }) $m $t)) 'same request again'
-	Assert ((Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '2' }) $m $t).Kind -eq 'peer') 'next request'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery (Live @{ mode = 'client'; resync_peer = '1' }) $m $t)) 'same request again'
+	Assert ((Get-LiveResyncReason -AutomaticRecovery (Live @{ mode = 'client'; resync_peer = '2' }) $m $t).Kind -eq 'peer') 'next request'
 	# A request that is already there when the launcher (or a new TF3) starts is old.
 	$fresh = New-LiveResyncMemory
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '7' }) $fresh $t)) 'old request at the start'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery (Live @{ mode = 'client'; resync_peer = '7' }) $fresh $t)) 'old request at the start'
 	# Both games noticed it themselves: the partner's request inside the waiting time is used up.
 	$m2 = New-LiveResyncMemory; $t2 = [DateTime]::UtcNow
 	Assert ((Confirm-Diff $m2 $t2).Kind -eq 'diff') 'own difference'
 	Register-LiveResync $m2 $t2
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds(5))) 'inside the waiting time'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds($LiveResyncCooldownSeconds + 1))) 'not again later'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds(5))) 'inside the waiting time'
+	Assert ($null -eq (Get-LiveResyncReason -AutomaticRecovery (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds($LiveResyncCooldownSeconds + 1))) 'not again later'
 }
 Test 'the epoch of the partner comes from the DLL log of this TF3' {
 	$dir = Join-Path $base 'epoch'; New-Item -ItemType Directory -Force $dir | Out-Null

@@ -695,76 +695,28 @@ local function saver(g)
 	end }
 end
 
-test("the host saves once per difference and again only after a few checkpoints", function()
-	local host, client = pair()
-	saver(host); saver(client)
-	host.vars.TF3MP_OWN_HEALTH = "ck=4 fields=hcon status=same"
-	client.vars.TF3MP_OWN_HEALTH = "ck=4 fields=hcon status=diff"
-	host.gui(); client.gui()
-	assert(#host.saves == 0 and #client.saves == 0, "no difference on the host, never on the client")
-	host.vars.TF3MP_OWN_HEALTH = "ck=5 fields=hcon status=diff"
-	host.gui(); host.gui()
-	assert(#host.saves == 1 and host.saves[1].name == gui.RESYNC_SAVE, "one save at the first difference")
-	assert(host.saves[1].editor == false and host.saves[1].skip == true, "not the map editor, keeps the player's save name")
-	assert(host.vars.TF3MP_OWN_RESYNC == "ck=5" and client.vars.TF3MP_PEER_RESYNC == "ck=5", "the checkpoint is published")
-	assert(has(host.logs, "resync: saved 'TF3MP-Neuabgleich' at check 5"))
-	for ck = 6, 5 + gui.RESYNC_EVERY - 1 do
-		host.vars.TF3MP_OWN_HEALTH = "ck=" .. ck .. " fields=hcon status=diff"
-		host.gui()
+test("v40: persistent world differences never save or pause either game", function()
+	local host, client = pair(); saver(host); saver(client)
+	for ck = 1, 120 do
+		for _, field in ipairs({ "hcon", "hedge", "hline", "hveh", "hpos", "hcargo", "htown", "loan", "clock" }) do
+			host.vars.TF3MP_OWN_HEALTH = "ck=" .. ck .. " fields=" .. field .. " status=diff"
+			client.vars.TF3MP_OWN_HEALTH = host.vars.TF3MP_OWN_HEALTH
+			host.gui(); client.gui()
+		end
 	end
-	assert(#host.saves == 1, "no save at every checkpoint")
-	host.vars.TF3MP_OWN_HEALTH = "ck=" .. (5 + gui.RESYNC_EVERY) .. " fields=hcon status=diff"
-	host.gui()
-	assert(#host.saves == 2, "a newer save while the difference lasts")
-	assert(#client.saves == 0)
+	assert(#host.saves == 0 and #client.saves == 0)
+	assert(host.speed == 1 and client.speed == 1)
+	assert(not has(host.logs, "resync: saving") and not host.vars.TF3MP_OWN_RESYNC)
 end)
 
-test("v37: the host does not save for differences that are only drift (positions, cargo, towns)", function()
-	local host = game("host")
-	saver(host)
-	host.vars.TF3MP_OWN_HEALTH = "ck=6 fields=hpos,htown,hcargo status=diff"
-	host.gui(); host.gui()
-	assert(#host.saves == 0, "drift alone needs no resync save")
-	host.vars.TF3MP_OWN_HEALTH = "ck=7 fields=none status=diff"
+test("v40: losing GUI memory does not turn differences into an automatic save", function()
+	local host = game("host"); saver(host)
+	host.vars.TF3MP_OWN_HEALTH = "ck=9 fields=hveh,hcon status=diff"
 	host.gui()
-	assert(#host.saves == 0, "no field named, nothing to save for")
-	host.vars.TF3MP_OWN_HEALTH = "ck=8 fields=hpos,hline status=diff"
-	host.gui()
-	assert(#host.saves == 1, "a line difference next to the drift still saves")
-	assert(gui.structural("loan") and gui.structural("hcon") and not gui.structural("hpos, htown") and not gui.structural(nil))
-end)
-
-test("a GUI Lua state without memory does not save the same difference twice", function()
-	local host = game("host")
-	saver(host)
-	host.vars.TF3MP_OWN_HEALTH = "ck=9 fields=hveh status=diff"
-	host.gui()
-	assert(#host.saves == 1)
-	-- New Lua state: a new environment table, the DLL still has TF3MP_OWN_RESYNC.
 	host.env = { api = host.api, os = host.os, app = host.env.app }
-	host.gui(); host.gui()
-	assert(#host.saves == 1, "the published checkpoint stops a second save")
-	host.vars.TF3MP_OWN_HEALTH = "ck=" .. (9 + gui.RESYNC_EVERY) .. " fields=hveh status=diff"
 	host.gui()
-	assert(#host.saves == 2)
-	-- A world loaded again starts its checkpoints at 0 again.
-	host.vars.TF3MP_OWN_HEALTH = "ck=2 fields=hveh status=diff"
-	host.gui()
-	assert(#host.saves == 3, "a lower checkpoint is a new game")
+	assert(#host.saves == 0)
 end)
-
-test("without a save function the host is told to save by hand, once per difference", function()
-	local host = game("host")
-	host.vars.TF3MP_OWN_HEALTH = "ck=3 fields=hcon status=diff"
-	host.gui(); host.gui()
-	assert(count(host.logs, "save by hand") == 1, "one note")
-	assert(not has(host.logs, "gui sync failed"))
-	host.env.app = { saveGame = function() error("not allowed here") end }
-	host.vars.TF3MP_OWN_HEALTH = "ck=" .. (3 + gui.RESYNC_EVERY) .. " fields=hcon status=diff"
-	host.gui()
-	assert(has(host.logs, "resync: saving 'TF3MP-Neuabgleich' did not work: ") and not has(host.logs, "gui sync failed"))
-end)
-
 test("app.saveGame as a callable table (run 35) is called like a function", function()
 	local host = game("host")
 	host.saves = {}
@@ -772,10 +724,10 @@ test("app.saveGame as a callable table (run 35) is called like a function", func
 		host.saves[#host.saves + 1] = { name = name, editor = editor, skip = skip }
 		cb()
 	end }) }
-	host.vars.TF3MP_OWN_HEALTH = "ck=4 fields=hcon status=diff"
+	host.vars.TF3MP_SAVE = "1"
 	host.gui()
 	assert(#host.saves == 1 and host.saves[1].name == gui.RESYNC_SAVE and host.saves[1].skip == true)
-	assert(has(host.logs, "resync: saved 'TF3MP-Neuabgleich' at check 4") and not has(host.logs, "save by hand"))
+	assert(has(host.logs, "resync: saved 'TF3MP-Neuabgleich' for the launcher (request 1)") and not has(host.logs, "save by hand"))
 end)
 
 --- app as TF3's load page uses it (gui/menu/savegame_react_util.tl).
