@@ -29,8 +29,9 @@ function Find-ResyncSave([string]$saveDir, [datetime]$since) {
 }
 
 # Ob niemand mehr in die Datei schreibt (das Spiel hält sie beim Speichern offen).
+# v37: mit FileShare Delete, damit TF3 die Datei genau in diesem Moment trotzdem ersetzen kann.
 function Test-FileClosed([string]$path) {
-	try { $stream = [IO.File]::Open($path, 'Open', 'Read', 'None'); $stream.Dispose(); return $true } catch { return $false }
+	try { $stream = [IO.File]::Open($path, 'Open', 'Read', 'Delete'); $stream.Dispose(); return $true } catch { return $false }
 }
 
 # Wartet, bis der Spielstand fertig geschrieben ist: 2 Sekunden gleich groß und nicht mehr geöffnet.
@@ -51,13 +52,15 @@ function Wait-SaveWritten($file, $tick, [int]$timeoutSeconds = 180, [double]$qui
 }
 
 # Wartet auf einen Spielstand, den der Spieler jetzt im Spiel speichert (geschrieben ab $since, UTC).
-function Wait-NewSave([string]$saveDir, [datetime]$since, $tick, [int]$timeoutSeconds = 900, [double]$quietSeconds = 2) {
+# $waitText ersetzt den Hinweis, wenn das Spiel selbst speichert (Neuabgleich im laufenden Spiel).
+function Wait-NewSave([string]$saveDir, [datetime]$since, $tick, [int]$timeoutSeconds = 900, [double]$quietSeconds = 2, [string]$waitText = '') {
 	$deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
+	if (-not $waitText) { $waitText = "Bitte jetzt im Spiel speichern (Esc, dann Speichern). Der Name ist egal, der Launcher erkennt den neuen Spielstand von selbst und beendet danach TF3." }
 	while ($true) {
 		$file = Find-ResyncSave $saveDir $since
 		if ($file) { return Wait-SaveWritten $file $tick -quietSeconds $quietSeconds }
 		if ([DateTime]::UtcNow -gt $deadline) { throw 'Es wurde kein neuer Spielstand gespeichert. Der Neuabgleich ist abgebrochen.' }
-		if (& $tick "Bitte jetzt im Spiel speichern (Esc, dann Speichern). Der Name ist egal, der Launcher erkennt den neuen Spielstand von selbst und beendet danach TF3." 0 0) { throw 'Abgebrochen.' }
+		if (& $tick $waitText 0 0) { throw 'Abgebrochen.' }
 		Start-Sleep -Milliseconds 500
 	}
 }
@@ -116,9 +119,24 @@ function Stop-GameForResync($tick, $askForce = $null, [double]$waitSeconds = 5, 
 # DLL v13) das laufende Spiel, ihn zu laden (gui.lua, app.loadGame). Höchstens $LiveResyncMax-mal pro
 # Spielstart und mit $LiveResyncCooldownSeconds Abstand; danach bleibt der Knopf 'Neu abgleichen'.
 $LiveResyncCooldownSeconds = 180
-$LiveResyncMax = 3
+# v37: mehr Versuche, weil ein fehlgeschlagener Neuabgleich jetzt von selbst wiederholt wird.
+$LiveResyncMax = 6
 # Fehler, nach denen beide Welten noch geladen sind und ein gemeinsamer Stand weiterhilft.
 $LiveResyncErrors = '^(peer rejected|game rejected|save reloaded with pending)'
+# v37 (Lauf 39): Nur Abweichungen im Aufbau lösen einen Neuabgleich aus: Bauwerke, Straßen/Gleise,
+# Linien, Fahrzeuge, Kredite. Fahrzeugpositionen, Fracht und Städte laufen mit der Zeit auseinander,
+# weil TF3s eigene Fenster Fahrzeugbefehle sofort ausführen; dafür ging jedes Mal das Spiel kurz aus
+# der Hand. Sie bleiben ein Hinweis, 'Neu abgleichen' bleibt für Hand.
+$LiveResyncStructural = @('hcon', 'hedge', 'hline', 'hveh', 'loan')
+# Eine Abweichung im Aufbau muss so lange und noch über eine weitere Weltprüfung hinweg bleiben.
+# Ein Bau, der beim Mitspieler gerade erst ankommt, verschwindet bis dahin von selbst.
+$LiveResyncConfirmSeconds = 30
+# Nach einem fehlgeschlagenen Neuabgleich versucht der Launcher es nach dieser Zeit noch einmal,
+# solange der Grund bleibt (statt auf einen Klick zu warten).
+$LiveResyncRetrySeconds = 30
+# Eigene Namen für die Kopien, die der Gastgeber schickt; die neuesten bleiben liegen.
+$LiveResyncSavePrefix = 'TF3MP-Sync-'
+$LiveResyncKeepSaves = 2
 
 # Die Zeilen von alut_proxy.status als Hashtable; leer, wenn die Datei fehlt.
 function Read-ProxyStatusValues([string]$Path) {
@@ -128,31 +146,115 @@ function Read-ProxyStatusValues([string]$Path) {
 	return $values
 }
 
-function New-LiveResyncMemory { return @{ Pid = ''; Count = 0; LastUtc = [datetime]::MinValue; PeerReq = '' } }
+function New-LiveResyncMemory {
+	return @{ Pid = ''; Count = 0; LastUtc = [datetime]::MinValue; PeerReq = ''; Failed = $false; DiffCk = ''; DiffSinceUtc = [datetime]::MinValue }
+}
+
+# Die Felder aus world_fields, die mehr als Drift sind (siehe $LiveResyncStructural), als Liste.
+function Get-StructuralDifference([string]$Fields) {
+	return @(@($Fields -split '[,\s]+') | Where-Object { $_ -and $LiveResyncStructural -contains $_ })
+}
 
 # Warum dieses Spiel jetzt im laufenden Spiel neu abgleichen soll: @{Kind='diff'|'error'|'peer'; Detail}
 # oder $null. Kind 'peer': der Launcher des Mitspielers hat einen Neuabgleich verlangt (DLL-Status
 # resync_peer, neu seit dem letzten Mal). Zählt nichts mit; das macht Register-LiveResync beim Start.
+# v37: 'diff' nur bei einer Abweichung im Aufbau, die dieses Spiel selbst sieht, die mindestens
+# $LiveResyncConfirmSeconds dauert und eine spätere Weltprüfung (world_ck) übersteht. Sieht nur der
+# Mitspieler sie, fragt sein Launcher (dann Kind 'peer').
 function Get-LiveResyncReason($Values, $Memory, [datetime]$NowUtc) {
 	if (-not $Values -or ($Values.mode -ne 'host' -and $Values.mode -ne 'client')) { return $null }
 	# Ein neu gestartetes TF3 (andere Prozessnummer) beginnt wieder bei null.
 	if ($Values.pid -and $Values.pid -ne $Memory.Pid) {
 		$Memory.Pid = $Values.pid; $Memory.Count = 0; $Memory.LastUtc = [datetime]::MinValue; $Memory.PeerReq = ''
+		$Memory.Failed = $false; $Memory.DiffCk = ''; $Memory.DiffSinceUtc = [datetime]::MinValue
 	}
 	$peerReq = [string]$Values.resync_peer
 	$peerNew = $peerReq -and $peerReq -ne $Memory.PeerReq
 	# Eine Bitte gilt einmal, auch wenn sie in die Wartezeit fällt (dann gleichen beide schon ab).
 	if ($peerReq) { $Memory.PeerReq = $peerReq }
+	# Wie lange die Abweichung im Aufbau schon besteht; zählt auch während der Wartezeit weiter.
+	$structural = @()
+	if ($Values.world -eq 'diff') { $structural = @(Get-StructuralDifference ([string]$Values.world_fields)) }
+	$confirmed = $false
+	if ($structural.Count) {
+		$ck = [string]$Values.world_ck
+		if (-not $Memory.DiffCk) { $Memory.DiffCk = $ck; $Memory.DiffSinceUtc = $NowUtc }
+		elseif ($ck -ne $Memory.DiffCk -and ($NowUtc - $Memory.DiffSinceUtc).TotalSeconds -ge $LiveResyncConfirmSeconds) { $confirmed = $true }
+	} else { $Memory.DiffCk = ''; $Memory.DiffSinceUtc = [datetime]::MinValue }
 	if ($Values.resync -eq 'armed' -or $Values.ready -ne '1') { return $null }
 	if ($Memory.Count -ge $LiveResyncMax) { return $null }
-	if (($NowUtc - $Memory.LastUtc).TotalSeconds -lt $LiveResyncCooldownSeconds) { return $null }
-	if ($Values.world -eq 'diff' -or $Values.world_peer -eq 'diff') { return @{ Kind = 'diff'; Detail = [string]$Values.world_fields } }
+	$pause = if ($Memory.Failed) { $LiveResyncRetrySeconds } else { $LiveResyncCooldownSeconds }
+	if (($NowUtc - $Memory.LastUtc).TotalSeconds -lt $pause) { return $null }
+	if ($confirmed) { return @{ Kind = 'diff'; Detail = ($structural -join ',') } }
 	if ([string]$Values.error -match $LiveResyncErrors) { return @{ Kind = 'error'; Detail = [string]$Values.error } }
 	if ($peerNew) { return @{ Kind = 'peer'; Detail = $peerReq } }
 	return $null
 }
 
-function Register-LiveResync($Memory, [datetime]$NowUtc) { $Memory.Count++; $Memory.LastUtc = $NowUtc }
+function Register-LiveResync($Memory, [datetime]$NowUtc) {
+	$Memory.Count++; $Memory.LastUtc = $NowUtc; $Memory.Failed = $false
+	# Nach dem Neuladen zählt eine Abweichung neu.
+	$Memory.DiffCk = ''; $Memory.DiffSinceUtc = [datetime]::MinValue
+}
+
+# v37: Nach einem fehlgeschlagenen Neuabgleich kommt der nächste Versuch schon nach $LiveResyncRetrySeconds.
+function Complete-LiveResync($Memory, [bool]$Success, [datetime]$NowUtc) {
+	$Memory.Failed = -not $Success
+	$Memory.LastUtc = $NowUtc
+}
+
+# v37 (Lauf 39): Der Gastgeber schickt eine eigene Kopie des frischen Spielstands. Während er die
+# Kopie liest und sendet, darf TF3 das Original wieder speichern (TF3 schreibt <name>.sav.tmp und
+# benennt die Datei dann über <name>.sav; liest dabei jemand ohne FileShare Delete, klappt das nicht
+# und TF3 hält das Spiel an). Auch die Kopie selbst liest das Original mit ReadWrite|Delete.
+# Gibt die neue .sav als FileInfo zurück; die Vorschau (.jpg) kommt mit, wenn es sie gibt.
+function Copy-SaveSnapshot($File, [string]$SaveDir, [datetime]$NowLocal = (Get-Date)) {
+	$base = $LiveResyncSavePrefix + $NowLocal.ToString('yyyyMMdd-HHmmss')
+	$name = $base; $n = 1
+	while (Test-Path -LiteralPath (Join-Path $SaveDir "$name.sav")) { $n++; $name = "$base-$n" }
+	$copies = @()
+	try {
+		foreach ($ext in @('.sav', '.jpg')) {
+			$source = [IO.Path]::ChangeExtension($File.FullName, $ext)
+			if ($ext -eq '.jpg' -and -not (Test-Path -LiteralPath $source -PathType Leaf)) { continue }
+			$target = Join-Path $SaveDir ($name + $ext)
+			$part = "$target.part"
+			$reader = [IO.File]::Open($source, 'Open', 'Read', [IO.FileShare]'ReadWrite, Delete')
+			try {
+				$writer = [IO.File]::Open($part, 'CreateNew', 'Write', 'None')
+				try { $reader.CopyTo($writer, 1MB) } finally { $writer.Dispose() }
+			} finally { $reader.Dispose() }
+			Move-Item -LiteralPath $part -Destination $target
+			$copies += $target
+			# Gleiche Zeit wie das Original, damit 'Neu abgleichen' die Reihenfolge richtig sieht.
+			try { [IO.File]::SetLastWriteTimeUtc($target, [IO.File]::GetLastWriteTimeUtc($source)) } catch {}
+		}
+	} catch {
+		foreach ($path in @($copies) + @(Join-Path $SaveDir "$name.sav.part") + @(Join-Path $SaveDir "$name.jpg.part")) {
+			Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+		}
+		throw "Der Spielstand '$($File.BaseName)' konnte nicht für den Neuabgleich kopiert werden: $($_.Exception.Message)"
+	}
+	return Get-Item -LiteralPath (Join-Path $SaveDir "$name.sav")
+}
+
+# v37: Löscht ältere Neuabgleich-Kopien (TF3MP-Sync-*), die neuesten $Keep bleiben. $Except (voller
+# Pfad) bleibt immer, auch wenn er älter ist. Gibt die Zahl der gelöschten Spielstände zurück.
+function Remove-OldSyncSaves([string]$SaveDir, [int]$Keep = $LiveResyncKeepSaves, [string]$Except = '') {
+	$saves = @(Get-ChildItem -LiteralPath $SaveDir -Filter "$LiveResyncSavePrefix*.sav" -File -ErrorAction SilentlyContinue |
+		Where-Object { $_.Extension -ieq '.sav' -and $_.Name.StartsWith($LiveResyncSavePrefix, [StringComparison]::OrdinalIgnoreCase) } |
+		Sort-Object LastWriteTimeUtc -Descending)
+	$removed = 0
+	foreach ($save in @($saves | Select-Object -Skip $Keep)) {
+		if ($Except -and $save.FullName -ieq [IO.Path]::GetFullPath($Except)) { continue }
+		try {
+			Remove-Item -LiteralPath $save.FullName -Force -ErrorAction Stop
+			Remove-Item -LiteralPath ([IO.Path]::ChangeExtension($save.FullName, '.jpg')) -Force -ErrorAction SilentlyContinue
+			$removed++
+		} catch {}
+	}
+	return $removed
+}
 
 # Bittet die DLL neben dem Spiel um etwas (alut_proxy.save oder alut_proxy.reload); sie nimmt die Datei
 # etwa einmal pro Sekunde und löscht sie.

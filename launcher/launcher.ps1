@@ -196,16 +196,22 @@ function Get-SessionStatus($gameDir) {
 	$values = Read-ProxyStatusValues $path
 	if ($values.resync -eq 'armed') { return @{ Text='Neuabgleich: TF3 lädt den gemeinsamen Spielstand ...'; Color='idle' } }
 	if ($values.blocked -eq '1' -or $values.error) { return @{ Text="Abgleich erforderlich: $($values.error)"; Color='error' } }
-	if ($values.world -eq 'diff' -or $values.world_peer -eq 'diff') {
-		return @{ Text="Weltabweichung erkannt ($(Get-WorldDifferenceText $values.world_fields)). Der Launcher gleicht gleich im laufenden Spiel neu ab."; Color='error' }
+	# v37: Nur eine Abweichung im Aufbau führt zum Neuabgleich; Drift (Fahrzeugpositionen, Fracht,
+	# Städte) bleibt ein Hinweis, das Spiel läuft weiter.
+	$structural = @(Get-StructuralDifference ([string]$values.world_fields))
+	if ($values.world -eq 'diff' -and $structural.Count) {
+		return @{ Text="Abweichung im Aufbau ($(Get-WorldDifferenceText ($structural -join ','))). Bleibt sie, gleicht der Launcher im laufenden Spiel neu ab."; Color='error' }
 	}
+	$drift = ''
+	if ($values.world -eq 'diff' -and $values.world_fields) { $drift = "  |  kleine Abweichung ($(Get-WorldDifferenceText $values.world_fields)), Spiel läuft weiter" }
+	elseif ($values.world_peer -eq 'diff') { $drift = '  |  der Mitspieler sieht eine Abweichung' }
 	if ($values.epoch -match '^[1-9]' -and $values.connected -ne '1' -and $values.mode -in 'host','client') {
 		return @{ Text='Neu geladen - warte, bis der Mitspieler auch neu geladen hat ...'; Color='idle' }
 	}
 	$pending=[int]$values.outbox + [int]$values.inbox
 	$disk = if ([int64]$values.backlog -gt 0) { " + weitere auf Datenträger" } else { "" }
 	if ($values.connected -eq '1') {
-		$world = if ($values.world -eq 'same') { '  |  Weltprüfung stimmt überein' } elseif ($values.world -eq 'checking') { '  |  Weltprüfung läuft' } else { '' }
+		$world = if ($drift) { $drift } elseif ($values.world -eq 'same') { '  |  Weltprüfung stimmt überein' } elseif ($values.world -eq 'checking') { '  |  Weltprüfung läuft' } else { '' }
 		return @{ Text="Verbunden  |  $pending Aktion(en) warten$disk$world"; Color='ok' }
 	}
 	if ($values.mode -eq 'loopback') { return @{ Text="Allein-Test  |  $pending Aktion(en) warten$disk"; Color='ok' } }
@@ -400,7 +406,13 @@ function Show-Error($msg) {
 function Get-TransferRateText([string]$path, $clock) {
 	try {
 		$bytes = (Get-Item -LiteralPath $path).Length; $seconds = [Math]::Max(0.001, $clock.Elapsed.TotalSeconds)
-		return '{0:N1} MB in {1:N1} s ({2:N1} MB/s)' -f ($bytes / 1MB), $seconds, ($bytes / 1MB / $seconds)
+		$rate = '{0:N1} MB in {1:N1} s ({2:N1} MB/s)' -f ($bytes / 1MB), $seconds, ($bytes / 1MB / $seconds)
+		# v37: die Übertragung misst die reinen Daten selbst (tools\save-transfer.ps1), ohne Warten.
+		$stats = $script:LastSaveTransfer
+		if ($stats -and [double]$stats.Seconds -gt 0 -and [int64]$stats.Bytes -gt 0) {
+			$rate += '; Daten {0:N1} MB in {1:N1} s = {2:N1} MB/s über {3} Verbindung(en)' -f ([int64]$stats.Bytes / 1MB), [double]$stats.Seconds, ([int64]$stats.Bytes / 1MB / [double]$stats.Seconds), $stats.Streams
+		}
+		return $rate
 	} catch { return '' }
 }
 
@@ -567,6 +579,7 @@ function Invoke-Transfer([switch]$Resync) {
 			$manifest = Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
 			$session = New-MultiplayerSession -Manifest $manifest -SavePath $offeredSave
 			$clock = [Diagnostics.Stopwatch]::StartNew()
+			$script:LastSaveTransfer = $null
 			$result = Send-Savegame $offeredSave ([int]$port) $tick -Session $session
 			Write-LauncherLog "Spielstand geschickt: $(Split-Path -Leaf $offeredSave), $(Get-TransferRateText $offeredSave $clock)"
 			Save-PreparedSession -Path (Join-Path $gameBox.Text.Trim() 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
@@ -592,6 +605,7 @@ function Invoke-Transfer([switch]$Resync) {
 			$manifest = Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
 			$wait = if ($Resync) { 600 } else { 0 }
 			$clock = [Diagnostics.Stopwatch]::StartNew()
+			$script:LastSaveTransfer = $null
 			$result = Receive-Savegame $ip ([int]$port) $saveDir $tick $confirm -LocalManifest $manifest -WaitSeconds $wait
 			Write-LauncherLog "Spielstand geholt: $(Split-Path -Leaf $result.SavePath), $(Get-TransferRateText $result.SavePath $clock) (inklusive Warten auf den Gastgeber)"
 			Save-PreparedSession -Path (Join-Path $gameBox.Text.Trim() 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
@@ -685,6 +699,9 @@ $copyAddress.Add_Click({
 # v35: Neuabgleich im laufenden Spiel. Bei einer Weltabweichung oder einem abgelehnten Bau schickt der
 # Gastgeber den Stand, den sein Spiel gerade gespeichert hat, der Mitspieler holt ihn, und beide Spiele
 # laden ihn, ohne dass TF3 beendet wird (tools\resync.ps1, DLL v13, gui.lua).
+# v37 (Lauf 39): nur bei bleibenden Abweichungen im Aufbau; der Gastgeber schickt eine eigene Kopie
+# (TF3MP-Sync-...) eines frischen Spielstands; klappt es nicht, versucht der Launcher es von selbst
+# noch einmal, statt auf einen Klick zu warten.
 $script:liveMemory = New-LiveResyncMemory
 $script:liveBusy = $false
 
@@ -693,10 +710,11 @@ function Invoke-LiveResync($values, $reason) {
 	$gameDir = $gameBox.Text.Trim()
 	$others = @($install, $startGame, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox)
 	$why = switch ($reason.Kind) {
-		'diff' { "Weltabweichung ($(Get-WorldDifferenceText $reason.Detail))" }
+		'diff' { "Abweichung im Aufbau ($(Get-WorldDifferenceText $reason.Detail))" }
 		'error' { "Fehler: $($reason.Detail)" }
-		default { 'dein Mitspieler hat einen Fehler gemeldet' }
+		default { 'der Launcher deines Mitspielers hat ihn angefragt' }
 	}
+	$success = $false
 	Register-LiveResync $script:liveMemory ([DateTime]::UtcNow)
 	Write-LauncherLog "Neuabgleich im laufenden Spiel $($script:liveMemory.Count) von ${LiveResyncMax}: Rolle $($values.mode), Grund $why, epoch $($values.epoch)"
 	$script:transferHint = "`r`n`r`nNeuabgleich im laufenden Spiel ($($script:liveMemory.Count) von $LiveResyncMax), Grund: $why.`r`nTF3 bleibt offen und lädt gleich den gemeinsamen Spielstand."
@@ -718,36 +736,29 @@ function Invoke-LiveResync($values, $reason) {
 		$statusPath = Join-Path $gameDir 'alut_proxy.status'
 		$epochBefore = if ($values.epoch -match '^\d+$') { [int]$values.epoch } else { 0 }
 		if ($values.mode -eq 'host') {
-			$file = $null
-			# Bei einer Abweichung hat das Spiel selbst gespeichert ('TF3MP-Neuabgleich', gui.lua).
-			if ($reason.Kind -eq 'diff') {
-				$until = [DateTime]::UtcNow.AddSeconds(20)
-				while (-not $file -and [DateTime]::UtcNow -lt $until) {
-					$file = Find-ResyncSave $saveDir ([DateTime]::UtcNow.AddSeconds(-90))
-					if (-not $file) { if (& $tick 'Warte auf den Spielstand, den das Spiel bei der Abweichung speichert ...' 0 0) { throw 'Abgebrochen.' }; Start-Sleep -Milliseconds 250 }
-				}
-			}
-			if (-not $file) {
-				# Bittet das Spiel zu speichern; das sagt auch dem Mitspieler Bescheid (resync_peer).
-				$since = [DateTime]::UtcNow.AddSeconds(-1)
-				Write-ProxyRequest $gameDir 'alut_proxy.save' 'save' | Out-Null
-				$file = Wait-NewSave $saveDir $since $tick -timeoutSeconds 90
-			}
+			# v37: immer ein frischer Stand. Die Bitte sagt auch dem Mitspieler Bescheid (resync_peer).
+			$since = [DateTime]::UtcNow.AddSeconds(-1)
+			Write-ProxyRequest $gameDir 'alut_proxy.save' 'save' | Out-Null
+			$file = Wait-NewSave $saveDir $since $tick -timeoutSeconds 90 -waitText 'Das Spiel speichert den gemeinsamen Stand ...'
 			$file = Wait-SaveWritten $file $tick
-			$savePath = Assert-LauncherSavePath $file.FullName $saveDir
+			# v37 (Lauf 39): eine eigene Kopie schicken. TF3 darf das Original währenddessen wieder speichern.
+			$copy = Copy-SaveSnapshot $file $saveDir
+			$savePath = Assert-LauncherSavePath $copy.FullName $saveDir
 			$manifest = Get-LauncherManifest $gameDir $steam $tick
 			$session = New-MultiplayerSession -Manifest $manifest -SavePath $savePath
-			Write-LauncherLog "Neuabgleich: schicke $(Split-Path -Leaf $savePath) ($($file.LastWriteTime.ToString('HH:mm:ss')))"
+			Write-LauncherLog "Neuabgleich: schicke $(Split-Path -Leaf $savePath) (Kopie von $($file.Name), gespeichert $($file.LastWriteTime.ToString('HH:mm:ss')))"
 			$clock = [Diagnostics.Stopwatch]::StartNew()
+			$script:LastSaveTransfer = $null
 			$result = Send-Savegame $savePath $port $tick 150 -Session $session
 			Write-LauncherLog "Neuabgleich: geschickt, $(Get-TransferRateText $savePath $clock)"
 		} else {
-			# Nur dieser PC hat den Fehler gesehen: dem Gastgeber Bescheid sagen (resync_peer).
-			if ($reason.Kind -eq 'error') { Write-ProxyRequest $gameDir 'alut_proxy.save' 'save' | Out-Null }
+			# Dem Gastgeber Bescheid sagen (resync_peer), außer er hat selbst gefragt.
+			if ($reason.Kind -ne 'peer') { Write-ProxyRequest $gameDir 'alut_proxy.save' 'save' | Out-Null }
 			if (-not $cfg.host) { throw 'In alut_proxy.ini fehlt die Adresse des Gastgebers.' }
 			$manifest = Get-LauncherManifest $gameDir $steam $tick
 			Write-LauncherLog "Neuabgleich: hole den Spielstand von $($cfg.host):$port"
 			$clock = [Diagnostics.Stopwatch]::StartNew()
+			$script:LastSaveTransfer = $null
 			$result = Receive-Savegame $cfg.host $port $saveDir $tick { param($question) $true } -LocalManifest $manifest -WaitSeconds 150
 			Write-LauncherLog "Neuabgleich: geholt, $(Get-TransferRateText $result.SavePath $clock) (inklusive Warten)"
 		}
@@ -757,13 +768,27 @@ function Invoke-LiveResync($values, $reason) {
 		Write-LauncherLog "Neuabgleich: TF3 soll '$name' laden"
 		Wait-LiveReload $statusPath $epochBefore $tick 120 $reloadPath | Out-Null
 		Write-LauncherLog "Neuabgleich: '$name' geladen"
+		$success = $true
+		$old = Remove-OldSyncSaves $saveDir $LiveResyncKeepSaves $result.SavePath
+		if ($old) { Write-LauncherLog "Neuabgleich: $old ältere TF3MP-Sync-Spielstände gelöscht" }
 		$out.Text = "Neuabgleich im laufenden Spiel: '$name' ist geladen.`r`nSobald beide PCs ihn geladen haben, verbinden sie sich wieder. Dann gemeinsam weiterspielen (Pause aufheben)." +
 			"`r`nGrund war: $why."
 	} catch {
-		Write-LauncherLog "Neuabgleich fehlgeschlagen: $($_.Exception.Message)"
-		$out.Text = "Neuabgleich im laufenden Spiel hat nicht geklappt: $($_.Exception.Message)`r`n`r`n" +
-			"Dann bitte auf beiden PCs 'Neu abgleichen' klicken (TF3 startet dabei neu)."
+		$problem = $_.Exception.Message
+		Write-LauncherLog "Neuabgleich fehlgeschlagen: $problem"
+		if ($problem -eq 'Abgebrochen.') {
+			# Selbst abgebrochen: nicht gleich wieder anfangen.
+			$success = $true
+			$out.Text = "Neuabgleich im laufenden Spiel abgebrochen. Der Launcher versucht es frühestens in $([int]($LiveResyncCooldownSeconds / 60)) Minuten wieder, falls die Abweichung bleibt."
+		} elseif ($script:liveMemory.Count -lt $LiveResyncMax) {
+			$out.Text = "Neuabgleich im laufenden Spiel hat nicht geklappt: $problem`r`n`r`n" +
+				"Das Spiel läuft weiter. Bleibt der Grund, versucht der Launcher es in $LiveResyncRetrySeconds Sekunden von selbst noch einmal. Nichts klicken."
+		} else {
+			$out.Text = "Neuabgleich im laufenden Spiel hat nicht geklappt: $problem`r`n`r`n" +
+				"Das waren $LiveResyncMax Versuche in diesem Spiel. Wenn ihr weiter Abweichungen seht: auf beiden PCs 'Neu abgleichen' klicken (TF3 startet dabei neu)."
+		}
 	} finally {
+		Complete-LiveResync $script:liveMemory $success ([DateTime]::UtcNow)
 		$script:transferBusy = $false
 		$script:transferHint = ''
 		foreach ($b in $others) { $b.Enabled = $true }
@@ -787,7 +812,7 @@ $timer.Add_Tick({
 		$reason = Get-LiveResyncReason $values $script:liveMemory ([DateTime]::UtcNow)
 		if ($reason) { Invoke-LiveResync $values $reason }
 		elseif ($values.world -eq 'diff' -or $values.world_peer -eq 'diff' -or $values.error) {
-			$note = "Abweichung ohne Neuabgleich: world=$($values.world)/$($values.world_peer) error=$($values.error) ready=$($values.ready) resync=$($values.resync) bisher $($script:liveMemory.Count)"
+			$note = "Abweichung ohne Neuabgleich: world=$($values.world)/$($values.world_peer) Felder=$($values.world_fields) error=$($values.error) ready=$($values.ready) resync=$($values.resync) bisher $($script:liveMemory.Count)"
 			if ($script:liveNote -ne $note) { $script:liveNote = $note; Write-LauncherLog $note }
 		}
 	} catch { $script:liveBusy = $false; Write-LauncherLog "Zeitgeber: $($_.Exception.Message)" }

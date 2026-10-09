@@ -32,7 +32,22 @@ end
 -- since the game started, so nobody has to save by hand.
 gui.RESYNC_SAVE = "TF3MP-Neuabgleich"
 --- At most one save per this many checkpoints while the difference lasts (saving makes the game stutter).
-gui.RESYNC_EVERY = 3
+-- v37 (run 39): was 3. Every third check TF3 saved this name again, also while the launcher was
+-- sending it or TF3's own save menu had it open; TF3 then could not rename its .tmp file over the
+-- save ("Save game rename failed") and stopped the game. The live resync asks for its own save
+-- (alut_proxy.save); this one is only kept for 'Neu abgleichen' after TF3 was closed.
+gui.RESYNC_EVERY = 40
+--- v37: differences that only come from things drifting apart (vehicle positions, cargo, towns) do
+-- not need a resync; the launcher leaves them alone, so this game does not save for them either.
+gui.DRIFT_FIELDS = { hpos = true, hcargo = true, htown = true }
+
+--- Whether the comma list of differing fields names one that is more than drift.
+function gui.structural(fields)
+	for field in tostring(fields or ""):gmatch("[^,%s]+") do
+		if not gui.DRIFT_FIELDS[field] and field ~= "none" then return true end
+	end
+	return false
+end
 
 --- Real time in seconds.
 function gui.now(env, g)
@@ -166,7 +181,7 @@ end
 -- GUI Lua state without memory does not save twice (the DLL keeps it as TF3MP_OWN_RESYNC).
 function gui.resync_save(env, g, getenv)
 	local health = sync.decode(getenv("TF3MP_OWN_HEALTH"))
-	if not health or health.status ~= "diff" then return end
+	if not health or health.status ~= "diff" or not gui.structural(health.fields) then return end
 	local ck = tonumber(health.ck)
 	if not ck then return end
 	local done = sync.decode(getenv("TF3MP_OWN_RESYNC"))

@@ -85,17 +85,32 @@ function transport.dispatched(state)
 	if s.network_work then s.network_work.dispatched = true; state:set(s) end
 end
 
-function transport.check(state, log)
+--- v37 (run 39): skip true (a session with a partner) reports a failed replay as done and logs it
+-- as skipped. DLL v13 stops both games' queues for good on FAIL ("game rejected"), and the only way
+-- out was reloading a 90 MB save; one line the host could not build stopped the whole session.
+-- Now the session carries on; the world check shows whether the games really differ.
+function transport.check(state, log, skip)
 	local s = state:get() or {}; local w = s.network_work
 	if not w or not w.dispatched or w.pending > 0 or s.action_busy then return end
 	if not w.error and (s.network_followup or (s.action_work and #s.action_work > 0) or (s.action_inbox and #s.action_inbox > 0) or
 		(s.weld_checks and #s.weld_checks > 0)) then return end
-	local result = w.error and "FAIL" or "OK"
-	s.network_done = { token = w.token, result = result }
+	local skipped = w.error ~= nil and skip == true
+	local result = (w.error and not skipped) and "FAIL" or "OK"
+	s.network_done = { token = w.token, result = result, skipped = skipped or nil }
 	s.network_work = nil
 	if w.error then s.action_work, s.action_inbox, s.network_followup = nil, nil, nil end
+	if skipped then
+		s.skipped = (s.skipped or 0) + 1
+		s.last_skipped = { token = w.token, error = w.error:sub(1, 160) }
+	end
 	state:set(s)
-	log("net result " .. w.token .. " " .. result .. (w.error and (" " .. w.error:gsub("[\r\n]", " ")) or ""))
+	local reason = w.error and (" " .. w.error:gsub("[\r\n]", " ")) or ""
+	if skipped then
+		log("net skipped " .. w.token .. " (" .. s.skipped .. " so far), the session carries on:" .. reason)
+		log("net result " .. w.token .. " OK")
+	else
+		log("net result " .. w.token .. " " .. result .. reason)
+	end
 end
 
 function transport.action_log(state, log)

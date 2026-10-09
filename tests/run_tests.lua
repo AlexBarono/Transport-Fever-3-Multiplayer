@@ -3234,5 +3234,42 @@ test("v36: a planned vehicle command waits for earlier replays and for its targe
 	assert(main.intent_ready(env, {}, { line = "B5 x", origin = "host", seq = 4 }, "client"), "builds do not wait")
 end)
 
+test("v37: a replay that fails in a session is skipped; the common timeline carries on", function()
+	local timeline = require("/mp_probe/timeline.lua")
+	local wire = require("/mp_probe/wire.lua")
+	local real_os = os
+	local vars = { TF3MP_ROLE = "client" }
+	os = setmetatable({ getenv = function(k) return vars[k] end }, { __index = real_os })
+	local ok, err = pcall(function()
+		local main = fresh_main()
+		assert(main.skip_failures(_G), "a client session skips")
+		-- A common-tick command that this game could not run (its target is missing here).
+		local m = timeline.new("client")
+		assert(timeline.receive(m, "S1 " .. wire.encode({ op = "plan", seq = 1, at = 200, line = "A1 x", origin = "host" }), 0))
+		assert(timeline.receive(m, "S1 " .. wire.encode({ op = "commit", seq = 1, at = 200 }), 0))
+		timeline.step(m, 200, 200)
+		assert(timeline.receive(m, "S1 " .. wire.encode({ op = "go", seq = 1, at = 200 }), 200))
+		assert(timeline.step(m, 200, 200), "executes")
+		local state = mock_state()
+		state:set({ timeline = m, network_work = { token = "scheduled_host.1", pending = 0, dispatched = true,
+			error = "vehicle Bus 9 not found" } })
+		logged = {}
+		main.check_network(state)
+		assert(contains(logged, "net skipped scheduled_host.1 (1 so far), the session carries on: vehicle Bus 9 not found"), table.concat(logged, "\n"))
+		assert(contains(logged, "timeline result host.1 OK"))
+		local after = state:get().timeline
+		assert(not after.error and after.active.own_done, "the timeline did not stop")
+		-- Without a partner ('Allein testen') a failure stays a failure.
+		vars.TF3MP_ROLE = "loopback"
+		assert(not main.skip_failures(_G))
+		state:set({ network_work = { token = "loop.1", pending = 0, dispatched = true, error = "nope" } })
+		logged = {}
+		main.check_network(state)
+		assert(contains(logged, "net result loop.1 FAIL nope"), table.concat(logged, "\n"))
+	end)
+	os = real_os
+	assert(ok, err)
+end)
+
 print(string.format("%d passed, %d failed", passed, failures))
 if failures > 0 then os.exit(1) end

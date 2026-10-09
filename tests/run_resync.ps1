@@ -165,14 +165,39 @@ function Live($extra) {
 	foreach ($k in $extra.Keys) { $v[$k] = $extra[$k] }
 	return $v
 }
-Test 'live resync starts on a world difference seen by either game' {
+# v37: eine Abweichung im Aufbau, die zwei Weltprüfungen und $LiveResyncConfirmSeconds übersteht.
+function Confirm-Diff($m, [datetime]$t, $extra = @{}) {
+	$first = @{ world = 'diff'; world_fields = 'hcon'; world_ck = '5' }
+	foreach ($k in $extra.Keys) { $first[$k] = $extra[$k] }
+	$null = Get-LiveResyncReason (Live $first) $m $t
+	$later = @{} + $first; $later.world_ck = '6'
+	return Get-LiveResyncReason (Live $later) $m $t.AddSeconds($LiveResyncConfirmSeconds + 1)
+}
+Test 'live resync starts on a lasting difference in the build-up, not on drift' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
 	Assert ($null -eq (Get-LiveResyncReason (Live @{}) $m $t)) 'nothing while the worlds agree'
-	$r = Get-LiveResyncReason (Live @{ world_peer = 'diff'; world_fields = 'hpos' }) $m $t
-	Assert ($r.Kind -eq 'diff' -and $r.Detail -eq 'hpos') "reason $($r.Kind)"
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ mode = 'loopback'; world = 'diff' }) $m $t)) 'not in the solo test'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; ready = '0' }) $m $t)) 'not before the world is ready'
-	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; resync = 'armed' }) $m $t)) 'not while a reload is armed'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos,htown,hcargo'; world_ck = '5' }) $m $t)) 'drift'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos,htown,hcargo'; world_ck = '9' }) $m $t.AddMinutes(10))) 'drift stays drift'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world_peer = 'diff'; world_ck = '9' }) $m $t.AddMinutes(10))) 'only the partner sees it: its launcher asks'
+	$m = New-LiveResyncMemory
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos,hcon'; world_ck = '5' }) $m $t)) 'first seen'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos,hcon'; world_ck = '5' }) $m $t.AddSeconds(60))) 'same check only'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hcon,hpos'; world_ck = '6' }) $m $t.AddSeconds(10))) 'too short'
+	$r = Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hcon,hpos'; world_ck = '6' }) $m $t.AddSeconds($LiveResyncConfirmSeconds + 1)
+	Assert ($r.Kind -eq 'diff' -and $r.Detail -eq 'hcon') "reason $($r.Kind) $($r.Detail)"
+	foreach ($field in 'hedge', 'hline', 'hveh', 'loan') { Assert ((Confirm-Diff (New-LiveResyncMemory) $t @{ world_fields = $field }).Kind -eq 'diff') $field }
+	Assert ($null -eq (Confirm-Diff (New-LiveResyncMemory) $t @{ mode = 'loopback' })) 'not in the solo test'
+	Assert ($null -eq (Confirm-Diff (New-LiveResyncMemory) $t @{ ready = '0' })) 'not before the world is ready'
+	Assert ($null -eq (Confirm-Diff (New-LiveResyncMemory) $t @{ resync = 'armed' })) 'not while a reload is armed'
+}
+Test 'a difference that goes away in between starts counting again' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	$null = Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hveh'; world_ck = '5' }) $m $t
+	$null = Get-LiveResyncReason (Live @{ world = 'checking'; world_fields = ''; world_ck = '6' }) $m $t.AddSeconds(20)
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hveh'; world_ck = '7' }) $m $t.AddSeconds(40))) 'seen again: first time'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hpos'; world_ck = '8' }) $m $t.AddSeconds(80))) 'now drift only'
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hveh'; world_ck = '9' }) $m $t.AddSeconds(100))) 'first time again'
+	Assert ((Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hveh'; world_ck = '10' }) $m $t.AddSeconds(140)).Kind -eq 'diff') 'lasting'
 }
 Test 'live resync starts on a rejected action but not on a broken session' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
@@ -180,17 +205,41 @@ Test 'live resync starts on a rejected action but not on a broken session' {
 	Assert ((Get-LiveResyncReason (Live @{ error = 'save reloaded with pending actions; restart' }) $m $t).Kind -eq 'error') 'pending reload'
 	Assert ($null -eq (Get-LiveResyncReason (Live @{ error = 'multiplayer package differs; use the same release' }) $m $t)) 'package differs'
 }
-Test 'live resync waits between attempts and stops after three per game' {
+Test 'live resync waits between attempts and stops after the most per game' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
-	$diff = Live @{ world = 'diff' }
-	for ($i = 1; $i -le 3; $i++) {
-		Assert ((Get-LiveResyncReason $diff $m $t).Kind -eq 'diff') "attempt $i"
+	$broken = Live @{ error = 'game rejected 1-2-3' }
+	for ($i = 1; $i -le $LiveResyncMax; $i++) {
+		Assert ((Get-LiveResyncReason $broken $m $t).Kind -eq 'error') "attempt $i"
 		Register-LiveResync $m $t
-		Assert ($null -eq (Get-LiveResyncReason $diff $m $t.AddSeconds(100))) "cooldown $i"
-		$t = $t.AddSeconds($LiveResyncCooldownSeconds + 1)
+		Complete-LiveResync $m $true $t.AddSeconds(20)
+		Assert ($null -eq (Get-LiveResyncReason $broken $m $t.AddSeconds(100))) "cooldown $i"
+		$t = $t.AddSeconds($LiveResyncCooldownSeconds + 21)
 	}
-	Assert ($null -eq (Get-LiveResyncReason $diff $m $t)) 'no fourth attempt'
-	Assert ((Get-LiveResyncReason (Live @{ world = 'diff'; pid = '42' }) $m $t).Kind -eq 'diff') 'a new TF3 starts again'
+	Assert ($null -eq (Get-LiveResyncReason $broken $m $t)) 'no attempt beyond the most'
+	Assert ((Get-LiveResyncReason (Live @{ error = 'game rejected 1-2-3'; pid = '42' }) $m $t).Kind -eq 'error') 'a new TF3 starts again'
+}
+Test 'a failed live resync is tried again after a short wait, a good one only after the cooldown' {
+	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
+	$broken = Live @{ error = 'game rejected 1-2-3' }
+	Assert ((Get-LiveResyncReason $broken $m $t).Kind -eq 'error') 'first attempt'
+	Register-LiveResync $m $t
+	$end = $t.AddSeconds(90)
+	Complete-LiveResync $m $false $end
+	Assert ($null -eq (Get-LiveResyncReason $broken $m $end.AddSeconds(10))) 'short pause'
+	Assert ((Get-LiveResyncReason $broken $m $end.AddSeconds($LiveResyncRetrySeconds + 1)).Kind -eq 'error') 'tried again'
+	Register-LiveResync $m $end.AddSeconds($LiveResyncRetrySeconds + 1)
+	Assert (-not $m.Failed -and $m.Count -eq 2) 'a new attempt is not failed yet'
+	$end = $end.AddSeconds(120)
+	Complete-LiveResync $m $true $end
+	Assert ($null -eq (Get-LiveResyncReason $broken $m $end.AddSeconds($LiveResyncRetrySeconds + 1))) 'after success the long cooldown'
+	Assert ((Get-LiveResyncReason $broken $m $end.AddSeconds($LiveResyncCooldownSeconds + 1)).Kind -eq 'error') 'then again'
+	# A difference has to last again after a reload.
+	$m = New-LiveResyncMemory
+	Assert ((Confirm-Diff $m $t).Kind -eq 'diff') 'difference'
+	Register-LiveResync $m $t.AddSeconds(40)
+	Complete-LiveResync $m $false $t.AddSeconds(60)
+	Assert ($null -eq (Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hcon'; world_ck = '6' }) $m $t.AddSeconds(100))) 'counts again from the start'
+	Assert ((Get-LiveResyncReason (Live @{ world = 'diff'; world_fields = 'hcon'; world_ck = '7' }) $m $t.AddSeconds(140)).Kind -eq 'diff') 'still there: again'
 }
 Test 'a request of the partner counts once' {
 	$m = New-LiveResyncMemory; $t = [DateTime]::UtcNow
@@ -202,10 +251,61 @@ Test 'a request of the partner counts once' {
 	Assert ((Get-LiveResyncReason (Live @{ mode = 'client'; resync_peer = '2' }) $m $t).Kind -eq 'peer') 'next request'
 	# Both games noticed it themselves: the partner's request inside the waiting time is used up.
 	$m2 = New-LiveResyncMemory; $t2 = [DateTime]::UtcNow
-	Assert ((Get-LiveResyncReason (Live @{ world = 'diff' }) $m2 $t2).Kind -eq 'diff') 'own difference'
+	Assert ((Confirm-Diff $m2 $t2).Kind -eq 'diff') 'own difference'
 	Register-LiveResync $m2 $t2
 	Assert ($null -eq (Get-LiveResyncReason (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds(5))) 'inside the waiting time'
 	Assert ($null -eq (Get-LiveResyncReason (Live @{ resync_peer = '5' }) $m2 $t2.AddSeconds($LiveResyncCooldownSeconds + 1))) 'not again later'
+}
+Test 'the host sends its own copy of the fresh save' {
+	$dir = Join-Path $base 'snap'; New-Item -ItemType Directory -Force $dir | Out-Null
+	$orig = Join-Path $dir "$ResyncSaveName.sav"
+	$bytes = New-Object byte[] 300000; (New-Object Random 7).NextBytes($bytes)
+	[IO.File]::WriteAllBytes($orig, $bytes); [IO.File]::WriteAllText((Join-Path $dir "$ResyncSaveName.jpg"), 'bild')
+	$written = [DateTime]::UtcNow.AddMinutes(-3); [IO.File]::SetLastWriteTimeUtc($orig, $written)
+	$when = Get-Date -Year 2026 -Month 10 -Day 9 -Hour 1 -Minute 2 -Second 3
+	$copy = Copy-SaveSnapshot (Get-Item -LiteralPath $orig) $dir $when
+	Assert ($copy.Name -eq 'TF3MP-Sync-20261009-010203.sav') $copy.Name
+	Assert ([Convert]::ToBase64String([IO.File]::ReadAllBytes($copy.FullName)) -eq [Convert]::ToBase64String($bytes)) 'same bytes'
+	Assert ((Get-Content -LiteralPath ([IO.Path]::ChangeExtension($copy.FullName, '.jpg')) -Raw) -eq 'bild') 'preview copied'
+	Assert ([Math]::Abs(($copy.LastWriteTimeUtc - $written).TotalSeconds) -lt 2) 'time of the original'
+	$second = Copy-SaveSnapshot (Get-Item -LiteralPath $orig) $dir $when
+	Assert ($second.Name -eq 'TF3MP-Sync-20261009-010203-2.sav') $second.Name
+	Remove-Item -LiteralPath (Join-Path $dir "$ResyncSaveName.jpg")
+	$third = Copy-SaveSnapshot (Get-Item -LiteralPath $orig) $dir $when.AddSeconds(1)
+	Assert (-not (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($third.FullName, '.jpg')))) 'no preview, none copied'
+	$gone = New-Object IO.FileInfo (Join-Path $dir 'fehlt.sav')
+	$err = ''; try { Copy-SaveSnapshot $gone $dir $when.AddSeconds(2) | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -like '*nicht für den Neuabgleich kopiert*') $err
+	Assert (@(Get-ChildItem -LiteralPath $dir -Filter '*.part').Count -eq 0) 'no part file left'
+	# Opened the way the copy opens it, the save can still be deleted (on Windows this needs FileShare Delete).
+	$reader = [IO.File]::Open($orig, 'Open', 'Read', [IO.FileShare]'ReadWrite, Delete')
+	try {
+		$deleted = $true; try { [IO.File]::Delete($orig) } catch { $deleted = $false }
+		Assert $deleted 'TF3 can replace the save while the launcher reads it'
+	} finally { $reader.Dispose() }
+}
+Test 'old sync copies are cleaned up, the newest stay' {
+	$dir = Join-Path $base 'clean'; New-Item -ItemType Directory -Force $dir | Out-Null
+	$t = [DateTime]::UtcNow
+	for ($i = 1; $i -le 4; $i++) {
+		$p = Join-Path $dir "TF3MP-Sync-2026100$i.sav"; [IO.File]::WriteAllText($p, "$i"); [IO.File]::SetLastWriteTimeUtc($p, $t.AddMinutes($i))
+		[IO.File]::WriteAllText([IO.Path]::ChangeExtension($p, '.jpg'), 'j')
+	}
+	[IO.File]::WriteAllText((Join-Path $dir 'Mein Stand.sav'), 'x')
+	[IO.File]::SetLastWriteTimeUtc((Join-Path $dir 'Mein Stand.sav'), $t.AddMinutes(-10))
+	$keep = Join-Path $dir 'TF3MP-Sync-20261001.sav'
+	Assert ((Remove-OldSyncSaves $dir 2 $keep) -eq 1) 'one removed'
+	$left = @(Get-ChildItem -LiteralPath $dir -Filter '*.sav' | ForEach-Object { $_.Name } | Sort-Object)
+	Assert (($left -join '|') -eq 'Mein Stand.sav|TF3MP-Sync-20261001.sav|TF3MP-Sync-20261003.sav|TF3MP-Sync-20261004.sav') ($left -join '|')
+	Assert (-not (Test-Path -LiteralPath (Join-Path $dir 'TF3MP-Sync-20261002.jpg'))) 'its preview too'
+	Assert ((Remove-OldSyncSaves $dir 2) -eq 1) 'without the exception'
+	Assert ((Remove-OldSyncSaves (Join-Path $dir 'fehlt') 2) -eq 0) 'missing folder'
+}
+Test 'the game saving by itself gets its own waiting text' {
+	$dir = Join-Path $base 'leer'; New-Item -ItemType Directory -Force $dir | Out-Null
+	$seen = New-Object System.Collections.ArrayList
+	$err = ''; try { Wait-NewSave $dir ([DateTime]::UtcNow) { param($a, $b, $c) [void]$seen.Add($a); $true } 30 -waitText 'Das Spiel speichert ...' | Out-Null } catch { $err = $_.Exception.Message }
+	Assert ($err -eq 'Abgebrochen.' -and $seen[0] -eq 'Das Spiel speichert ...') "$err / $($seen[0])"
 }
 Test 'requests for the DLL and the reload name' {
 	$dir = Join-Path $base 'game'; New-Item -ItemType Directory -Force $dir | Out-Null

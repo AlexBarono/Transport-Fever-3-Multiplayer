@@ -716,6 +716,21 @@ test("the host saves once per difference and again only after a few checkpoints"
 	assert(#client.saves == 0)
 end)
 
+test("v37: the host does not save for differences that are only drift (positions, cargo, towns)", function()
+	local host = game("host")
+	saver(host)
+	host.vars.TF3MP_OWN_HEALTH = "ck=6 fields=hpos,htown,hcargo status=diff"
+	host.gui(); host.gui()
+	assert(#host.saves == 0, "drift alone needs no resync save")
+	host.vars.TF3MP_OWN_HEALTH = "ck=7 fields=none status=diff"
+	host.gui()
+	assert(#host.saves == 0, "no field named, nothing to save for")
+	host.vars.TF3MP_OWN_HEALTH = "ck=8 fields=hpos,hline status=diff"
+	host.gui()
+	assert(#host.saves == 1, "a line difference next to the drift still saves")
+	assert(gui.structural("loan") and gui.structural("hcon") and not gui.structural("hpos, htown") and not gui.structural(nil))
+end)
+
 test("a GUI Lua state without memory does not save the same difference twice", function()
 	local host = game("host")
 	saver(host)

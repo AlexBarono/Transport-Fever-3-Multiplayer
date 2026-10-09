@@ -22,7 +22,7 @@ local wire = require("/mp_probe/wire.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 36
+main.PROBE_VERSION = 37
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -221,7 +221,7 @@ function main.receive_line(env, s, value, state)
 	if state then
 		transport.begin(state, token)
 		transport.fail(state, "simulation event unavailable; no build executed")
-		transport.dispatched(state); transport.check(state, logger.info)
+		transport.dispatched(state); transport.check(state, logger.info, main.skip_failures(env))
 		return
 	end
 	main.replay_line(env, line, token, state, offset)
@@ -1006,6 +1006,13 @@ function main.intent_ready(env, s, intent, role)
 	return true
 end
 
+--- v37: in a session with a partner (host or client) a replay that fails here is skipped and the
+-- session carries on (transport.check); 'Allein testen' and the local tests keep FAIL.
+function main.skip_failures(env)
+	local ok, role = pcall(function() return sync.role(env.os.getenv) end)
+	return ok and (role == "host" or role == "client")
+end
+
 function main.check_network(state)
 	transport.check(state, function(text)
 		local origin, seq, result = text:match("^net result scheduled_(%a+)%.(%d+) (%a+)")
@@ -1014,7 +1021,7 @@ function main.check_network(state)
 			if s.timeline then timeline.complete(s.timeline, tonumber(seq), result == "OK"); state:set(s) end
 			logger.info("timeline result " .. origin .. "." .. seq .. " " .. result)
 		else logger.info(text) end
-	end)
+	end, main.skip_failures(_G))
 end
 
 function main.timeline_tick(env, state)

@@ -1,0 +1,133 @@
+{
+    "appInfo": {
+        "language": "de",
+        "resolution": [
+            3840,
+            2160
+        ],
+        "screenMode": "borderless",
+        "userId": "312632597"
+    },
+    "buildInfo": {
+        "buildType": "release",
+        "commit": "32c4e2d8",
+        "platform": "Windows",
+        "product": "transportfever3",
+        "variant": "steam",
+        "version": 40420
+    },
+    "errorInfo": {
+        "count": 2,
+        "details": {
+            "Additional Infos": "\nwhat='boost::filesystem::rename: Zugriff verweigert [system:5]: \"C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/save/TF3MP-Neuabgleich.sav.tmp\", \"C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/save/TF3MP-Neuabgleich.sav\"'\n",
+            "File names": "C:/Program Files (x86)/Steam/userdata/312632597/3493540/local/save/TF3MP-Neuabgleich.sav.tmp\nC:/Program Files (x86)/Steam/userdata/312632597/3493540/local/save/TF3MP-Neuabgleich.sav\n",
+            "catchLocation": {
+                "details": null,
+                "file": "framework/src/framework/platform/StandardSaveGameBackend.cpp",
+                "function": "operator ()",
+                "line": 160.0,
+                "message": "Save game rename failed"
+            }
+        },
+        "dumpFile": "",
+        "file": "framework/src/framework/io/filesystem_util.cpp",
+        "firstInApp": false,
+        "firstInGame": false,
+        "firstInSession": false,
+        "function": "file_system::Rename",
+        "line": 202,
+        "logFile": "c8e76e65-0b67-438a-b451-d3a29974e8e4_0.txt",
+        "message": "IO Error: Rename filesystem_error",
+        "minidumpId": "",
+        "recentQuitRequest": false,
+        "stackTrace": null,
+        "timestamp": "2026-10-08 21:16:56Z",
+        "type": "error",
+        "uploadIndex": 2
+    },
+    "gameInfo": {
+        "configDict": [
+            [
+                "climate",
+                "::/climates/dry/dry.clima"
+            ],
+            [
+                "economy",
+                "::/economy/dry.eco"
+            ],
+            [
+                "nameList",
+                "::/names/usa/usa.names"
+            ]
+        ],
+        "gameLoaded": true,
+        "inGame": true,
+        "initVersion": 604,
+        "missionName": "",
+        "modParams": {
+            "": {
+                "advancedOptions.cargoIncome": 3.0,
+                "advancedOptions.inflationFactor": 3.0,
+                "advancedOptions.infrastructureMaintenanceScale": 3.0,
+                "advancedOptions.infrastructurePurchaseCostScale": 3.0,
+                "advancedOptions.landmarkResources": 3.0,
+                "advancedOptions.passengerIncome": 3.0,
+                "advancedOptions.reforestation": 2.0,
+                "advancedOptions.subventionMode": 3.0,
+                "advancedOptions.subventionRisk": 2.0,
+                "advancedOptions.trafficSpeedSensitivityScale": 5.0,
+                "advancedOptions.vehicleMaintenanceEffectScale": 3.0,
+                "advancedOptions.vehicleMaintenanceScale": 3.0,
+                "advancedOptions.vehiclePurchaseCostScale": 3.0,
+                "economy.industryDevelopment.closureProbability": 2.0,
+                "economy.townDevelopment.cargoNeedsPerTown": 2.0,
+                "gameTimeConfig.timeOfDayMode": 1.0,
+                "guideSystemConfig.tutorial": 1.0,
+                "isMapEditor": false,
+                "locations.industry.industryProductivity": 3.0,
+                "locations.industry.initialIndustryDensity": 3.0,
+                "locations.industry.targetIndustryDensity": 5.0,
+                "locations.towns.frequency": 3.0,
+                "locations.towns.populationDensity": 3.0,
+                "map.format": 1.0,
+                "map.size": 5.0,
+                "townConfig.sensitivityCargoDelivery": 4.0,
+                "townConfig.sensitivityNoise": 4.0,
+                "townConfig.sensitivityPeopleHappiness": 4.0,
+                "townConfig.sensitivityPollution": 4.0,
+                "townConfig.sensitivityTrafficCongestion": 4.0,
+                "townConfig.sensitivityUrbanCare": 2.0,
+                "weatherConfig.dynamicWeather": 1.0
+            },
+            "mp_probe_1": null
+        },
+        "mods": [
+            {
+                "name": "mp_probe_1"
+            }
+        ],
+        "savegameName": "Joschi",
+        "savegameVersion": 604
+    },
+    "memoryInfo": null,
+    "rendererInfo": {
+        "apiVersion": "1.4.351",
+        "backend": "vulkan",
+        "combinedVersion": "1.4.351 616.92.0.0",
+        "deviceName": "NVIDIA GeForce RTX 5080",
+        "driverVersion": "616.92.0.0",
+        "shadingLanguageVersion": "",
+        "vendor": "Nvidia",
+        "videoMemory": -1
+    },
+    "sessionInfo": {
+        "started": "2026-10-08 21:12:11Z",
+        "uid": "c8e76e65-0b67-438a-b451-d3a29974e8e4"
+    },
+    "systemInfo": {
+        "cpuModel": "AMD Ryzen 9 9900X3D 12-Core Processor",
+        "hardwareConcurrency": 24,
+        "osVersion": "Windows 11 Pro 26H2 (Build 26300)",
+        "ramMax": 62884
+    }
+}
