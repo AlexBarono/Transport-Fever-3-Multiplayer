@@ -1504,13 +1504,15 @@ build.CMD_ARGS = {
 	function(proposal) return { proposal } end,
 }
 
---- Builds the command context like a player build: owned by `player`, with street graph
--- cleanup and terrain alignment, as TF2 scripts did.
+--- Builds the context for an already expanded capture. Do not simplify the graph a second time:
+-- a track upgrade may otherwise merge away a node still named by the sender's next build (v40:
+-- 3782.229,-1094.725 disappeared, then the depot connection was skipped). The source proposal
+-- already includes its cleanup removals. This also applies to subsequent node-config commands.
 function build.make_context(env, player)
 	local context = env.api.type.Context.new()
 	pcall(function()
 		if player then context.player = player end
-		context.cleanupStreetGraph = true
+		context.cleanupStreetGraph = false
 		context.gatherBuildings = true
 		context.gatherFields = true
 		context.checkTerrainAlignment = true

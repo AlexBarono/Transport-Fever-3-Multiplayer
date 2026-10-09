@@ -817,7 +817,7 @@ test("replay assigns whole lists to a SimpleProposal whose lists are copies", fu
 	assert(build.modes_to_mask(lanes[4].transportModes) == 3)
 	assert(edges[1].params.precedenceNode0 == 2 and edges[1].params.precedenceNode1 == 2, "missing params are created")
 	assert(edges[2].streetEdge.precedenceNode1 == 2)
-	assert(sent[1].context.player == 29125 and sent[1].context.cleanupStreetGraph == true)
+	assert(sent[1].context.player == 29125 and sent[1].context.cleanupStreetGraph == false)
 	assert(contains(logs, "proposal check SimpleProposal/table: complete, nodes 3/3, edges 2/2, node[1] -3 at -2888.0,-3941.5,1.7, edge[1] -1 type 0 nodes -3->-4 tangent0 69.5,54.2,-0.2 template town_old_small.street_template owner 29125, lanes 4/4 lane[1] width 3 modes 3"),
 		table.concat(logs, "\n"))
 	assert(not contains(logs, "refused fields"), table.concat(logs, "\n"))
@@ -3380,6 +3380,77 @@ test("v37: a staged step that throws while paused fails only its replay", functi
 	api = saved_api
 	os = real_os
 	assert(ok, err)
+end)
+
+test("track upgrades and node configurations preserve the junction needed by a later depot connection", function()
+	local world, nodecfg = require("/mp_probe/world.lua"), require("/mp_probe/nodecfg.lua")
+	local w = config_world()
+	local env = mock_build_api()
+	env.api.engine = w.env.api.engine
+	env.api.type.ComponentType = w.env.api.type.ComponentType
+	local send = env.api.cmd.sendCommand
+	env.api.cmd.sendCommand = function(cmd, callback)
+		-- Model the documented cleanup: a degree-two node can disappear when two compatible
+		-- tracks are simplified. It is still named by the sender's subsequent depot track.
+		if cmd.context.cleanupStreetGraph then
+			w.comps[2] = nil; w.segments[2] = nil
+			w.comps[11].BASE_EDGE.node1 = 3; w.comps[12] = nil
+			w.segments[1], w.segments[3] = { 11 }, { 11 }
+		end
+		send(cmd, callback)
+	end
+	local data = street_data()
+	data.nodes = {}; data.segments = { data.segments[1] }
+	data.segments[1].node0, data.segments[1].node1 = 1, 2
+	data.segments[1].roadType = 0
+	data.segments[1].roadTemplate = "::/infrastructure/track/simple/simple.street_template"
+	data.segments[1].roadStyle = "::/infrastructure/track/simple/simple.street"
+	data.removed_segments = { { entity = 11, p0 = { x = 0, y = 0, z = 0 }, p1 = { x = 100, y = 0, z = 0 } } }
+	data.positions_of = { [1] = { x = 0, y = 0, z = 0 }, [2] = { x = 100, y = 0, z = 0 } }
+	assert(build.replay(env, data, {}))
+	assert(w.comps[2], "the track upgrade must preserve the junction")
+	-- Apply the later configurations through the same context builder.
+	w.data.configs[3] = nil
+	w.env.api.cmd.makeWorldBuildProposalCmd = function(p, context) return { proposal = p, context = context } end
+	local config_send = w.env.api.cmd.sendCommand
+	w.env.api.cmd.sendCommand = function(cmd, cb)
+		if cmd.context.cleanupStreetGraph then w.comps[2] = nil; w.segments[2] = nil end
+		config_send(cmd, cb)
+	end
+	assert(nodecfg.apply(w.env, w.data, { log = function() end }) == 2)
+	local depot_track = assert(build.deserialize("B5 f1;100,0,0"))
+	assert(build.resolve(depot_track, fresh_main().finder(w.env)), "depot connection finds the preserved junction")
+end)
+
+test("nested command events cannot execute a construction follow-up twice", function()
+	local main = fresh_main()
+	local value = { network_work = { token = "nested.1", pending = 0, dispatched = true },
+		network_followup = { phase = "finish", data = { configs = {} } } }
+	local state = { get = function() return copy_value(value) end, set = function(_, v) value = copy_value(v) end }
+	local applied = 0
+	main.apply_node_configs = function()
+		applied = applied + 1
+		if applied == 1 then
+			local nested = fresh_main()
+			nested.apply_node_configs = main.apply_node_configs
+			nested.network_run({}, state)
+		end
+	end
+	main.network_continue({}, state)
+	assert(applied == 1, "nested script event applied the same node configurations " .. applied .. " times")
+	assert(value.network_followup.phase == "verify" and not value.network_followup.running)
+	main.network_continue({}, state)
+	assert(not value.network_followup and not value.network_work.error)
+end)
+
+test("a failed follow-up clears its reentrancy guard and reports the failure", function()
+	local main, state = fresh_main(), mock_state()
+	state:set({ network_work = { token = "nested.2", pending = 0, dispatched = true },
+		network_followup = { phase = "finish", data = { configs = {} } } })
+	main.apply_node_configs = function() error("configuration failed") end
+	local ok, err = pcall(main.network_continue, {}, state)
+	assert(not ok and tostring(err):find("configuration failed", 1, true))
+	assert(not state:get().network_followup.running)
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

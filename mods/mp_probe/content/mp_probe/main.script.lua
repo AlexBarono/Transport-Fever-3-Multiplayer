@@ -22,7 +22,7 @@ local wire = require("/mp_probe/wire.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 40
+main.PROBE_VERSION = 41
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -529,39 +529,53 @@ function main.network_continue(env, state)
 	local live = state:get() or {}; local follow = live.network_followup
 	if live.network_work and live.network_work.error then return end
 	if not follow then return end
+	-- sendCommand can deliver nested script events before its callback returns. Persist the
+	-- guard before sending: otherwise the nested event sees the same phase and repeats it.
+	if follow.running then return end
 	follow.requested = nil
 	if live.network_work and (live.network_work.pending or 0) > 0 then
 		-- A request that crossed a command still outstanding; update() asks again once it is back.
 		state:set(live)
 		return
 	end
+	local token = live.network_work and live.network_work.token
+	follow.running = true
+	state:set(live)
 	logger.info("net step " .. tostring(live.network_work and live.network_work.token) .. ": " .. tostring(follow.phase))
-	if follow.phase == "street_configs" then
-		main.apply_node_configs(env, follow.streets, follow.player)
-		follow.phase = "street_verify"
-	elseif follow.phase == "street_verify" then
-		main.verify_node_configs(env, follow.streets, state)
-		follow.phase = "construction"; follow.streets = nil
-	elseif follow.phase == "construction" then
-		local ok, err = build.replay(env, follow.data, main.replay_options(follow.player, true, state))
-		if not ok then transport.fail(state, err) end
-		follow.phase = "finish"
-	elseif follow.phase == "finish" then
-		if follow.data.native_replacement then
-			-- The engine's replacement proposal owns the complete station graph, including
-			-- snapping and node configurations. Do not rebuild or overwrite it afterwards.
-			logger.info("replay replacement: connections and node configurations supplied by the engine")
-			if follow.gates then main.check_replacement_later(env, follow.data, state) end
+	local ok, err = pcall(function()
+		if follow.phase == "street_configs" then
+			main.apply_node_configs(env, follow.streets, follow.player)
+			follow.phase = "street_verify"
+		elseif follow.phase == "street_verify" then
+			main.verify_node_configs(env, follow.streets, state)
+			follow.phase = "construction"; follow.streets = nil
+		elseif follow.phase == "construction" then
+			local ok, err = build.replay(env, follow.data, main.replay_options(follow.player, true, state))
+			if not ok then transport.fail(state, err) end
+			follow.phase = "finish"
+		elseif follow.phase == "finish" then
+			if follow.data.native_replacement then
+				-- The engine's replacement proposal owns the complete station graph, including
+				-- snapping and node configurations. Do not rebuild or overwrite it afterwards.
+				logger.info("replay replacement: connections and node configurations supplied by the engine")
+				if follow.gates then main.check_replacement_later(env, follow.data, state) end
+			else
+				if follow.gates then main.weld_copy(env, follow.data, state, follow.player) end
+				main.apply_node_configs(env, follow.data, follow.player)
+			end
+			follow.phase = "verify"
 		else
-			if follow.gates then main.weld_copy(env, follow.data, state, follow.player) end
-			main.apply_node_configs(env, follow.data, follow.player)
+			main.verify_node_configs(env, follow.data, state)
+			follow = nil
 		end
-		follow.phase = "verify"
-	else
-		main.verify_node_configs(env, follow.data, state)
-		follow = nil
+	end)
+	live = state:get() or {}
+	if (live.network_work and live.network_work.token) == token then
+		if follow then follow.running = nil end
+		live.network_followup = follow
+		state:set(live)
 	end
-	live = state:get() or {}; live.network_followup = follow; state:set(live)
+	if not ok then error(err, 0) end
 end
 
 --- Two PCs, 8 Oct (runs 32 and 33): the copy of a depot stopped for good after the depot itself was
@@ -575,7 +589,7 @@ function main.network_run(env, state)
 	for _ = 1, main.NETWORK_STEPS do
 		local live = state:get() or {}
 		local work = live.network_work
-		if not live.network_followup or not work or work.error or (work.pending or 0) > 0 then return end
+		if not live.network_followup or live.network_followup.running or not work or work.error or (work.pending or 0) > 0 then return end
 		main.network_continue(env, state)
 	end
 end
@@ -824,7 +838,7 @@ function main.update(_user_params, state, _dt)
 	main.store(state, s)
 	local live = state:get() or {}
 	local follow, work = live.network_followup, live.network_work
-	if follow and work and not work.error and (work.pending or 0) == 0 and not follow.requested then
+	if follow and not follow.running and work and not work.error and (work.pending or 0) == 0 and not follow.requested then
 		follow.requested = true; state:set(live)
 		if not main.send_replay_event(_G, { network_continue = true }) then
 			transport.fail(state, "build continuation event unavailable")
@@ -1810,6 +1824,11 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			end
 		end
 		local env = transport.env(_G, state)
+		-- Keep the exact incoming build once, so a missing rail connection can be reproduced
+		-- offline. The bridge preview truncates it; duplicate deliveries return above.
+		if network and type(line) == "string" and line:match("^B%d+ ") then
+			logger.info("replay input " .. tostring(number) .. " " .. line)
+		end
 		local ok, applied, err = pcall(main.replay_line, env, line, number, state, distance)
 		if network then
 			if not ok or not applied then transport.fail(state, ok and (err or "replay failed") or applied)

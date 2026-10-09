@@ -18,6 +18,12 @@
 -- later, to show in one minute whether refusing holds a build.
 -- @module mp_probe.hold
 local logger = require("/mp_probe/logger.lua")
+-- Load dependencies while TF3 still resolves paths inside this mod. A require during a GUI
+-- callback can resolve against ::/ instead (v40 VPN run: build.lua not found on every build).
+local build = require("/mp_probe/build.lua")
+local world = require("/mp_probe/world.lua")
+local sync = require("/mp_probe/sync.lua")
+local wire = require("/mp_probe/wire.lua")
 
 local hold = {}
 
@@ -95,8 +101,6 @@ end
 -- demolished constructions still exist, so they are read from the engine directly.
 -- @return line or nil, error text
 function hold.serialize(env, p)
-	local build = require("/mp_probe/build.lua")
-	local world = require("/mp_probe/world.lua")
 	local opts = {
 		node_position = function(id) return world.node_position(env, id) end,
 		segment_ends = function(id) return world.edge_ends(env, id) end,
@@ -200,7 +204,7 @@ function hold.submit(env, line)
 end
 
 local function own_clock(env)
-	return require("/mp_probe/sync.lua").decode(getenv(env, "TF3MP_OWN_CLOCK")) or {}
+	return sync.decode(getenv(env, "TF3MP_OWN_CLOCK")) or {}
 end
 
 --- Every GUI step: the vehicle hooks, held builds and the 'Allein testen' check.
@@ -379,7 +383,6 @@ function hold.flush_vehicles(env, m)
 	local list = {}
 	for i, entry in ipairs(batch) do list[i] = entry.args end
 	local ok, err = pcall(function()
-		local wire = require("/mp_probe/wire.lua")
 		local cmd = env.api.cmd
 		local event = cmd.makeScriptingSendEventCmd("mp_probe", "mp_probe_vehicle", "mp_probe_vehicle",
 			{ batch = wire.encode(list) })

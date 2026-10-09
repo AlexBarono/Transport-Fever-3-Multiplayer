@@ -199,5 +199,37 @@ test("a failing script event runs TF3's own commands here at once", function()
 	assert(#e.sent == 2 and e.sent[1].c.kind == "reverse" and e.sent[2].c.kind == "line")
 end)
 
+test("GUI callbacks work when require no longer resolves the mod namespace", function()
+	local e = vehicle_env("host", SESSION)
+	local gui_require = require
+	require = function(name) error("module '::" .. name .. "' not found") end
+	local ok, err = pcall(function()
+		-- A native preview with nothing to serialize must fall back cleanly, then timed vehicle
+		-- commands must still reach the simulation. Neither callback may load another module.
+		assert(hold.event(e, "", "", "builder.proposalPrepareForApply",
+			{ { proposal = {}, toAdd = {}, toRemove = {} }, { errorState = { critical = false } } }) == nil)
+		assert(has("nothing to build"))
+		hold.step(e)
+		e.api.cmd.sendCommand(e.api.cmd.makeVehicleReverseCmd(8))
+		hold.step(e)
+		assert(#e.sent == 1 and e.sent[1].c.kind == "event")
+		local p = { addedNodes = {
+			{ entity = -1, comp = { position = { x = 0, y = 0, z = 0 } } },
+			{ entity = -2, comp = { position = { x = 100, y = 0, z = 0 } } },
+		}, addedSegments = { { entity = -3, type = 0, comp = {
+			node0 = -1, node1 = -2, tangent0 = { x = 100, y = 0, z = 0 }, tangent1 = { x = 100, y = 0, z = 0 },
+			typeIndex = -1, roadType = 0, roadTemplate = "track_template", roadStyle = "track_style", laneConfigs = {},
+		} } } }
+		local result = hold.event(e, "", "", "builder.proposalPrepareForApply",
+			{ { proposal = p, toAdd = {}, toRemove = {} }, { errorState = { critical = false } } })
+		assert(result and result.errorMessages[hold.SYNC_TEXT], "the track is held before local execution")
+		e.now = 1; hold.step(e)
+		assert(#e.sent == 2 and e.sent[2].c.name == "mp_probe_schedule")
+		assert(e.sent[2].c.param.held and e.sent[2].c.param.line:match("^B5 "))
+	end)
+	require = gui_require
+	assert(ok, err)
+end)
+
 print(string.format("%d hold tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end
