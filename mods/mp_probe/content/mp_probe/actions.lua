@@ -4,7 +4,8 @@
 local wire = require("/mp_probe/wire.lua")
 local build = require("/mp_probe/build.lua")
 local world = require("/mp_probe/world.lua")
-local actions = { VERSION = 1, KINDS = { "construction", "line", "vehicle", "edge", "account" } }
+local economy = require("/mp_probe/economy.lua")
+local actions = { VERSION = 1, KINDS = { "construction", "line", "vehicle", "edge", "account", "company" } }
 
 local function field(obj, key)
 	local ok, value = pcall(function() return obj[key] end)
@@ -103,6 +104,9 @@ local function ids(env, kind)
 	local out = {}
 	if kind == "line" then
 		out = e.system.lineSystem.getLines()
+	elseif kind == "company" then
+		-- Let record() preserve the previous name when NAME is temporarily unreadable.
+		out = { e.util.getPlayer() }
 	elseif kind == "account" then
 		-- The player's account; nothing when it cannot be read (a read error must not look like a change).
 		local ok, player = pcall(function()
@@ -301,6 +305,9 @@ local function train_reversed(env, id)
 end
 
 local function record(env, id, kind)
+	if kind == "company" then
+		return { ref = { kind = "company", key = "player" }, name = economy.company_name(component(env, id, "NAME").name) }
+	end
 	if kind == "account" then
 		return { ref = { kind = "account", key = "player" }, loan = component(env, id, "ACCOUNT").loan,
 			-- TF3's loan script performs installments itself. Rebooking a snapshot
@@ -646,7 +653,7 @@ function actions.poll(env, s, log, kinds)
 						local events = kind == "vehicle" and old and actions.vehicle_events(r, old, user) or nil
 						if kind == "vehicle" and old and log then actions.note_train(a, r, old, log) end
 						-- The account is only a baseline until its loan changes.
-						if kind ~= "edge" and (old or kind ~= "account") and (not old or events or changed(kind, r, old)) then
+						if kind ~= "edge" and (old or (kind ~= "account" and kind ~= "company")) and (not old or events or changed(kind, r, old)) then
 							-- v26: one record that cannot travel (a vehicle that left its depot before it
 							-- was seen, a record too long for the DLL) is reported and left out; it must not
 							-- keep the whole kind from taking the new snapshot, or nothing of it is sent again.
@@ -672,7 +679,7 @@ function actions.poll(env, s, log, kinds)
 					local removed = {}
 					for key, old in pairs(previous) do
 						if not current[key] and not replaced[key] then
-							if kind == "account" then
+							if kind == "account" or kind == "company" then
 								-- An account that cannot be read is not gone.
 							elseif kind == "vehicle" and old.sell then
 								-- v32: sold on arrival in its depot. The other game got the same order and sells
@@ -717,7 +724,7 @@ function actions.poll(env, s, log, kinds)
 			if log then log("action capture " .. kind .. " failed: " .. tostring(current):sub(1, 220)) end
 		end
 	end
-	local priority = { construction_create = 1, construction_update = 1, account_update = 1,
+	local priority = { construction_create = 1, construction_update = 1, account_update = 1, company_update = 1,
 		line_create = 2, line_update = 2, vehicle_create = 3, vehicle_update = 3,
 		vehicle_remove = 4, line_remove = 5, edge_remove = 6, construction_remove = 7 }
 	-- Create dependencies first, remove dependents first; retain prior polls' FIFO order.
@@ -1004,6 +1011,16 @@ function actions.continue(env, state, log)
 	local task = s.action_work and table.remove(s.action_work, 1)
 	state:set(s)
 	if not task then return end
+	if task.command == "verify_subvention" then
+		if not economy.verify(env, state, task) then
+			task.tries = (task.tries or 0) + 1
+			assert(task.tries <= 30, "subvention decision rejected or not applied by original game script")
+			local live = state:get() or {}; live.action_work = live.action_work or {}
+			table.insert(live.action_work, 1, task); state:set(live); return
+		end
+		log("action subvention " .. task.name .. " verified; expected native upfront payout " .. tostring(economy.payout(task.offer)))
+		return
+	end
 	if task.command == "verify_loan" then
 		local loans, count, found = loan_table(env).obtainedLoans, 0, false
 		for _, loan in ipairs(loans) do
@@ -1195,6 +1212,16 @@ function actions.replay(env, action, state, peer, offset, log)
 				vehicle_settings(id, value, action.previous)
 			end)
 		else vehicle_settings(id, value, action.previous) end
+	elseif op == "economy_error" then
+		error(tostring(value.reason or "economy command failed"), 0)
+	elseif op == "company_update" then
+		local player, name = env.api.engine.util.getPlayer(), economy.company_name(value.name)
+		if component(env, player, "NAME").name == name then updated("company", player, value.ref); return true end
+		send(cmd.makeEntitySetNameCmd(player, name), function() updated("company", player, value.ref) end)
+	elseif op == "subvention_event" then
+		local command, verification = economy.command(env, state, value)
+		if not command then log("action subvention already decided; no duplicate payout"); return true end
+		send(command, function() enqueue(state, { verification }) end)
 	elseif op == "loan_event" then
 		assert(value.name == "Obtain" or value.name == "Repay", "invalid loan event")
 		local obtained = loan_value(value.obtained, value.name == "Repay")

@@ -4,18 +4,27 @@ local react = ug_require "::/gui/main/react.lua"
 local builtin = ug_require "::/gui/main/builtin.lua"
 local entry = ug_require "::/gui/main/mod_entry_point.tl"
 local hooks = ug_require "mp_probe_1::/mp_probe/vehicle_hooks.lua"
+local economy_hooks = ug_require "mp_probe_1::/mp_probe/economy_hooks.lua"
 local wire = ug_require "mp_probe_1::/mp_probe/wire.lua"
-local env, memory = { api = api, os = os }, {}
+local env, memory, economy_memory = { api = api, os = os }, {}, {}
 local function get(key)
 	local ok, value = pcall(function() return os.getenv(key) end)
 	return ok and value or ""
 end
-local function note(text)
+local function output(message)
 	-- The main GUI has log.verbose/warning/error, but no log.info. Use the same
 	-- stdout output as the game scripts; diagnostics must never break a GUI recipe
 	-- or interrupt an intercepted command before its queued batch is flushed.
-	local message = "[mp_probe]vehicle UI: " .. text
 	if not pcall(debugPrint, message) then pcall(print, message) end
+end
+local function note(text) output("[mp_probe]vehicle UI: " .. text) end
+local function economy_issue(label, reason)
+	economy_memory.issue_seq = (economy_memory.issue_seq or 0) + 1
+	local token = "gui_economy_" .. get("TF3MP_ROLE") .. "." .. economy_memory.issue_seq
+	local function hex(s) return tostring(s):gsub(".", function(c) return string.format("%02x", c:byte()) end) end
+	local issue = "I1 " .. token .. " none " .. hex(label:sub(1, 320)) .. " " .. hex(reason:sub(1, 240))
+	output("[mp_probe]action issue local " .. issue)
+	output("[mp_probe]net send " .. issue)
 end
 local function step()
 	hooks.watch_vehicles(env, memory, {
@@ -32,6 +41,12 @@ local function step()
 			memory.send(api.cmd.makeScriptingSendEventCmd("mp_probe", "mp_probe_reverse", "mp_probe_reverse", { vehicle = id }))
 		end,
 	})
+	economy_hooks.watch(env, economy_memory, { log = note, issue = economy_issue, timed = function()
+		-- An unhealthy/warming timeline must report or queue financial clicks,
+		-- never let an unshared payout through to the original command.
+		local role = get("TF3MP_ROLE")
+		return (role == "host" or role == "client") and get("TF3MP_ORDERING") == "1"
+	end })
 	hooks.flush_vehicles(env, memory)
 end
 

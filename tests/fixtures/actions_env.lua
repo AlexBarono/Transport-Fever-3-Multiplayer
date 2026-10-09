@@ -9,7 +9,7 @@ local function transform(x, y)
 		{ x = 0, y = 0, z = 1, w = 0 }, { x = x or 0, y = y or 0, z = 0, w = 1 } }
 end
 local function mock()
-	local m = { entities = {}, sent = {}, next_id = 1000, logs = {} }
+	local m = { entities = { [7] = { NAME = { name = "Transport AG" } } }, sent = {}, next_id = 1000, logs = {} }
 	local ct = {}; for _, k in ipairs({ "NAME", "COLOR", "PLAYER_OWNED", "CONSTRUCTION", "LINE",
 		"TRANSPORT_VEHICLE", "STATION_GROUP", "BASE_EDGE", "EDGE_OBJECT", "STATION", "CARRIAGE_LIST", "CARRIAGE",
 		"ACCOUNT" }) do ct[k] = k end
@@ -120,7 +120,7 @@ local function mock()
 		return e
 	end
 	function m.account(loan)
-		m.entities[7] = { ACCOUNT = { loan = loan or 0, balance = 1000000 } }
+		m.entities[7].ACCOUNT = { loan = loan or 0, balance = 1000000 }
 	end
 	function m.loan_script(obtained, free_id)
 		ct.GAME_SCRIPT = "GAME_SCRIPT"

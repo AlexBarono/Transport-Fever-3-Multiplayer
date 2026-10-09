@@ -64,6 +64,15 @@ function Update-ActionIssues($reader, [string]$path, [string]$gamePid='') {
 
 function Get-ActionReasonText([string]$reason) {
 	$explanation = switch -Regex ($reason) {
+		'subvention.*terms/rewards differ' { 'Die Subvention fehlt oder hat auf diesem PC andere Bedingungen oder Belohnungen. Es wurde keine zusätzliche Auszahlung gebucht.'; break }
+		'subvention.*not found|subvention.*unreadable|subvention.*missing' { 'Die Subvention fehlt, ist abgelaufen oder konnte auf diesem PC nicht gelesen werden.'; break }
+		'subvention.*ambiguous|subvention.*collision' { 'Die Subvention konnte nicht eindeutig zugeordnet werden. Es wurde keine zusätzliche Auszahlung gebucht.'; break }
+		'subvention.*already decided|subvention.*already accepted|subvention.*instead of declined' { 'Über diese Subvention wurde bereits anders entschieden. Es wurde keine weitere Auszahlung ausgelöst.'; break }
+		'subvention.*not applied' { 'TF3 hat die Annahme oder Ablehnung der Subvention nicht bestätigt. Konto und Auftragsliste prüfen.'; break }
+		'invalid company name' { 'Der Unternehmensname ist leer, zu lang oder enthält nicht erlaubte Steuerzeichen.'; break }
+		'economy scheduling failed' { 'Die Änderung konnte nicht in den gemeinsamen Zeitplan aufgenommen werden. Verbindung prüfen und erneut versuchen.'; break }
+		'loan limit' { 'Auf diesem PC ist die Höchstzahl an Krediten erreicht.'; break }
+		'loan to repay.*not found|loan to repay.*ambiguous' { 'Der zurückzuzahlende Kredit fehlt auf diesem PC oder ist nicht eindeutig zugeordnet.'; break }
 		'no path' { 'TF3 findet keinen befahrbaren Weg zur Linie. Depotanschluss, Gleisrichtung und Haltestellen prüfen.'; break }
 		'missing electrification' { 'Auf dem Fahrweg fehlt die benötigte Elektrifizierung.'; break }
 		'missing rail|missing road|missing tram|incompatible rail|incompatible tram' { 'Der Fahrweg passt nicht zum Fahrzeugtyp.'; break }
@@ -81,10 +90,10 @@ function Get-ActionReasonText([string]$reason) {
 function Get-ActionIssueDetails($reader) {
 	if(-not $reader.Count) { return '' }
 	$lines=@("$($reader.Count) fehlgeschlagene Aktion(en) seit dem Laden. Die Sitzung läuft weiter.",
-		"Fehlende Bauten prüfen. 'Neu abgleichen' übernimmt bei Bedarf den Gastgeberstand; keine automatische Wiederholung.")
+		"Bauten, Konto, Subventionen und Unternehmensname prüfen. 'Neu abgleichen' übernimmt bei Bedarf den Gastgeberstand; keine automatische Wiederholung.")
 	foreach($issue in @($reader.Issues | Select-Object -Last 10)) {
 		$place=if($issue.Place -eq 'peer'){'beim Mitspieler'}else{'auf diesem PC'}
-		$effect=if($issue.Partial){'Möglicherweise teilweise ausgeführt; Ergebnis auf der Karte prüfen.'}else{'Vor dem Senden eines Spielbefehls abgelehnt; kein Nachbau bestätigt.'}
+		$effect=if($issue.Partial){'Möglicherweise teilweise ausgeführt; Karte, Konto und Unternehmensfenster prüfen.'}else{'Vor dem Senden eines Spielbefehls abgelehnt; keine Ausführung bestätigt.'}
 		$lines+="`r`n$($issue.Time) $place | $($issue.Label)`r`n$(Get-ActionReasonText $issue.Reason)`r`n$effect Kennung: $($issue.Token)"
 	}
 	return ($lines -join "`r`n") + "`r`n`r`n"

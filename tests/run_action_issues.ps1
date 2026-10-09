@@ -17,6 +17,21 @@ Add-ActionIssueLine $r $one.Replace('issue local','issue peer')
 if($r.Count -ne 2 -or $r.Issues.Count -ne 3){throw 'Same failure on both PCs counted twice or details lost'}; $passed++
 if(-not (Get-ActionReasonText 'line assignment rejected: no path at 12.0, -30.0').Contains('keinen befahrbaren Weg')){throw 'Path diagnosis not explained'}; $passed++
 if(-not (Get-ActionReasonText 'line assignment rejected: missing electrification').Contains('Elektrifizierung')){throw 'Electrification diagnosis not explained'}; $passed++
+foreach($case in @(
+ @('subvention offer not found or terms/rewards differ; no payout booked','Bedingungen oder Belohnungen'),
+ @('subvention offer ambiguous','eindeutig'),
+ @('subvention decision rejected or not applied by original game script','nicht bestätigt'),
+ @('economy scheduling failed: held command queue full','Zeitplan'),
+ @('loan limit reached in destination game','Höchstzahl'))){
+ if(-not (Get-ActionReasonText $case[0]).Contains($case[1])){throw "Missing economy diagnosis: $($case[0])"}; $passed++
+}
+$finance="[mp_probe]action issue local I1 scheduled_host.77 none $(Hex 'Subvention annehmen: Waren nach Süd (Auszahlung 500000)') $(Hex 'subvention offer not found or terms/rewards differ; no payout booked')"
+$company="[mp_probe]action issue peer I1 scheduled_client.78 partial $(Hex 'Unternehmen umbenennen: Süd AG') $(Hex 'game command rejected')"
+Add-ActionIssueLine $r $finance; Add-ActionIssueLine $r $company
+$details=Get-ActionIssueDetails $r
+foreach($part in @('Auszahlung 500000','Unternehmen umbenennen: Süd AG','Konto, Subventionen','Bedingungen oder Belohnungen')){
+ if(-not $details.Contains($part)){throw "Missing economy detail: $part"}; $passed++
+}
 Add-ActionIssueLine $r 'Loading game from file common.sav'
 if($r.Count -ne 0 -or $r.Issues.Count){throw 'Old session issues retained after reload'}; $passed++
 $path=Join-Path $env:TEMP ('tf3mp-issues-'+[guid]::NewGuid().ToString('N')+'.log')

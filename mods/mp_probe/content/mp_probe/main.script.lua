@@ -18,11 +18,12 @@ local fingerprint = require("/mp_probe/fingerprint.lua")
 local timeline = require("/mp_probe/timeline.lua")
 local hold = require("/mp_probe/hold.lua")
 local wire = require("/mp_probe/wire.lua")
+local economy = require("/mp_probe/economy.lua")
 
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 45
+main.PROBE_VERSION = 46
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -45,7 +46,7 @@ main.ENTITY_COMPONENTS = {
 -- bridge has to capture and replay, so their parameter structure is dumped once.
 -- v34: the builder events reach guiHandleEvent only when subscribed (company.script.tl does the same).
 main.SUBSCRIBED_EVENTS = { "onPostBuildProposal", "mp_probe_replay", "Obtain", "Repay", "mp_probe_schedule",
-	"builder.proposalCreate", "builder.proposalPrepareForApply", "builder.proposalApply", "mp_probe_reverse", "mp_probe_vehicle" }
+	"builder.proposalCreate", "builder.proposalPrepareForApply", "builder.proposalApply", "mp_probe_reverse", "mp_probe_vehicle", "mp_probe_economy" }
 
 --- Replay test (phase 1, one PC). The copy is built this many metres beside the original so both
 -- are visible; at most MAX_REPLAYS per savegame session. A build with as many segments as the copy
@@ -82,7 +83,7 @@ main.ACTION_EVERY = 10
 main.DUMP_REPLAY_RESULTS = false
 --- Action kinds polled by actions.lua (the rest comes from build events, format B5). v32: the
 -- account, so a loan taken in either game reaches the other.
-main.ACTION_KINDS = { "line", "vehicle", "account" }
+main.ACTION_KINDS = { "line", "vehicle", "account", "company" }
 --- v20: a copied construction's entrance is checked again this much game time after the copy,
 -- in case the world was not up to date right after the command.
 main.WELD_RECHECK_MS = 4000
@@ -392,6 +393,11 @@ function main.replay_line(env, line, number, state, distance)
 		if type(record) ~= "table" then record = {} end
 		local ref = type(record.ref) == "table" and record.ref or {}
 		label = label .. ": " .. tostring(record.name or ref.name or "")
+		label = economy.description(action) or label
+		if action.op == "loan_event" then
+			label = (record.name == "Obtain" and "Kredit aufnehmen" or "Kredit zurückzahlen") ..
+				": " .. tostring(record.obtained and record.obtained.amount or "?")
+		end
 		if action.op == "vehicle_command" then
 			local labels = {}
 			local commands = { reverse = "umkehren", stopped = "Start/Stopp", depot = "ins Depot",
@@ -977,6 +983,40 @@ function main.submit_intent(env, state, param)
 	local ok, err = timeline.submit(main.timeline_of(s, role), param and param.line, param and param.held)
 	state:set(s)
 	return ok, err
+end
+
+--- A handover failure must also reach the launcher's normal, paired error report.
+-- This isolated receipt cannot overwrite another replay currently in flight.
+function main.economy_issue(env, state, label, reason)
+	local s = state:get() or {}; s.economy_issue_seq = (s.economy_issue_seq or 0) + 1
+	local token = "economy_" .. tostring(sync.role(env.os and env.os.getenv)) .. "." .. s.economy_issue_seq
+	state:set(s)
+	local temporary = {}; local receipt = { get = function() return temporary end, set = function(_, v) temporary = v end }
+	transport.begin(receipt, token); transport.describe(receipt, label); transport.fail(receipt, reason); transport.dispatched(receipt)
+	transport.check(receipt, function(text)
+		local issue = text:match("^action issue local (I1 .+)$")
+		if issue then
+			logger.info(text)
+			if main.skip_failures(env) then
+				local live = state:get() or {}; transport.send(issue, live, logger.info); state:set(live)
+			end
+		end
+	end, true)
+end
+
+function main.economy_intent(env, state, param)
+	local label = type(param) == "table" and param.kind == "company" and
+		("Unternehmen umbenennen: " .. tostring(param.name or "")) or
+		("Subvention " .. (type(param) == "table" and param.name == "onDecline" and "ablehnen" or "annehmen"))
+	local prepared, action = pcall(economy.prepare, env, param)
+	if not prepared then action = { op = "economy_error", value = { label = label, reason = main.error_text(action):sub(1, 240) } } end
+	local line = actions.encode(action)
+	local planned, why = main.submit_intent(env, state, { line = line, held = true })
+	if planned then logger.info("economy command scheduled: " .. (economy.description(action) or label)); return true end
+	-- Never execute an intercepted financial decision locally after a failed plan:
+	-- that could pay one account while the partner never sees the request.
+	main.economy_issue(env, state, economy.description(action) or label, "economy scheduling failed: " .. tostring(why))
+	return false
 end
 
 --- v35: a vehicle command clicked in this game's GUI (hold.lua: reverse, start/stop, to the
@@ -1867,6 +1907,11 @@ function main.remember_constructions(env, s, param)
 end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
+	if name == "mp_probe_economy" and id == "mp_probe_economy" then
+		local ok, err = pcall(main.economy_intent, _G, state, param)
+		if not ok then main.economy_issue(_G, state, "Unternehmen/Subvention", main.error_text(err)) end
+		return
+	end
 	if name == "mp_probe_vehicle" then
 		local ok, err = pcall(main.vehicle_intent, _G, state, param)
 		if not ok then logger.info("vehicle command failed: " .. main.error_text(err):sub(1, 200)) end
