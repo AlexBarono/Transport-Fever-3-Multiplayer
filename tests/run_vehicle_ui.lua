@@ -7,7 +7,7 @@ local function test(name, fn)
 	local ok, err = pcall(fn)
 	if ok then passed=passed+1 else failed=failed+1; print("FAIL "..name..": "..tostring(err)) end
 end
-local function gui(role, connected)
+local function gui(role, connected, logging)
 	local g = { sent={}, logs={}, steps={}, registrations=0, now=0, role=role, connected=connected }
 	local cmd = {}
 	for maker, kind in pairs(hooks.VEHICLE_COMMANDS) do
@@ -23,7 +23,16 @@ local function gui(role, connected)
 		if k=="TF3MP_ORDERING" then return g.connected and "1" or "0" end
 		if k=="TF3MP_PEER_CLOCK" then return g.connected and "gt=1000" or "" end
 		if k=="TF3MP_OWN_CLOCK" then return "phase="..(g.failed and "failed" or "idle") end
-	end},log={info=function(s)g.logs[#g.logs+1]=s end}}, {__index=_G})
+	end},log={}, -- TF3's main GUI log has no info(), unlike the old test double.
+	debugPrint=function(s)
+		if logging=="broken" then error("diagnostic output unavailable") end
+		g.logs[#g.logs+1]=s
+	end,
+	print=function(s)
+		if logging=="broken" then error("fallback output unavailable") end
+		g.logs[#g.logs+1]=s
+	end}, {__index=_G})
+	if logging=="no-debug-print" then env.debugPrint=false end
 	env.ug_require=function(path)
 		if path=="::/gui/main/react.lua" then return react end
 		if path=="::/gui/main/builtin.lua" then return {BoxLayout=function(p)return p end} end
@@ -41,6 +50,27 @@ local function gui(role, connected)
 	function g.step() for _, fn in ipairs(g.steps) do fn() end end
 	return g
 end
+
+test("world entry works without log.info and reports installed hooks",function()
+	local g=gui("host",true)
+	assert(#g.logs==1 and g.logs[1]=="[mp_probe]vehicle UI: vehicle hooks: 6 of 6 installed")
+	assert(#g.steps==1 and #g.sent==0, "entering the world must not send vehicle commands")
+end)
+
+test("missing or failing diagnostic output cannot abort entry or lose held commands",function()
+	for _, logging in ipairs({"no-debug-print","broken"}) do
+		local g=gui("client",true,logging)
+		if logging=="no-debug-print" then assert(#g.logs==1, "use print when debugPrint is unavailable") end
+		local cb=0
+		g.cmd.sendCommand(g.cmd.makeVehicleSetStoppedByUserCmd(7,true),function(_,ok)assert(ok); cb=cb+1 end)
+		assert(#g.sent==0 and cb==1)
+		g.step()
+		assert(#g.sent==1 and g.sent[1].name=="mp_probe_vehicle")
+		local batch=assert(wire.decode(g.sent[1].param.batch))
+		assert(#batch==1 and batch[1].command=="stopped" and batch[1].value==true)
+		g.step(); assert(#g.sent==1)
+	end
+end)
 
 test("main GUI captures all five window command types before execution and flushes once",function()
 	for _, role in ipairs({"host","client"}) do

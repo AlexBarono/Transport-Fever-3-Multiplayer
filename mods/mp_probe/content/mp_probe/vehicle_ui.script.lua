@@ -10,7 +10,13 @@ local function get(key)
 	local ok, value = pcall(function() return os.getenv(key) end)
 	return ok and value or ""
 end
-local function note(text) log.info("[mp_probe]vehicle UI: " .. text) end
+local function note(text)
+	-- The main GUI has log.verbose/warning/error, but no log.info. Use the same
+	-- stdout output as the game scripts; diagnostics must never break a GUI recipe
+	-- or interrupt an intercepted command before its queued batch is flushed.
+	local message = "[mp_probe]vehicle UI: " .. text
+	if not pcall(debugPrint, message) then pcall(print, message) end
+end
 local function step()
 	hooks.watch_vehicles(env, memory, {
 		log = note, encode = wire.encode,
