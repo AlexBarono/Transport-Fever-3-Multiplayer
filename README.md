@@ -110,6 +110,8 @@ Frühere Transport-Korrekturen: [docs/phase4-reliable-transport.md](docs/phase4-
 
 Im **Testlabor** bleiben Allein-Test (100 m daneben), Gleiche-Stelle-Test nach Neuladen und simulierter Gastgeber verfügbar. Diese Tests ersetzen den späteren gemeinsamen VPN-Spieltest nicht.
 
+Beim simulierten Gastgeber zeigt **Details prüfen** jetzt bestätigte, offene und nicht prüfbare Testteile, einschließlich fehlender Weltmessungen. Aufgezeichnete Aktionen gelten erst nach bestätigtem Nachbau als geprüft. Frühere Protokolle bleiben beim Neustart erhalten; ein hängender Nachbau endet nach 180 Sekunden ohne Fortschritt. Siehe [Testlabor-Auswertung und Ablauf](docs/testlabor-auswertung.md).
+
 Offline-Tests mit Lua oder Python/lupa:
 
 ```powershell

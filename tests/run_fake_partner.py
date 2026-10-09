@@ -6,17 +6,18 @@ import tempfile
 import time
 
 
-def main():
+def main(mode="reject"):
     root = Path(__file__).resolve().parents[1]
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     with tempfile.TemporaryDirectory(prefix="tf3mp-fake-test-") as folder:
         logfile = Path(folder) / "host.log"
+        logfile.write_text("previous run evidence", encoding="utf-8")
         process = subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
              str(root / "tools" / "fake-partner.ps1"), "-Port", str(port),
-             "-Minutes", "1", "-LogFile", str(logfile)],
+             "-Minutes", "1", "-LogFile", str(logfile), "-ReplayTimeoutSeconds", "3"],
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
@@ -62,24 +63,52 @@ def main():
                 packet = receive("TF3MP/1 FRAG ")
                 token = packet.split()[2]
                 assert packet.endswith("B5 first"), packet
-                send(f"TF3MP/1 DONE {token} FAIL")
-                assert process.wait(timeout=5) == 0, "Host failed to shut down cleanly after rejection"
+                if mode == "success":
+                    send(f"TF3MP/1 DONE {token} OK")
+                    packet = receive("TF3MP/1 FRAG ")
+                    assert packet.endswith("B5 second"), packet
+                    send(f"TF3MP/1 DONE {packet.split()[2]} OK")
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        log = logfile.read_text(encoding="utf-8-sig")
+                        if "game APPLIED line 2 of 2" in log:
+                            break
+                        time.sleep(0.05)
+                    assert "game APPLIED line 2 of 2" in log, log
+                    archives = list(Path(folder).glob("host.log.*.previous"))
+                    assert len(archives) == 1 and archives[0].read_text() == "previous run evidence"
+                    print("Fake-host UDP test passed (success): both actions confirmed, preceding log preserved")
+                    return
+                if mode == "reject":
+                    send(f"TF3MP/1 DONE {token} FAIL")
+                assert process.wait(timeout=8) == 0, "Host failed to shut down after rejection/timeout"
                 deadline = time.monotonic() + 1.3
                 while time.monotonic() < deadline:
                     try:
-                        assert not game.recv(4096).startswith(b"TF3MP/1 FRAG "), "Replay continued after FAIL"
+                        pending = game.recv(4096)
+                        # Timeout retries of the first action may already be queued in UDP.
+                        assert not pending.endswith(b"B5 second"), "Following action ran after failure"
+                        if mode == "reject":
+                            assert not pending.startswith(b"TF3MP/1 FRAG "), "Replay continued after FAIL"
                     except (TimeoutError, ConnectionResetError):
                         pass
                 log = logfile.read_text(encoding="utf-8-sig")
-                assert "REPLAY FAILED at line 1 of 2" in log, log
-                assert "Following actions remain stopped" in log, log
+                if mode == "reject":
+                    assert "REPLAY FAILED at line 1 of 2" in log, log
+                    assert "Following actions remain stopped" in log, log
+                else:
+                    assert "REPLAY TIMEOUT at line 1 of 2" in log, log
                 assert "replay stopped:" in log, log
-                print("Fake-host UDP test passed: failure logged, replay stopped, host exits cleanly for restart")
+                print(f"Fake-host UDP test passed ({mode}): replay stopped, host exits cleanly")
         finally:
             if process.poll() is None:
                 process.terminate()
-            process.communicate(timeout=5)
+            _, stderr = process.communicate(timeout=5)
+            if stderr:
+                print(stderr.decode(errors="replace"))
 
 
 if __name__ == "__main__":
     main()
+    main("timeout")
+    main("success")

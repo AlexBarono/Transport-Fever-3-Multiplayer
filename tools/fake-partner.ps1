@@ -19,19 +19,38 @@
 param(
 	[int]$Port = 47800,
 	[double]$Minutes = 12,
-	[string]$LogFile = ''
+	[string]$LogFile = '',
+	[ValidateRange(1, 3600)][int]$ReplayTimeoutSeconds = 180
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'transport.ps1')
 $receiver = New-MpReceiver
 if (-not $LogFile) { $LogFile = Join-Path $PSScriptRoot 'fake-partner.log' }
+# Preserve an interrupted run rather than silently overwriting its evidence.
+if (Test-Path -LiteralPath $LogFile) {
+	Copy-Item -LiteralPath $LogFile -Destination ("$LogFile." + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fffffff') + '.previous')
+}
 Set-Content -Path $LogFile -Value @() -Encoding UTF8
 
 $script:start = [DateTime]::UtcNow
 function Now { return ([DateTime]::UtcNow - $script:start).TotalSeconds }
 function Log($text) {
 	$line = ('{0,7:N1} {1}' -f (Now), $text)
-	Add-Content -Path $LogFile -Value $line -Encoding UTF8
+	# A report viewer may briefly hold the log open. Diagnostics must not kill the peer.
+	for ($writeTry = 0; $writeTry -lt 20; $writeTry++) {
+		try {
+			$share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+			$stream = New-Object IO.FileStream($LogFile, [IO.FileMode]::Append, [IO.FileAccess]::Write, $share)
+			try {
+				$bytes = [Text.Encoding]::UTF8.GetBytes($line + "`r`n")
+				$stream.Write($bytes, 0, $bytes.Length)
+			} finally { $stream.Dispose() }
+			break
+		} catch [IO.IOException] {
+			if ($writeTry -eq 19) { Write-Warning "Test log temporarily unavailable: $line" }
+			else { Start-Sleep -Milliseconds 25 }
+		}
+	}
 	Write-Host $line
 }
 
@@ -91,6 +110,7 @@ $replayCount = 0
 $replayDone = 0
 $replayRound = 0
 $replayFailure = $null
+$replayProgressAt = 0
 
 function Client-Gt {
 	if (-not $client) { return 0 }
@@ -144,7 +164,7 @@ while ((Now) -lt $deadline -and -not $replayFailure) {
 					Log 'Following actions remain stopped. Restart the game and the test from the original save after fixing the rejected action.'
 				}
 			}
-			if ($replaySend.Part -ne $before) { $replaySentAt = -10 }
+			if ($replaySend.Part -ne $before) { $replaySentAt = -10; $replayProgressAt = Now }
 			if ($replaySend.Done) {
 				$replayDone++; Log "game APPLIED line $replayDone of $replayCount"
 				$replayToken = $null; $replaySend = $null; $replay.RemoveAt(0)
@@ -155,6 +175,7 @@ while ((Now) -lt $deadline -and -not $replayFailure) {
 			# The savegame was loaded again: its game time went back.
 			if ($client -and [double]$s['gt'] -lt [double]$client['gt'] - 30000) {
 				Log "the game loaded a savegame again (game time $([int64]$client['gt']) -> $([int64]$s['gt']))"
+				$hostSim = $null; $firstCk = $null
 				if ($sessionLines.Count -gt 0) {
 					foreach ($l in $sessionLines) { [void]$replay.Add($l) }
 					$replayRound++
@@ -230,6 +251,12 @@ while ((Now) -lt $deadline -and -not $replayFailure) {
 			$replaySend = New-MpSend $replayToken $replay[0]
 			$replaySentAt = -10
 			$replayTries = 0
+			$replayProgressAt = $now
+		}
+		if ($now - $replayProgressAt -ge $ReplayTimeoutSeconds) {
+			$replayFailure = "No replay progress for $ReplayTimeoutSeconds seconds"
+			Log "REPLAY TIMEOUT at line $($replayDone + 1) of $replayCount ($replayToken): $replayFailure"
+			break
 		}
 		if ($now - $replaySentAt -ge 1) {
 			$replaySentAt = $now

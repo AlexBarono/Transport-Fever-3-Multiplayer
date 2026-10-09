@@ -20,6 +20,7 @@ $ModName = 'mp_probe'
 . (Join-Path $Root 'tools\session.ps1')
 # Neu abgleichen mit einem Klick.
 . (Join-Path $Root 'tools\resync.ps1')
+. (Join-Path $Root 'tools\fake-report.ps1')
 
 function Get-SteamRoot {
 	foreach ($key in 'HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam') {
@@ -459,7 +460,7 @@ $install.Add_Click({
 			"   verlängern und die Linie umbenennen.`r`n" +
 			"4. OHNE Speichern ins Hauptmenü und denselben Spielstand neu laden. Nach etwa 20 Sekunden baut der`r`n" +
 			"   simulierte Gastgeber alles von selbst am selben Ort nach.`r`n" +
-			"5. Ohne Speichern beenden."
+			"5. 'Details pruefen' zeigt bestaetigte und offene Testteile. Danach ohne Speichern beenden."
 		} elseif ($test -eq 'samespot' -and $script:replayRecording) {
 			"1. Im Spiel den ursprünglichen Spielstand '$($script:replayRecording.Save)' laden und warten, bis die Karte sichtbar ist.`r`n" +
 			"2. Direkt hier 'Am selben Ort nachbauen' klicken: die $($script:replayRecording.Lines.Count) gespeicherten Aktionen werden wiederholt.`r`n" +
@@ -491,7 +492,18 @@ $startGame.Add_Click({
 })
 
 $check.Add_Click({
-	try { $out.Text = (Get-ConnectionStatus $gameBox.Text.Trim()) + (Get-SyncStatus $steam) } catch { Show-Error $_.Exception.Message }
+	try {
+		if ($fakeRadio.Checked) {
+			$hostLog = Join-Path $env:TEMP "tf3mp-fake-$($portBox.Text.Trim()).log"
+			$hostLines = Read-SameSpotLines $hostLog
+			$gameLines = @()
+			try { $gameLines = Read-SameSpotLines (Find-SameSpotLog $steam) } catch {}
+			$report = Get-FakeHostReport $hostLines $gameLines
+			$reportPath = "$hostLog.report.txt"
+			Set-Content -LiteralPath $reportPath -Value $report.Text -Encoding UTF8
+			$out.Text = $report.Text + "`r`n`r`nGespeichert: $reportPath"
+		} else { $out.Text = (Get-ConnectionStatus $gameBox.Text.Trim()) + (Get-SyncStatus $steam) }
+	} catch { Show-Error $_.Exception.Message }
 })
 
 $script:transferBusy = $false
