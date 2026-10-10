@@ -173,4 +173,22 @@ try {
     if(-not $resolvedIntegration.StartsWith($resolvedTemp,[StringComparison]::OrdinalIgnoreCase)){throw 'Fixture cleanup escaped TEMP'}
     if(Test-Path -LiteralPath $resolvedIntegration){Remove-Item -LiteralPath $resolvedIntegration -Recurse -Force}
 }
+$statusRoot=Join-Path $env:TEMP ('tf3mp-ready-'+[Guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($statusRoot) | Out-Null
+$originalGameRunning=(Get-Item Function:\Test-GameRunning).ScriptBlock
+function Test-GameRunning { return $true }
+try {
+    foreach($case in @(
+        @{ Extra='ready=0'; Detail='loaded=1'; Expected='*Mod noch nicht bereit*' },
+        @{ Extra='ready=1'; Detail="compatible=1`r`npeer_ready=0"; Expected='*Partner erreicht*' },
+        @{ Extra='ready=1'; Detail="compatible=0`r`nhello_received=0"; Expected='*keine UDP-Antwort*' }
+    )) {
+        [IO.File]::WriteAllText((Join-Path $statusRoot 'alut_proxy.status'),"protocol=3`r`nmode=client`r`nconnected=0`r`noutbox=0`r`ninbox=0`r`n$($case.Extra)`r`n$($case.Detail)")
+        if((Get-SessionStatus $statusRoot).Text -notlike $case.Expected) { throw 'Readiness failure was not distinguished' }; $passed++
+    }
+} finally {
+    Set-Item Function:\Test-GameRunning $originalGameRunning
+    Remove-Item -LiteralPath (Join-Path $statusRoot 'alut_proxy.status') -Force
+    Remove-Item -LiteralPath $statusRoot -Force
+}
 Write-Host "$passed launcher/protocol tests passed, 0 failed"

@@ -1,6 +1,7 @@
 ﻿# Internet setup is explicit. Merely opening the launcher changes no firewall/router rules.
 function Initialize-InternetTransport {
     if (-not ('TF3MP.Internet.Tunnel' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'internet-tunnel.cs') }
+    if (-not ('TF3MP.Internet.RouterLease' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'internet-router.cs') -ReferencedAssemblies 'System.dll','System.Core.dll','System.Xml.dll' }
 }
 
 function Test-PublicInternetAddress([Net.IPAddress]$Address) {
@@ -99,12 +100,45 @@ function Get-InternetFirewallArguments([int]$Port, [string]$Program) {
     return @{ Name="TF3MP-Internet-TLS-$Port"; DisplayName="TF3 Multiplayer Internet (TLS TCP $Port)"; Direction='Inbound'; Action='Allow'; Protocol='TCP'; LocalPort=$Port; Program=$Program; Profile='Any'; EdgeTraversalPolicy='Block' }
 }
 
-function Enable-InternetFirewall([int]$Port) {
-    $program = (Get-Process -Id $PID).Path
-    [void](Get-InternetFirewallArguments $Port $program)
+function Get-GameFirewallArguments([int]$Port, [string]$Program, [ValidateSet('host','client')][string]$Mode) {
+    $ruleArgs = Get-InternetFirewallArguments $Port $Program
+    $ruleArgs.Name="TF3MP-Game-UDP-$Mode-$Port"; $ruleArgs.DisplayName="TF3MP Spiel / UDP ($Mode)"
+    $ruleArgs.Protocol='UDP'; $ruleArgs.LocalPort=if($Mode -eq 'host') { $Port } else { 'Any' }
+    return $ruleArgs
+}
+
+function Test-LauncherFirewallRule($Arguments) {
+    try {
+        $apps=@(Get-NetFirewallApplicationFilter -PolicyStore ActiveStore -ErrorAction Stop | Where-Object Program -eq $Arguments.Program)
+        foreach($app in $apps) {
+            $rule=$app | Get-NetFirewallRule -ErrorAction Stop
+            if("$($rule.Enabled)" -ne 'True' -or "$($rule.Direction)" -ne 'Inbound' -or "$($rule.Action)" -ne 'Allow') { continue }
+            if("$($rule.Profile)" -ne 'Any' -and "$($rule.Profile)" -ne 'Domain, Private, Public') { continue }
+            $port=$rule | Get-NetFirewallPortFilter -ErrorAction Stop
+            if("$($port.Protocol)" -notin @('Any',$Arguments.Protocol,$(if($Arguments.Protocol -eq 'TCP'){'6'}else{'17'}))) { continue }
+            if(@($port.LocalPort) -notcontains 'Any' -and @($port.LocalPort) -notcontains "$($Arguments.LocalPort)") { continue }
+            $scope=$rule | Get-NetFirewallAddressFilter -ErrorAction Stop
+            if(@($scope.RemoteAddress) -contains 'Any' -and @($scope.LocalAddress) -contains 'Any') { return $true }
+        }
+    } catch {}
+    return $false
+}
+
+function Enable-InternetFirewall([int]$Port, [string]$Program = '', [ValidateSet('','host','client')][string]$GameMode = '') {
+    if(-not $Program) { $Program=(Get-Process -Id $PID).Path }
+    $arguments=if($GameMode) { Get-GameFirewallArguments $Port $Program $GameMode } else { Get-InternetFirewallArguments $Port $Program }
+    if(Test-LauncherFirewallRule $arguments) { return 'existing' }
     $helper = Join-Path $PSScriptRoot 'internet-firewall.ps1'
-    # Administrator UAC is Windows' approval for this one explicitly clicked rule.
-    $proc = Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -Verb RunAs -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$helper`"",'-Port',"$Port",'-Program',"`"$program`"")
-    while (-not $proc.WaitForExit(100)) { [Windows.Forms.Application]::DoEvents() }
-    if ($proc.ExitCode -ne 0) { throw 'Windows hat die Firewallregel nicht eingerichtet. Administratorfreigabe oder vorhandene Regeln prüfen.' }
+    $resultPath=Join-Path $env:TEMP ('tf3mp-firewall-'+[Guid]::NewGuid().ToString('N')+'.json')
+    try {
+        $processArgs=@('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$helper`"",'-Port',"$Port",'-Program',"`"$Program`"",'-ResultPath',"`"$resultPath`"")
+        if($GameMode) { $processArgs+=@('-GameMode',$GameMode) }
+        # Starting Internet access / TF3 explicitly authorizes its scoped rule.
+        $proc=Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -Verb RunAs -WindowStyle Hidden -PassThru -ArgumentList $processArgs
+        while (-not $proc.WaitForExit(100)) { [Windows.Forms.Application]::DoEvents() }
+        $result=if(Test-Path -LiteralPath $resultPath) { Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json } else { $null }
+        if(-not $result -or -not $result.ok) { throw "Windows hat die Firewallregel nicht eingerichtet. $($result.error)" }
+        if(-not (Test-LauncherFirewallRule $arguments)) { throw 'Die neue Windows-Regel ist nicht wirksam. Firewallrichtlinien bzw. zusätzliche Sperrregeln prüfen.' }
+        return 'created'
+    } finally { if(Test-Path -LiteralPath $resultPath) { Remove-Item -LiteralPath $resultPath -Force } }
 }

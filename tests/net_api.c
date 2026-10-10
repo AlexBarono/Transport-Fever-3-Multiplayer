@@ -33,5 +33,6 @@ __declspec(dllexport) void mp_status(char *out) { net_status(out,1024); }
 __declspec(dllexport) void mp_order(char *out) { net_order_value(out,192); }
 __declspec(dllexport) int mp_peer_state(char *key, char *text) { return net_take_peer_state(key,text); }
 __declspec(dllexport) void mp_stop(void) { net_stop(); }
+__declspec(dllexport) void mp_world(char *out) { lstrcpyA(out,world_id); }
 /* v13: one look at the launcher's request files (the bridge thread does this about once a second). */
 __declspec(dllexport) void mp_requests(void) { int i; for (i = 0; i < 10; i++) poll_requests(); }

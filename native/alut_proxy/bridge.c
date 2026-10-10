@@ -50,6 +50,9 @@ static char own_logged[NET_STATE_KEYS][NET_STATE_KEY_MAX];
 /* Whether TF3MP_IN holds a received line, and the last bridge tick number (v9). */
 static int offering;
 static unsigned long last_seq;
+static unsigned long world_serial;
+static int legacy_world_seen;
+static char world_id[64], acknowledged_world[64];
 static char upload[NET_LINE_MAX], upload_id[64];
 static int upload_part, upload_count, upload_length, pending_line;
 static HANDLE spool = INVALID_HANDLE_VALUE;
@@ -332,6 +335,10 @@ static int handle_line(void)
 		hit = find(line_buf, "Loading game from file ");
 		if (hit) {
 			if (net_world_loading(hit + 23)) resync_loaded();
+			wsprintfA(world_id, "%lu-%lu-%lu", GetCurrentProcessId(), GetTickCount(), ++world_serial);
+			acknowledged_world[0] = 0;
+			legacy_world_seen = 0;
+			set_state_env("", "WORLD_ACK", ""); set_state_env("", "WORLD", world_id);
 			return 1;
 		}
 	}
@@ -339,11 +346,22 @@ static int handle_line(void)
 	if (!command) return 1;
 	command += 10;
 	while (*command == ' ' || *command == '\t') command++;
+	if (starts_with(command, "net initialized ")) {
+		if (world_id[0] && !lstrcmpA(command + 16, world_id)) {
+			net_game_initialized(); lstrcpyA(acknowledged_world, world_id);
+			set_state_env("", "WORLD_ACK", world_id);
+		}
+		return 1;
+	}
 	if (starts_with(command, "net reload")) {
+		/* The current world may already have acknowledged itself on its first update. */
+		if (!legacy_world_seen && world_id[0] && !lstrcmpA(world_id, acknowledged_world)) { legacy_world_seen = 1; return 1; }
+		legacy_world_seen = 1;
 		if (net_game_reload() && spool != INVALID_HANDLE_VALUE) {
 			spool_read.QuadPart = spool_write.QuadPart = 0;
 			SetFilePointerEx(spool, spool_write, NULL, FILE_BEGIN); SetEndOfFile(spool);
 		}
+		if (world_id[0]) { lstrcpyA(acknowledged_world, world_id); set_state_env("", "WORLD_ACK", world_id); }
 		refresh_env(0); return 1;
 	}
 	hit = starts_with(command, "net upload ") ? command : NULL;
@@ -453,6 +471,7 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	proxy_log("bridge: ucrtbase _putenv_s %s", putenv_s ? "found" : "NOT found");
 	set_env("hello");
 	set_state_env("", "ROLE", net_mode_name());
+	set_state_env("", "WORLD", ""); set_state_env("", "WORLD_ACK", "");
 	set_state_env("", "ORDERING", net_ordering_enabled() ? "1" : "0");
 	proxy_log("bridge: TF3MP_ROLE=%s", net_mode_name());
 

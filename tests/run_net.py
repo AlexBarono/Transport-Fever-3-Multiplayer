@@ -162,6 +162,10 @@ print("PASS missing/invalid prepared session and overlong fingerprint fields fai
 port = free_port(); pending_world = dll("host", port, "pending-world", initialize=False); probe = bind()
 try:
     assert status(pending_world)["ready"] == "0"
+    send_probe(probe,port,b"TF3MP/1 PING " + b"a"*32)
+    response=await_packet(probe,b"HEALTH")
+    assert response==b"TF3MP/1 HEALTH "+b"a"*32+b" mode=host loaded=0 ready=0 proto=3", response
+    assert status(pending_world)["hello_received"]=="0" and status(pending_world)["compatible"]=="0", "health probe changed peer handshake"
     for text in (b"TF3MP/1 LINE early B5 forbidden", b"TF3MP/1 FRAG early 0 1 B5 forbidden",
                  b"TF3MP/1 STATE health ck=1 status=diff fields=stations"):
         send_probe(probe, port, text)
@@ -262,6 +266,22 @@ unicode_world.mp_feed(b"net reload")
 assert status(unicode_world)["blocked"] == "1", "later reload without a loading log also blocks"
 unicode_world.mp_stop()
 print("PASS matching UTF8 source name, wrong/missing source and later reload guard", flush=True)
+
+fresh = dll("host", free_port(), "world-no-legacy", initialize=False)
+fresh.mp_log(b"Loading game from file Det")
+token = c.create_string_buffer(64); fresh.mp_world(token)
+assert token.value and status(fresh)["loaded"] == "1" and status(fresh)["initialized"] == "0"
+fresh.mp_feed(b"net initialized wrong-token")
+assert status(fresh)["ready"] == "0", "stale/wrong world token cannot initialize a world"
+for _ in range(3): fresh.mp_feed(b"net initialized " + token.value)
+assert status(fresh)["ready"] == "1" and status(fresh)["blocked"] == "0"
+fresh.mp_feed(b"net reload")
+assert status(fresh)["blocked"] == "0", "late legacy notification double-counted initialization"
+fresh.mp_log(b"Loading game from file Det")
+fresh.mp_feed(b"net initialized " + token.value)
+assert status(fresh)["blocked"] == "1" and status(fresh)["ready"] == "0", "real reload must still stop"
+fresh.mp_stop()
+print("PASS first world without handleLegacy, duplicate/stale acknowledgements and real reload guard", flush=True)
 
 port = free_port(); restarted = dll("host", port, "real-peer-restart"); probe = bind()
 try:

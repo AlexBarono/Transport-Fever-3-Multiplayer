@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <stdarg.h>
 
-#define PROXY_VERSION "13"
+#define PROXY_VERSION "14"
 
 /* Longest build line the DLL passes between the games, in characters. */
 #define NET_LINE_MAX 262145
@@ -44,6 +44,7 @@ void net_status(char *out, int size);
 void net_order_value(char *out, int size);
 int net_ordering_enabled(void);
 int net_game_reload(void);
+void net_game_initialized(void);
 /* Original game load log, before Lua reports its first world initialization. Returns the new
  * resync epoch if this load is the armed in-game resync (v13), else 0. */
 int net_world_loading(const char *name);

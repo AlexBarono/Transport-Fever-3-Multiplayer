@@ -10,7 +10,7 @@ function Wait-Until($check) { $deadline=[DateTime]::UtcNow.AddSeconds(12); while
 function Free-Port {
     for($attempt=0;$attempt -lt 30;$attempt++) {
         $l=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $l.Server.ExclusiveAddressUse=$true; $l.Start(); $p=$l.LocalEndpoint.Port
-        $u=New-Object Net.Sockets.UdpClient([Net.Sockets.AddressFamily]::InterNetwork); $u.Client.ExclusiveAddressUse=$true
+        $u=[Net.Sockets.UdpClient]::new([Net.Sockets.AddressFamily]::InterNetwork); $u.Client.ExclusiveAddressUse=$true
         try { $u.Client.Bind((New-Object Net.IPEndPoint([Net.IPAddress]::Loopback,$p))); return $p } catch {} finally { $u.Close(); $l.Stop() }
     }
     throw 'No shared TCP/UDP test port available'

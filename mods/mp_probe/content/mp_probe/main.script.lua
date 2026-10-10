@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 49
+main.PROBE_VERSION = 50
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -851,8 +851,34 @@ function main.log_network_wait(s)
 		w.error and (", error " .. tostring(w.error):sub(1, 120)) or ""))
 end
 
+function main.reset_loaded_runtime(s)
+	s.network_work, s.network_followup = nil, nil
+	s.actions, s.action_inbox, s.action_work = nil, nil, nil
+	s.action_busy, s.action_work_requested = false, false
+	s.sync, s.timeline = nil, nil
+end
+
+-- WORLD changes on every original engine load, including saves without handleLegacy.
+-- The token is per process/load, rather than a persisted savegame counter.
+function main.initialize_loaded_world(env, s)
+	local getenv = env.os and env.os.getenv
+	if not getenv then return end
+	local ok, world_id = pcall(getenv, "TF3MP_WORLD")
+	if not ok or type(world_id) ~= "string" or not world_id:match("^%d+%-%d+%-%d+$") then return end
+	if s.loaded_world ~= world_id then
+		main.reset_loaded_runtime(s)
+		s.loaded_world, s.world_ready_retry = world_id, 0
+	end
+	local ack_ok, ack = pcall(getenv, "TF3MP_WORLD_ACK")
+	if not ack_ok or ack ~= world_id then
+		s.world_ready_retry = (s.world_ready_retry or 0) + 1
+		if s.world_ready_retry % 10 == 1 then logger.info("net initialized " .. world_id) end
+	end
+end
+
 function main.update(_user_params, state, _dt)
 	local s = state:get() or {}
+	main.initialize_loaded_world(_G, s)
 	-- Reset observation baseline on upgrade; never send an existing save as new actions.
 	if s.actions_version ~= main.PROBE_VERSION then
 		s.actions = nil
@@ -2040,15 +2066,9 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	local s = state:get() or {}
 	if name == "handleLegacy" then
 		logger.info("net reload")
-		s.network_work = nil
 		-- A native callback or an event in flight cannot survive a game reload.
 		-- Observe the loaded save anew; don't execute persisted, stale UI operations.
-		s.actions, s.action_inbox, s.action_work = nil, nil, nil
-		s.action_busy, s.action_work_requested = false, false
-		s.network_followup = nil
-		-- The other game's checkpoints and corrections belong to the session before.
-		s.sync = nil
-		s.timeline = nil
+		main.reset_loaded_runtime(s)
 	end
 	-- Event counts live in the savegame; start over for each probe version so a new version dumps again.
 	if s.seen_events_version ~= main.PROBE_VERSION then

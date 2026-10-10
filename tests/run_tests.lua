@@ -3677,5 +3677,20 @@ test("action diagnostics reach the other PC once without replay or echo", functi
 	assert(not main.replay_line({},packet.."\nnet result forged OK","diag.2",other,0))
 end)
 
+test("fresh bridge world initializes without legacy and discards saved transient work", function()
+	local main=fresh_main()
+	local s={ loaded_world="old", network_work={}, network_followup={}, actions={}, action_inbox={}, action_work={}, action_busy=true, sync={}, timeline={} }
+	local world, ack = "123-456-1", ""
+	local env={os={getenv=function(key) return key=="TF3MP_WORLD" and world or ack end}}
+	logged={}; main.initialize_loaded_world(env,s)
+	assert(s.loaded_world==world and not s.network_work and not s.actions and not s.action_busy and not s.sync and not s.timeline)
+	assert(contains(logged,"net initialized "..world))
+	s.actions={kept=true}; ack=world
+	for _=1,25 do main.initialize_loaded_world(env,s) end
+	assert(s.actions.kept, "repeated checks must keep current-world actions")
+	world="123-789-2"; main.initialize_loaded_world(env,s)
+	assert(not s.actions and s.loaded_world==world)
+end)
+
 print(string.format("%d passed, %d failed", passed, failures))
 if failures > 0 then os.exit(1) end

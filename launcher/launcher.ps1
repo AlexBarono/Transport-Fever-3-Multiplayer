@@ -155,9 +155,29 @@ function Uninstall-All($gameDir, $steam) {
 # Zeigt die Netzwerk-Zeilen des letzten Spielstarts aus alut_proxy.log.
 function Get-ConnectionStatus($gameDir) {
 	$status = Get-SessionStatus $gameDir
+	$values=Read-ProxyStatusValues (Join-Path $gameDir 'alut_proxy.status')
+	$diagnostic="Rolle=$($values.mode), Quelle geladen=$($values.loaded), Mod bereit=$($values.initialized), Partner bereit=$($values.peer_ready)`r`nUDP-Begrüßungen: gesendet=$($values.hello_sent), empfangen=$($values.hello_received), letzte Antwort vor $($values.peer_hello_age_ms) ms"
+	$cfg=Read-Ini (Join-Path $gameDir 'alut_proxy.ini')
+	if($cfg.mode -eq 'client' -and -not $cfg.test -and $cfg.transport -ne 'internet' -and (Test-GameRunning)) { $diagnostic+="`r`n"+(Test-GameUdpEndpoint $cfg.host ([int]$cfg.port)) }
 	$log = Join-Path $gameDir 'alut_proxy.log'
 	$tail = if (Test-Path $log) { (Get-Content $log -Tail 100 | Where-Object { $_ -match 'net:|backpressure|backlog|game result' } | Select-Object -Last 10) -join "`r`n" } else { 'Noch kein Protokoll vorhanden.' }
-	return "$($status.Text)`r`n`r`n$tail"
+	return "$($status.Text)`r`n`r`n$diagnostic`r`n`r`n$tail"
+}
+
+function Test-GameUdpEndpoint([string]$Address,[int]$Port) {
+	$udp=New-Object Net.Sockets.UdpClient(0)
+	try {
+		$udp.Client.ReceiveTimeout=700; $udp.Connect($Address,$Port)
+		$nonce=[Guid]::NewGuid().ToString('N'); $bytes=[Text.Encoding]::ASCII.GetBytes("TF3MP/1 PING $nonce")
+		[void]$udp.Send($bytes,$bytes.Length)
+		$from=New-Object Net.IPEndPoint([Net.IPAddress]::Any,0)
+		$reply=[Text.Encoding]::ASCII.GetString($udp.Receive([ref]$from))
+		if($reply -match ('^TF3MP/1 HEALTH '+$nonce+' mode=(host|client) loaded=([01]) ready=([01]) proto=([23])$')) {
+			return "UDP-Test: Gastgeber-Spiel erreicht, Rolle=$($matches[1]), geladen=$($matches[2]), bereit=$($matches[3])."
+		}
+		return 'UDP-Test: unerwartete Antwort; Paketversion und Gastgeberadresse prüfen.'
+	} catch { return 'UDP-Test: keine Antwort. Auf Gastgeber-PC Rolle, TF3-UDP-Firewall und VPN-Adresse prüfen. Beide benötigen v50 oder neuer für diesen Test.' }
+	finally { $udp.Close() }
 }
 
 function Test-FakeHostRunning([int]$port) {
@@ -236,8 +256,11 @@ function Get-SessionStatus($gameDir) {
 	}
 	if ($values.mode -eq 'loopback') { return @{ Text="Allein-Test  |  $pending Aktion(en) warten$disk"; Color='ok' } }
 	if ($values.protocol -eq '3' -and $values.ready -eq '0') {
+		if($values.loaded -eq '1') { return @{ Text='Spielstand geladen, aber Mod noch nicht bereit. Details prüfen; TF3MP-Mod muss aktiv sein.'; Color='idle' } }
 		return @{ Text='Sitzung geprüft - den vereinbarten Spielstand pausiert laden'; Color='idle' }
 	}
+	if($values.protocol -eq '3' -and $values.compatible -eq '1' -and $values.peer_ready -eq '0') { return @{ Text='Partner erreicht; sein Spielstand / Mod ist noch nicht bereit.'; Color='idle' } }
+	if($values.protocol -eq '3' -and $values.hello_received -eq '0') { return @{ Text='Spiel bereit, keine UDP-Antwort vom Partner. Gastgeberrolle, Adresse und TF3-Firewall auf beiden PCs prüfen.'; Color='error' } }
 	return @{ Text="Warte auf Partner  |  $pending Aktion(en) vorgemerkt$disk"; Color='idle' }
 }
 
@@ -510,6 +533,8 @@ $startGame.Add_Click({
 		if ($cfg.test -eq 'fakehost') { Start-FakeHost $cfg.port }
 		elseif ($cfg.mode -in 'host','client' -and -not $cfg.test) {
 			$session = Get-LaunchSession $gameBox.Text.Trim() $steam -Installed
+			$ruleResult=Enable-InternetFirewall ([int]$cfg.port) (Join-Path $gameBox.Text.Trim() 'TransportFever3.exe') $cfg.mode
+			Write-LauncherLog "Spiel-Firewall geprüft: UDP / $($cfg.mode) / Port $($cfg.port), $ruleResult"
 			$out.Text="Sitzung geprüft. Im Spiel '$($session.SaveName)' pausiert laden.`r`n`r`nWeltabweichungen bleiben Hinweise. Bei Bedarf 'Neu abgleichen' anklicken. Den Launcher fuer den angeforderten Spielstandaustausch offen lassen."
 		}
 	} catch { Show-Error $_.Exception.Message; return }

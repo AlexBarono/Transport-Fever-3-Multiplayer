@@ -4,6 +4,8 @@ $script:internetRole = ''
 $script:internetInvite = ''
 $script:internetLocalPort = 0
 $script:internetMapping = $null
+$script:internetLease = $null
+$script:internetRouterStatus = ''
 $script:internetLastStats = ''
 $script:internetNeedsSetup = $false
 
@@ -21,6 +23,12 @@ function Write-InternetLog([string]$Event, $Data = @{}) {
 
 function Stop-LauncherInternet {
     if ($script:internetTunnel) { $script:internetTunnel.Dispose(); $script:internetTunnel=$null }
+    if ($script:internetLease) {
+        $script:internetLease.Dispose()
+        Write-InternetLog 'ipv6_pinhole_closed' @{ error=$script:internetLease.LastError }
+        $script:internetLease=$null
+    }
+    $script:internetRouterStatus=''
     if ($script:internetMapping) {
         $mapping=$script:internetMapping; $script:internetMapping=$null
         try { Invoke-InternetUpnp Remove $mapping.Port $mapping.Client $mapping.Owner { [Windows.Forms.Application]::DoEvents() } | Out-Null }
@@ -64,7 +72,25 @@ function Assert-LauncherInternetMode([string]$Role, [int]$Port, [string]$Test) {
 function Get-LauncherInternetSummary {
     if(-not $script:internetTunnel) { return '' }
     $t=$script:internetTunnel
-    return "Internet / TLS: $($script:internetRole), Spielkanal=$($t.GameChannelConnected), $($t.UdpPackets) Pakete, $([Math]::Round($t.TcpBytes/1MB,1)) MB, $($t.Reconnects) Wiederverbindungen, $($t.Rejected) abgewiesen.`r`nLetzte Transportmeldung: $($t.LastError)`r`nProtokoll: $script:internetLogPath`r`n`r`n"
+    return "Internet / TLS: $($script:internetRole), Spielkanal=$($t.GameChannelConnected), $($t.UdpPackets) Pakete, $([Math]::Round($t.TcpBytes/1MB,1)) MB, $($t.Reconnects) Wiederverbindungen, $($t.Rejected) abgewiesen.`r`nRouter: $script:internetRouterStatus`r`nLetzte Transportmeldung: $($t.LastError)`r`nProtokoll: $script:internetLogPath`r`n`r`n"
+}
+
+function Open-LauncherIPv6Pinhole([string]$Address,[int]$Port) {
+    try {
+        $lan=Get-InternetLanIPv4
+        $local=Get-NetIPAddress -IPAddress $lan -AddressFamily IPv4 -ErrorAction Stop
+        $gateway=(Get-NetRoute -InterfaceIndex $local.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Sort-Object RouteMetric | Select-Object -First 1).NextHop
+        $task=[TF3MP.Internet.RouterLease]::OpenAsync($lan,$gateway,$Address,$Port)
+        while(-not $task.IsCompleted) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 50 }
+        if($task.IsFaulted) { throw $task.Exception.GetBaseException() }
+        $script:internetLease=$task.Result
+        $script:internetRouterStatus=if($task.Result.FirewallDisabled) { 'Router meldet keine aktive IPv6-Firewall' } else { "IPv6 TCP $Port vom Router freigegeben (wird automatisch verlängert)" }
+        Write-InternetLog 'ipv6_pinhole_ready' @{ port=$Port; firewall_disabled=$task.Result.FirewallDisabled }
+    } catch {
+        $code=if($_.Exception.PSObject.Properties['Code']) { $_.Exception.Code } elseif($_.Exception.InnerException -and $_.Exception.InnerException.PSObject.Properties['Code']) { $_.Exception.InnerException.Code } else { $_.Exception.GetType().Name }
+        $script:internetRouterStatus="IPv6-Freigabe nicht bestätigt ($code). Im Router für diesen PC / diese IPv6 TCP $Port freigeben. 'Selbstständige Portfreigaben' muss für diesen PC erlaubt sein."
+        Write-InternetLog 'ipv6_pinhole_failed' @{ code=$code; port=$Port }
+    }
 }
 
 function Test-LauncherInternetInvitation {
@@ -89,7 +115,7 @@ function Show-InternetHostSetup([string]$PreviewPath = '') {
     $dialog.StartPosition='CenterParent'; $dialog.FormBorderStyle='FixedDialog'; $dialog.MaximizeBox=$false; $dialog.MinimizeBox=$false
     $dialog.BackColor=$Background; $dialog.ForeColor=$TextColor; $dialog.Font=$form.Font
     New-Label $dialog 'Dein PC ist der Gastgeber' 22 16 735 34 18 | Out-Null
-    New-Label $dialog "IPv6 verbindet euch direkt. Bei IPv4 fragt der Launcher eine UPnP-Freigabe am Router an.`r`nBeides braucht eine passende Windows-Firewallregel. Der Launcher bleibt beim Spielen offen." 22 60 735 50 10 $Muted | Out-Null
+    New-Label $dialog "Beim Start prüft der Launcher Windows und fordert die Routerfreigabe an (IPv6 und IPv4).`r`nFalls Windows fragt: Administratorfreigabe bestätigen. Der Launcher bleibt beim Spielen offen." 22 60 735 50 10 $Muted | Out-Null
     $addresses=New-Object Windows.Forms.ComboBox
     $addresses.Location=New-Object Drawing.Point(22,120); $addresses.Size=New-Object Drawing.Size(735,30)
     $addresses.DropDownStyle='DropDown'; $addresses.DisplayMember='Display'
@@ -119,6 +145,10 @@ function Show-InternetHostSetup([string]$PreviewPath = '') {
             Initialize-InternetTransport
             $script:internetTunnel=[TF3MP.Internet.Tunnel]::StartHost($port,$localPort)
             $script:internetRole='host'; $script:internetLocalPort=$localPort
+            $message.Text='Prüfe Windows-Firewall. Falls Windows fragt, Administratorfreigabe bestätigen ...'; [Windows.Forms.Application]::DoEvents()
+            Write-InternetLog 'firewall_requested' @{ port=$port }
+            $firewallResult=Enable-InternetFirewall $port
+            Write-InternetLog 'firewall_ready' @{ port=$port; result=$firewallResult }
             if($UseIPv4) {
                 $message.Text='Frage TCP-Freigabe am Router an ...'; [Windows.Forms.Application]::DoEvents()
                 $lan=Get-InternetLanIPv4; $owner='TF3MP TLS '+[Guid]::NewGuid().ToString('N')
@@ -127,22 +157,28 @@ function Show-InternetHostSetup([string]$PreviewPath = '') {
                 $mapping=Invoke-InternetUpnp Add $port $lan $owner { [Windows.Forms.Application]::DoEvents() }
                 $address=$mapping.Address
                 if (-not (Test-PublicInternetAddress ([Net.IPAddress]::Parse($address)))) { throw 'Der Router hat keine öffentliche IPv4-Adresse (z. B. CGNAT/DS-Lite). IPv6 oder VPN verwenden.' }
+                $script:internetRouterStatus="IPv4 TCP $port vom Router freigegeben"
             } else {
                 $address=if($addresses.SelectedItem) { $addresses.SelectedItem.Address } else { $addresses.Text.Trim() }
                 $parsed=[Net.IPAddress]::Parse($address)
                 if(-not (Test-PublicInternetAddress $parsed)) { throw 'Öffentliche IPv6 auswählen oder öffentliche IPv4 des Routers eingeben.' }
                 if($parsed.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6 -and -not $script:internetTunnel.SupportsIPv6) { throw 'IPv6 ist auf diesem PC nicht verfügbar. IPv4 oder VPN verwenden.' }
+                if($parsed.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6) {
+                    if(-not (Get-NetIPAddress -IPAddress $address -AddressFamily IPv6 -ErrorAction SilentlyContinue)) { throw 'Diese IPv6 gehört nicht zu diesem PC. Die öffentliche Adresse dieses PCs auswählen.' }
+                    $message.Text='Fordere IPv6-TCP-Freigabe am Router an ...'; [Windows.Forms.Application]::DoEvents()
+                    Open-LauncherIPv6Pinhole $address $port
+                } else { $script:internetRouterStatus="Manuelle IPv4-Freigabe: im Router TCP $port für diesen PC einrichten." }
             }
             $script:internetInvite=New-InternetInvitation $address $port $script:internetTunnel.Fingerprint $script:internetTunnel.Key
             $invitation.Text=$script:internetInvite
-            $message.Text="Internetzugang gestartet (TLS TCP $port). Jetzt Windows-Firewall zulassen und die Einladung teilen. Bei IPv6 kann zusätzlich die Router-Firewall eine TCP-Freigabe für diesen PC brauchen."
+            $message.Text="Windows-Regel bestätigt ($firewallResult). $script:internetRouterStatus. Mitspieler prüft die Einladung von seinem PC."
             $out.Text="Internet ohne VPN vorbereitet. Launcher offen lassen. Der Mitspieler prüft zuerst die Einladung von seinem PC.`r`nDanach den Spielstand wie gewohnt bereitstellen."
             Write-InternetLog 'host_started' @{ method=$(if($UseIPv4){'upnp_ipv4'}else{'direct'}); public_port=$port; local_port=$localPort }
-        } catch { Stop-LauncherInternet; $invitation.Text=''; $message.Text=$_.Exception.Message; Write-InternetLog 'setup_failed' @{ type=$_.Exception.GetType().Name } }
+        } catch { Stop-LauncherInternet; $invitation.Text=''; $message.Text=$_.Exception.Message; Write-InternetLog 'setup_failed' @{ type=$_.Exception.GetType().Name; stage='firewall_or_router_setup' } }
         finally { foreach($button in $buttons) { $button.Enabled=$true }; $dialog.ControlBox=$true }
     }
     $ipv6.Add_Click({ & $start $false }); $ipv4.Add_Click({ & $start $true })
-    $firewall.Add_Click({ try { if(-not $script:internetTunnel -or $script:internetRole -ne 'host') { throw 'Zuerst IPv6 oder IPv4 starten.' }; Enable-InternetFirewall $script:internetTunnel.Port; $message.Text='Windows-Regel für den verschlüsselten TCP-Port eingerichtet. Der Mitspieler prüft jetzt die Einladung.' } catch { $message.Text=$_.Exception.Message } })
+    $firewall.Add_Click({ try { if(-not $script:internetTunnel -or $script:internetRole -ne 'host') { throw 'Zuerst IPv6 oder IPv4 starten.' }; $result=Enable-InternetFirewall $script:internetTunnel.Port; Write-InternetLog 'firewall_ready' @{ result=$result; port=$script:internetTunnel.Port }; $message.Text="Windows-Regel bestätigt ($result). $script:internetRouterStatus" } catch { $message.Text=$_.Exception.Message } })
     $copy.Add_Click({ if($invitation.Text) { [Windows.Forms.Clipboard]::SetText($invitation.Text); $message.Text='Einladung kopiert. Beim Mitspieler unter Beitreten einfügen und Verbindung prüfen.' } })
     $stop.Add_Click({ Stop-LauncherInternet; $script:internetNeedsSetup=$false; $invitation.Text=''; $message.Text='Internetzugang beendet. Eine neue Internetsitzung braucht eine neue Einladung. Eventuelle Fehler beim Entfernen der eigenen Routerfreigabe stehen im Internetprotokoll.' })
     if($PreviewPath) {
@@ -158,6 +194,10 @@ function Update-InternetDiagnostics {
     if (-not $script:internetTunnel) { return }
     $t=$script:internetTunnel
     $values=@{ tcp_bytes=$t.TcpBytes; udp_packets=$t.UdpPackets; accepted=$t.Accepted; rejected=$t.Rejected; reconnects=$t.Reconnects; game_channel=$t.GameChannelConnected }
+    if($script:internetLease) {
+        $values.router_active=$script:internetLease.Active; $values.router_renewals=$script:internetLease.Renewals; $values.router_error=$script:internetLease.LastError
+        $script:internetRouterStatus=if(-not $script:internetLease.Active -or $script:internetLease.LastError) { "IPv6-Freigabe: aktiv=$($script:internetLease.Active), Meldung=$($script:internetLease.LastError)" } elseif($script:internetLease.FirewallDisabled) { 'Router meldet keine aktive IPv6-Firewall' } else { "IPv6 TCP $($t.Port) freigegeben; $($script:internetLease.Renewals) Verlängerungen bestätigt" }
+    }
     $snapshot=($values | ConvertTo-Json -Compress)
     if($snapshot -ne $script:internetLastStats) { $script:internetLastStats=$snapshot; Write-InternetLog 'transport' $values }
 }

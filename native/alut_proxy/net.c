@@ -30,6 +30,8 @@ static int mode = NET_OFF, port, link_connected, peer_protocol, session_changed,
 static char peer_session[64];
 static int same_spot_test, local_test, protocol = 3, prepared, peer_compatible, compatibility_failed;
 static int world_loaded, world_initialized, world_ready, peer_ready;
+static unsigned long hello_sent, hello_received;
+static DWORD peer_hello_at;
 static char prepared_id[66], game_hash[66], package_hash[66], mods_hash[66], save_hash[66];
 static char expected_save[1025];
 static unsigned long next_line;
@@ -396,7 +398,7 @@ void net_order_value(char *out, int size) {
 }
 void net_status(char *out, int size) {
     struct entry *e; struct state_slot *own, *peer, *peer_resync;
-    char text[1100], world[16], peer_world[16], fields[97], ck[24], peer_req[24];
+    char text[1280], world[16], peer_world[16], fields[97], ck[24], peer_req[24];
     EnterCriticalSection(&lock); e = queue_head(&outbox);
     own = state_slot(own_states, "health", 0); peer = state_slot(peer_states, "health", 0);
     /* v13: the partner's launcher asked for a resync (its mod logs "net state resync ... req=n"). */
@@ -412,6 +414,8 @@ void net_status(char *out, int size) {
         protocol, prepared, peer_compatible, world_ready, peer_ready, world, peer_world, fields, ck,
         ordered(), order_seq, order_side ? order_side : '-', order_phase_name(), order_token,
         resync_epoch, resync_armed ? "armed" : "-", peer_req);
+    wsprintfA(text + lstrlenA(text), "loaded=%d\r\ninitialized=%d\r\nhello_sent=%lu\r\nhello_received=%lu\r\npeer_hello_age_ms=%lu\r\n",
+        world_loaded, world_initialized, hello_sent, hello_received, peer_hello_at ? GetTickCount() - peer_hello_at : 4294967295UL);
     if (size > 0) lstrcpynA(out, text, size);
     LeaveCriticalSection(&lock);
 }
@@ -494,6 +498,12 @@ int net_game_reload(void) {
     LeaveCriticalSection(&lock);
     proxy_log("net: save reloaded with pending actions; resync required");
     return same_spot_test;
+}
+/* v14: some saves do not emit handleLegacy. The first simulation update acknowledges
+ * the bridge's fresh, per-load WORLD id. Repeated acknowledgements are harmless; an
+ * actual second load still goes through net_world_loading and its resync guard. */
+void net_game_initialized(void) {
+    if (!world_initialized) net_game_reload();
 }
 static void reply(SOCKET s, const struct sockaddr_in *from, const char *kind, const char *token, const char *suffix) {
     char text[200]; int n = wsprintfA(text, "TF3MP/1 %s %s%s%s", kind, token, *suffix ? " " : "", suffix);
@@ -788,7 +798,9 @@ static DWORD WINAPI net_thread(LPVOID arg) {
             else n = wsprintfA(hello, "TF3MP/1 HELLO %s pid=%lu proto=3 session=%lu-%lu sid=%s game=%s package=%s mods=%s save=%s ready=%d order=1 epoch=%d",
                 is_host ? "host" : "client", GetCurrentProcessId(), GetCurrentProcessId(), session_nonce,
                 prepared_id, game_hash, package_hash, mods_hash, save_hash, world_ready && !compatibility_failed, resync_epoch);
-            sendto(s, hello, n, 0, (struct sockaddr *)&peer, sizeof(peer)); last_hello = now;
+            if (sendto(s, hello, n, 0, (struct sockaddr *)&peer, sizeof(peer)) == n) hello_sent++;
+            else if (!hello_sent) proxy_log("net: HELLO send failed (%d)", WSAGetLastError());
+            last_hello = now;
         }
         if (have_peer && peer_protocol == protocol && peer_compatible && world_ready && peer_ready &&
             !session_changed && !compatibility_failed && now - last_recv <= PEER_TIMEOUT_MS) {
@@ -799,6 +811,14 @@ static DWORD WINAPI net_thread(LPVOID arg) {
         now = GetTickCount();
         if (n > 8) {
             packet[n] = 0; if (!starts_with(packet, "TF3MP/1 ")) continue;
+            /* Read-only launcher diagnostic; never pins a peer or alters the session. */
+            if (starts_with(packet + 8, "PING ")) {
+                char health[200];
+                rest = take_word(packet + 13, token, sizeof(token));
+                if (*rest || lstrlenA(packet + 13) != 32 || !hex_length(token, 32)) continue;
+                n = wsprintfA(health, "TF3MP/1 HEALTH %s mode=%s loaded=%d ready=%d proto=%d", token, net_mode_name(), world_loaded, world_ready, protocol);
+                sendto(s, health, n, 0, (struct sockaddr *)&from, sizeof(from)); continue;
+            }
             if (have_peer && !same_address(&peer, &from)) {
                 /* A timed-out partner may reconnect with another source port, but another VPN IP cannot steal this session. */
                 if (!is_host || link_connected || now - last_recv <= PEER_TIMEOUT_MS ||
@@ -809,6 +829,8 @@ static DWORD WINAPI net_thread(LPVOID arg) {
                 (!local_test || (lstrcmpA(kind,"FRAG") && lstrcmpA(kind,"LINE")))) continue;
             if (is_host) { peer.sin_family=from.sin_family; peer.sin_port=from.sin_port; peer.sin_addr.s_addr=from.sin_addr.s_addr; have_peer=1; }
             if (!lstrcmpA(kind,"HELLO")) {
+                hello_received++; peer_hello_at = now;
+                if (hello_received == 1) proxy_log("net: first partner HELLO received; checking session and loaded worlds");
                 if (!receive_hello(rest)) continue;
                 last_recv = now;
                 if (!world_ready || !peer_ready) { link_connected = 0; clear_peer_states(); continue; }
