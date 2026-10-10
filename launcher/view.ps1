@@ -58,57 +58,56 @@ $navJoin=New-Button $side 'Beitreten' 16 232 186 46
 $navTest=New-Button $side 'Testlabor' 16 288 186 46
 New-Label $side "VPN ODER INTERNET" 24 650 180 24 9 $Accent | Out-Null
 New-Label $side "Ohne VPN: Internetzugang`r`neinrichten und Einladung`r`nbeim Mitspieler einfügen." 24 684 176 75 10 $Muted | Out-Null
-New-Label $side 'Probe v52  /  Bridge v14' 24 856 185 22 9 $Muted | Out-Null
+New-Label $side 'Probe v53  /  Bridge v15' 24 856 185 22 9 $Muted | Out-Null
 New-Label $form 'Gemeinsam auf derselben Karte.' 250 28 734 44 23 | Out-Null
 New-Label $form 'Ein gemeinsamer Spielstand. Ein Start für beide. Platz für eure Ideen.' 252 77 734 28 11 $Muted | Out-Null
 $statusLabel=New-Label $form 'Bereit zum Einrichten' 252 110 734 40 9 $Accent
 
 $hostPage=New-Panel $form 250 155 734 220
-New-Label $hostPage 'Du bist der Gastgeber' 22 18 680 34 18 | Out-Null
-New-Label $hostPage 'VPN / LAN: Adresse teilen. Ohne VPN: Internetzugang einrichten.' 22 60 690 28 10 $Muted | Out-Null
-$hostAddress=New-Object System.Windows.Forms.ComboBox
-$hostAddress.Location=New-Object System.Drawing.Point(22,100); $hostAddress.Size=New-Object System.Drawing.Size(390,30)
-$hostAddress.DropDownStyle='DropDownList'; $hostAddress.DisplayMember='Display'
-$hostAddress.BackColor=$Background; $hostAddress.ForeColor=$TextColor; $hostAddress.Font=New-Object System.Drawing.Font('Segoe UI',11)
-$hostAddress.DrawMode='OwnerDrawFixed'; $hostAddress.ItemHeight=26
-$hostAddress.Add_DrawItem({
-    param($sender,$event)
-    $brush=New-Object System.Drawing.SolidBrush($Background)
-    $event.Graphics.FillRectangle($brush,$event.Bounds); $brush.Dispose()
-    $text=if($event.Index -ge 0){$sender.Items[$event.Index].Display}else{'VPN verbinden und Adressen neu laden'}
-    [System.Windows.Forms.TextRenderer]::DrawText($event.Graphics,$text,$sender.Font,$event.Bounds,$TextColor,
-        ([System.Windows.Forms.TextFormatFlags]::Left -bor [System.Windows.Forms.TextFormatFlags]::VerticalCenter))
-    $event.DrawFocusRectangle()
-})
+New-Label $hostPage '01  Verbindung herstellen' 22 12 680 32 17 | Out-Null
+$connectionMode=New-Object Windows.Forms.ComboBox
+$connectionMode.Location=New-Object Drawing.Point(22,53); $connectionMode.Size=New-Object Drawing.Size(200,28)
+$connectionMode.DropDownStyle='DropDownList'; [void]$connectionMode.Items.Add('Internet ohne VPN'); [void]$connectionMode.Items.Add('VPN / LAN')
+$connectionMode.SelectedIndex=0; $hostPage.Controls.Add($connectionMode)
+$connectionPortLabel=New-Label $hostPage 'Internetport (TCP)' 240 56 145 22 9 $Muted
+$internetPortBox=New-Box $hostPage 388 51 90; $internetPortBox.Text='47801'
+$hostAddress=New-Object Windows.Forms.ComboBox
+$hostAddress.Location=New-Object Drawing.Point(22,91); $hostAddress.Size=New-Object Drawing.Size(576,30)
+$hostAddress.DropDownStyle='DropDown'; $hostAddress.DisplayMember='Display'
+$hostAddress.BackColor=$Background; $hostAddress.ForeColor=$TextColor; $hostAddress.Font=New-Object Drawing.Font('Segoe UI',10)
 $hostPage.Controls.Add($hostAddress)
 function Refresh-HostAddresses {
-    $selected = if ($hostAddress.SelectedItem) { $hostAddress.SelectedItem.Address } else { "" }
-    $hostAddress.Items.Clear()
+    $script:refreshingAddresses=$true
     try {
-    $addresses=@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | Where-Object {
-        $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.AddressState -eq 'Preferred'
-    } | Sort-Object @{Expression={if($_.InterfaceAlias -match 'Tailscale|ZeroTier|Hamachi|Radmin|WireGuard|TAP|TUN|VPN'){0}else{1}}}, InterfaceAlias)
-    foreach($entry in $addresses) {
-        [void]$hostAddress.Items.Add([pscustomobject]@{ Address=$entry.IPAddress; Display="$($entry.IPAddress)   /   $($entry.InterfaceAlias)" })
+    $selected=if($hostAddress.SelectedItem){$hostAddress.SelectedItem.Address}else{$hostAddress.Text}
+    $hostAddress.Items.Clear()
+    if($connectionMode.SelectedIndex -eq 0){$addresses=@(Get-InternetIPv6Addresses)}else{
+        $addresses=@()
+        try {$addresses=@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | Where-Object {
+            $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.AddressState -eq 'Preferred'
+        } | Sort-Object @{Expression={if($_.InterfaceAlias -match 'Tailscale|ZeroTier|Hamachi|Radmin|WireGuard|TAP|TUN|VPN'){0}else{1}}},InterfaceAlias | ForEach-Object {
+            [pscustomobject]@{Address=$_.IPAddress;Display="$($_.IPAddress) / $($_.InterfaceAlias)"}
+        })}catch{}
     }
-} catch {}
-    if($hostAddress.Items.Count -gt 0){$hostAddress.SelectedIndex=0}
-    for($i=0; $i -lt $hostAddress.Items.Count; $i++) { if($hostAddress.Items[$i].Address -eq $selected) { $hostAddress.SelectedIndex=$i } }
+    foreach($address in $addresses){[void]$hostAddress.Items.Add($address)}
+    if($hostAddress.Items.Count){$hostAddress.SelectedIndex=0}
+    for($i=0;$i -lt $hostAddress.Items.Count;$i++){if($hostAddress.Items[$i].Address -eq $selected){$hostAddress.SelectedIndex=$i}}
+    }finally{$script:refreshingAddresses=$false}
 }
 Refresh-HostAddresses
-$refreshAddress=New-Button $hostPage 'Neu laden' 426 98 76 36
-$refreshAddress.Font=New-Object System.Drawing.Font('Segoe UI',9)
-$refreshAddress.Add_Click({ Refresh-HostAddresses })
-$copyAddress=New-Button $hostPage 'Adresse kopieren' 516 98 196 36 $true
-$internetSetup=New-Button $hostPage 'Internet ohne VPN' 22 155 220 36 $true
-New-Label $hostPage "IPv6 oder Routerfreigabe. Spielstände direkt über TCP.`r`nDanach den Spielstand wie gewohnt bereitstellen." 258 153 455 55 10 $Muted | Out-Null
+$refreshAddress=New-Button $hostPage 'Neu laden' 610 90 102 30
+$internetSetup=New-Button $hostPage 'Verbindung öffnen' 22 132 220 36 $true
+$ipv4Setup=New-Button $hostPage 'IPv4 automatisch' 252 132 200 36
+$copyAddress=New-Button $hostPage 'Einladung kopieren' 462 132 250 36
+$connectionStatus=New-Label $hostPage 'Verbindung öffnen und Einladung teilen.' 22 178 690 32 10 $Muted
 
 $joinPage=New-Panel $form 250 155 734 220
-New-Label $joinPage 'Bei deinem Mitspieler beitreten' 22 18 690 34 18 | Out-Null
-New-Label $joinPage 'Einladung oder VPN-Adresse des Gastgebers' 22 66 680 24 10 $Muted | Out-Null
-$ipBox=New-Box $joinPage 22 100 690
-$internetCheck=New-Button $joinPage 'Interneteinladung prüfen' 22 155 220 36
-New-Label $joinPage "Ohne VPN: vollständige tf3mp-internet://-Einladung einfügen.`r`nMit VPN: z. B. 100.80.12.4:47800. Automatisch warten und beitreten." 258 153 455 55 10 $Muted | Out-Null
+New-Label $joinPage '01  Beim Gastgeber verbinden' 22 12 690 32 17 | Out-Null
+New-Label $joinPage 'Einladung, IPv6- oder IPv4-Adresse des Gastgebers' 22 57 680 24 10 $Muted | Out-Null
+$ipBox=New-Box $joinPage 22 91 576
+$clearAddress=New-Button $joinPage 'Löschen' 610 90 102 30
+$internetCheck=New-Button $joinPage 'Verbindung prüfen' 22 132 220 36
+$joinConnection=New-Label $joinPage 'Adresse einfügen. Die Verbindung startet automatisch.' 252 133 460 55 10 $Muted
 
 $testPage=New-Panel $form 250 155 734 220
 New-Label $testPage 'Testlabor / ein PC' 22 15 690 34 18 | Out-Null
@@ -130,11 +129,25 @@ foreach($radio in @($loopRadio,$spotRadio,$fakeRadio)) {
 $roleBox.Controls.AddRange(@($hostRadio,$clientRadio,$loopRadio,$spotRadio,$fakeRadio))
 New-Label $testPage 'Der simulierte Gastgeber startet automatisch im Hintergrund.' 22 185 690 24 10 $Muted | Out-Null
 
-$workflow=New-Panel $form 250 390 734 113
-$flowTitle=New-Label $workflow 'SPIELSTAND  /  GEMEINSAMER START' 20 8 565 20 9 $Accent
-$primary=New-Button $workflow 'Spielstand bereitstellen' 20 30 336 44 $true
+$workflow=New-Panel $form 250 390 734 155
+$flowTitle=New-Label $workflow '02  SPIELSTAND  /  GEMEINSAMER START' 20 8 565 20 9 $Accent
+$saveChoice=New-Object Windows.Forms.ComboBox
+$saveChoice.Location=New-Object Drawing.Point(20,34); $saveChoice.Size=New-Object Drawing.Size(694,30)
+$saveChoice.DropDownStyle='DropDownList'; $saveChoice.DisplayMember='Display'
+$saveChoice.BackColor=$Background; $saveChoice.ForeColor=$TextColor; $workflow.Controls.Add($saveChoice)
+function Refresh-SaveChoices {
+    $selected=if($saveChoice.SelectedItem){$saveChoice.SelectedItem.Path}else{''}
+    $saveChoice.Items.Clear()
+    $folder=Get-SaveFolder $steam
+    if($folder){foreach($file in @(Get-ChildItem -LiteralPath $folder -Filter '*.sav' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)){
+        [void]$saveChoice.Items.Add([pscustomobject]@{Path=$file.FullName;Display=("{0}   /   {1}" -f $file.BaseName,$file.LastWriteTime.ToString('dd.MM. HH:mm'))})
+    }}
+    if($saveChoice.Items.Count){$saveChoice.SelectedIndex=0}
+    for($i=0;$i -lt $saveChoice.Items.Count;$i++){if($saveChoice.Items[$i].Path -eq $selected){$saveChoice.SelectedIndex=$i}}
+}
+$primary=New-Button $workflow 'Spielstand bereitstellen' 20 75 336 44 $true
 $primary.Font=New-Object System.Drawing.Font('Segoe UI',11,[System.Drawing.FontStyle]::Bold)
-$startBoth=New-Button $workflow 'Spiel starten' 370 30 344 44
+$startBoth=New-Button $workflow 'Spiel starten' 370 75 344 44
 $startBoth.Font=$primary.Font
 $startBoth.Add_Paint({param($sender,$event)
     $brush=New-Object Drawing.SolidBrush($sender.BackColor)
@@ -142,18 +155,18 @@ $startBoth.Add_Paint({param($sender,$event)
     $color=if($sender.Enabled){$Background}else{$Muted}
     [Windows.Forms.TextRenderer]::DrawText($event.Graphics,$sender.Text,$sender.Font,$sender.ClientRectangle,$color,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))
 })
-$joinStatus=New-Label $workflow 'Warte auf Spielstand vom Gastgeber' 20 30 694 39 16 $TextColor
-$workflowHint=New-Label $workflow 'Nach der Übertragung startet der Gastgeber beide Spiele.' 20 79 694 31 9 $Muted
+$joinStatus=New-Label $workflow 'Warte auf Spielstand vom Gastgeber' 20 34 694 45 16 $TextColor
+$workflowHint=New-Label $workflow 'Nach der Übertragung startet der Gastgeber beide Spiele.' 20 125 694 25 9 $Muted
 $joinStatus.BackColor=$Card; $workflowHint.BackColor=$Card
 $progressBar=New-Object Windows.Forms.ProgressBar
-$progressBar.Location=New-Object Drawing.Point(0,111); $progressBar.Size=New-Object Drawing.Size(734,2)
+$progressBar.Location=New-Object Drawing.Point(0,151); $progressBar.Size=New-Object Drawing.Size(734,2)
 $progressBar.Style='Continuous'; $workflow.Controls.Add($progressBar)
 $transfer=New-Button $workflow 'Abbrechen' 604 3 110 25
 $transfer.Font=New-Object System.Drawing.Font('Segoe UI',9); $transfer.Visible=$false
-$check=New-Button $form 'Details prüfen' 686 622 152 32
-$issueLabel=New-Label $form '' 252 660 732 22 9 ([System.Drawing.ColorTranslator]::FromHtml('#FFCA80'))
+$check=New-Button $form 'Details prüfen' 686 664 152 32
+$issueLabel=New-Label $form '' 252 702 732 22 9 ([System.Drawing.ColorTranslator]::FromHtml('#FFCA80'))
 
-$settings=New-Panel $form 250 510 734 98
+$settings=New-Panel $form 250 552 734 98
 New-Label $settings 'SPIELORDNER' 18 12 500 21 9 $Muted | Out-Null
 $gameBox=New-Box $settings 18 43 510
 $gameBox.Font=New-Object System.Drawing.Font('Segoe UI',9)
@@ -165,20 +178,20 @@ $browse.Add_Click({
     if($dialog.ShowDialog() -eq 'OK'){$gameBox.Text=$dialog.SelectedPath}
     $dialog.Dispose()
 })
-New-Label $settings 'PORT' 649 12 70 21 9 $Muted | Out-Null
+$testPortLabel=New-Label $settings 'TESTPORT' 649 12 70 21 9 $Muted
 $portBox=New-Box $settings 649 43 68
 $portBox.Font=New-Object System.Drawing.Font('Segoe UI',10)
-$install=New-Button $form 'Nur Einstellungen speichern' 250 622 205 32
+$install=New-Button $form 'Nur Einstellungen speichern' 250 664 205 32
 $install.Font=New-Object System.Drawing.Font('Segoe UI',9)
-$replay=New-Button $form 'Am selben Ort nachbauen' 468 622 205 32
+$replay=New-Button $form 'Am selben Ort nachbauen' 468 664 205 32
 $replay.Font=New-Object System.Drawing.Font('Segoe UI',9)
-$recover=New-Button $form 'Neu abgleichen' 250 622 205 32
+$recover=New-Button $form 'Neu abgleichen' 250 664 205 32
 $recover.Font=New-Object System.Drawing.Font('Segoe UI',9)
-$remove=New-Button $form 'Mod entfernen' 852 622 132 32
+$remove=New-Button $form 'Mod entfernen' 852 664 132 32
 $remove.ForeColor=$Muted
-New-Label $form 'Sitzung & Protokoll' 252 687 734 26 12 $TextColor | Out-Null
+New-Label $form 'Sitzung & Protokoll' 252 729 734 26 12 $TextColor | Out-Null
 $out=New-Object System.Windows.Forms.TextBox
-$out.Location=New-Object System.Drawing.Point(250,723); $out.Size=New-Object System.Drawing.Size(734,153)
+$out.Location=New-Object System.Drawing.Point(250,765); $out.Size=New-Object System.Drawing.Size(734,111)
 $out.Multiline=$true; $out.ReadOnly=$true; $out.ScrollBars='Vertical'; $out.BorderStyle='None'
 $out.BackColor=$Background; $out.ForeColor=$Muted; $out.Font=New-Object System.Drawing.Font('Consolas',9)
 $form.Controls.Add($out)
@@ -187,7 +200,7 @@ $tooltips=New-Object Windows.Forms.ToolTip
 $tooltips.SetToolTip($install,'Kopiert Mod und Bridge und speichert Rolle, Port und Sitzung. Öffnet das Spiel nicht. Im normalen Ablauf geschieht das automatisch.')
 $tooltips.SetToolTip($replay,'Testlabor: spielt eine Bauaufnahme nach dem Neuladen am ursprünglichen Ort erneut ab. Nur im Test Gleiche Stelle verwenden.')
 $tooltips.SetToolTip($recover,'Übernimmt den Gastgeberstand auf beiden PCs. Der Mitspieler muss nichts anklicken.')
-New-Label $side '01  SPIELSTAND TEILEN' 24 402 185 24 9 $Accent | Out-Null
-New-Label $side '02  GEMEINSAM STARTEN' 24 442 190 24 9 $Muted | Out-Null
-New-Label $side '03  ZUSAMMEN BAUEN' 24 482 185 24 9 $Muted | Out-Null
+New-Label $side '01  VERBINDEN' 24 402 185 24 9 $Accent | Out-Null
+New-Label $side '02  SPIELSTAND TEILEN' 24 442 190 24 9 $Muted | Out-Null
+New-Label $side '03  GEMEINSAM STARTEN' 24 482 185 24 9 $Muted | Out-Null
 

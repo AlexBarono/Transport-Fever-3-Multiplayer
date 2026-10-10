@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <stdarg.h>
 
-#define PROXY_VERSION "14"
+#define PROXY_VERSION "15"
 
 /* Longest build line the DLL passes between the games, in characters. */
 #define NET_LINE_MAX 262145

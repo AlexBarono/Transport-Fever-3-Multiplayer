@@ -14,7 +14,7 @@ function Check-Exposed($control) {
     $child=$control
     while($child.Parent){
         $parent=$child.Parent
-        Check ($parent.ClientRectangle.Contains($child.Bounds)) "Clipped control: $($control.Text)"
+        Check ($parent.ClientRectangle.Contains($child.Bounds)) "Clipped control: $($control.GetType().Name) $($control.Text), bounds=$($child.Bounds), parent=$($parent.ClientRectangle)"
         $point=New-Object Drawing.Point(($child.Left+[int]($child.Width/2)),($child.Top+[int]($child.Height/2)))
         $hit=$parent.GetChildAtPoint($point,[Windows.Forms.GetChildAtPointSkip]::Invisible)
         Check ([object]::ReferenceEquals($hit,$child)) "Covered control: $($control.Text)"
@@ -24,7 +24,7 @@ function Check-Exposed($control) {
 foreach($scale in @(1.0,1.5,2.0)){
     . (Join-Path $root 'launcher\view.ps1')
     try {
-        $hostRadio.Checked=$true; Update-Fields
+        $script:presence=[pscustomobject]@{Connected=$true}; $hostRadio.Checked=$true; Update-Fields
         $form.Show(); [Windows.Forms.Application]::DoEvents()
         $form.Scale((New-Object Drawing.SizeF($scale,$scale)))
         foreach($role in @('host','join','test','host')){
@@ -32,14 +32,18 @@ foreach($scale in @(1.0,1.5,2.0)){
             switch($role){host {$hostRadio.Checked=$true}; join {$clientRadio.Checked=$true}; test {$loopRadio.Checked=$true}}
             Update-Fields; $form.PerformLayout(); [Windows.Forms.Application]::DoEvents()
             if($role -eq 'host'){
-                Check-Exposed $primary; Check-Exposed $startBoth
+                Check-Exposed $primary; Check-Exposed $startBoth; Check-Exposed $saveChoice; Check-Exposed $hostAddress; Check-Exposed $internetPortBox
+                Check (-not $portBox.Visible) 'Internal port shown in normal host mode'
                 Check (-not $primary.Bounds.IntersectsWith($startBoth.Bounds)) 'Host buttons overlap'
-            }elseif($role -eq 'join'){Check-Exposed $joinStatus}else{
+            }elseif($role -eq 'join'){Check-Exposed $joinStatus; Check-Exposed $clearAddress; Check (-not $portBox.Visible) 'Internal port shown when joining'}else{
                 Check-Exposed $primary
                 Check ($primary.Width -eq $joinStatus.Width) 'Test button does not fill the scaled workflow row'
             }
             Check-Exposed $workflowHint
         }
+        $script:presence=$null; $hostRadio.Checked=$true; Update-Fields
+        Check (-not $primary.Visible -and -not $startBoth.Visible) 'Host can share before a peer connects'
+        Check-Exposed $joinStatus
         $script:transferBusy=$true; Update-Fields
         Check-Exposed $transfer; Check-Exposed $progressBar
         $script:transferBusy=$false

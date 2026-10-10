@@ -14,10 +14,10 @@ function Wait-Until($test){$deadline=[DateTime]::UtcNow.AddSeconds(15); while(-n
 function Free-Port {
     for($attempt=0;$attempt -lt 30;$attempt++){
         $l=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0); $l.Server.ExclusiveAddressUse=$true; $l.Start(); $p=$l.LocalEndpoint.Port
-        $u=New-Object Net.Sockets.UdpClient; $u.Client.ExclusiveAddressUse=$true
-        try {$u.Client.Bind((New-Object Net.IPEndPoint([Net.IPAddress]::Loopback,$p))); return $p} catch {} finally {$u.Close();$l.Stop()}
+        $u=New-Object Net.Sockets.UdpClient([Net.Sockets.AddressFamily]::InterNetwork); $u.Client.ExclusiveAddressUse=$true
+        try {$u.Client.Bind((New-Object Net.IPEndPoint([Net.IPAddress]::Loopback,$p))); return $p} catch {$lastPortError=$_.Exception.Message} finally {$u.Close();$l.Stop()}
     }
-    throw 'No shared TCP/UDP port available'
+    throw "No shared TCP/UDP port available: $lastPortError"
 }
 $base=Join-Path $env:TEMP ('tf3mp-lobby-test-'+[Guid]::NewGuid().ToString('N'))
 $hostDir=Join-Path $base 'host'; $clientDir=Join-Path $base 'client'; $gameDir=Join-Path $base 'game'
@@ -34,6 +34,9 @@ function Get-SaveFolder{return $clientDir}
 function Get-LaunchSession{return $session}
 function Install-LauncherSettings{$script:installCount++; $script:installOK=$true; $ipBox.Text='127.0.0.1'; Update-LauncherLobby}
 function Initialize-GameFirewall{}
+function Install-GameAutoload{}
+function Enable-InternetFirewall{return 'mocked'}
+function Stop-LauncherGameForStart{if($script:testGameRunning){$script:testGameRunning=$false; $script:stopCount++}}
 function Start-LauncherGame{$script:launchCount++; Update-LauncherLobby}
 function Invoke-LiveResync{$script:resyncCount++}
 $remote=$null; $hostTunnel=$null; $clientTunnel=$null
@@ -44,11 +47,16 @@ try {
     $script:lobbyChanged=[DateTime]::UtcNow.AddSeconds(-5); Update-LauncherLobby
     Check ($script:lobbyJob -and $script:lobbyPhase -eq 'receiving') 'Joining did not automatically wait in a background worker'
     Check (-not $primary.Visible -and -not $recover.Visible -and -not $check.Visible -and -not $transfer.Visible) 'Joining still exposes manual transfer/start/resync/details buttons'
-    Check ($joinStatus.Text -eq 'Warte auf Spielstand vom Gastgeber') 'Wrong initial joining status'
+    Check ($joinStatus.Text -eq 'Warte auf Verbindung zum Gastgeber') 'Wrong initial joining status'
+    $waitingHost=New-Object TF3MP.LobbyPresence([int]$portBox.Text)
+    Wait-Until {$waitingHost.Connected}; Update-LauncherLobby
+    Check ($joinStatus.Text -eq 'Warte auf Spielstand vom Gastgeber') 'Connected joining launcher does not wait for the save'
+    $waitingHost.BeginTransfer(); $waitingHost.Dispose()
     $connection=$null
     Send-Savegame $savePath ([int]$portBox.Text) {param($t,$d,$n) if($script:lobbyJob.Async.IsCompleted -and $script:lobbyJob.Worker.Streams.Error.Count){throw $script:lobbyJob.Worker.Streams.Error[0]}; $false} -waitSeconds 15 -Session $session -KeepConnection ([ref]$connection) | Out-Null
     $remote=New-Object TF3MP.LobbyChannel($connection,$session.SessionId,$true)
-    Wait-Until {$script:lobbyJob.Async.IsCompleted}; Update-LauncherLobby
+    Wait-Until {$script:lobbyJob.Async.IsCompleted}; $script:testGameRunning=$true; Update-LauncherLobby
+    Check ($script:stopCount -eq 1 -and -not $script:testGameRunning) 'Joining left the previous game running while preparing the shared start'
     Check ($script:lobbyPhase -eq 'ready' -and $script:installCount -eq 1) 'Receive did not automatically prepare the game'
     Check ((Get-SessionFileHash (Join-Path $clientDir 'Gemeinsam.sav')) -eq $session.SaveHash) 'Save not verified/committed'
     Check ([IO.File]::ReadAllText((Join-Path $clientDir 'Gemeinsam.sav.bak')) -eq 'older world') 'Automatic overwrite lost the backup'
@@ -120,6 +128,11 @@ try {
     Check ($oldJob.Progress.Cancel -and -not $script:lobbyJob -and $script:lobbyPhase -eq 'idle') 'Editing the address leaves the old receive session active'
     Wait-Until {$oldJob.Async.IsCompleted}; try {Complete-LobbyReceiver $oldJob | Out-Null}catch{}
     $script:retiredLobbyJobs.Clear()
+    $script:lobbyJob=Start-LobbyReceiver $root '127.0.0.1' (Free-Port) $clientDir $manifest
+    $oldJob=$script:lobbyJob; $script:lobbyPhase='receiving'; Clear-LauncherJoinAddress
+    Check ($ipBox.Text -eq '' -and $oldJob.Progress.Cancel -and -not $script:lobbyJob) 'Clear address did not cancel the waiting connection'
+    Wait-Until {$oldJob.Async.IsCompleted}; try {Complete-LobbyReceiver $oldJob | Out-Null}catch{}
+    $script:retiredLobbyJobs.Clear()
 
     # The retained save connection also carries lobby control over the existing TLS tunnel.
     Initialize-InternetTransport
@@ -127,7 +140,8 @@ try {
     $clientPort=Free-Port
     $clientTunnel=[TF3MP.Internet.Tunnel]::StartClient('::1',$hostTunnel.Port,$hostTunnel.Fingerprint,$hostTunnel.Key,$clientPort)
     $job=Start-LobbyReceiver $root '127.0.0.1' $clientPort $clientDir $manifest
-    Start-Sleep -Milliseconds 400
+    $waitingHost=New-Object TF3MP.LobbyPresence($port)
+    Wait-Until {$waitingHost.Connected}; $waitingHost.BeginTransfer(); $waitingHost.Dispose()
     $connection=$null; Send-Savegame $savePath $port {param($t,$d,$n) $false} -Session $session -KeepConnection ([ref]$connection) | Out-Null
     Wait-Until {$job.Async.IsCompleted}; $received=Complete-LobbyReceiver $job
     $a=New-Object TF3MP.LobbyChannel($connection,$session.SessionId,$true)

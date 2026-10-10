@@ -21,6 +21,7 @@ $ModName = 'mp_probe'
 . (Join-Path $Root 'tools\session.ps1')
 # Neu abgleichen mit einem Klick.
 . (Join-Path $Root 'tools\resync.ps1')
+. (Join-Path $Root 'tools\game-start.ps1')
 . (Join-Path $Root 'tools\fake-report.ps1')
 . (Join-Path $Root 'tools\action-issues.ps1')
 . (Join-Path $Root 'tools\internet.ps1')
@@ -141,6 +142,7 @@ function Install-All($gameDir, $mode, $port, $partner, $steam, $test = '', $sess
 
 function Uninstall-All($gameDir, $steam) {
 	if (Test-GameRunning) { throw 'Transport Fever 3 läuft noch. Bitte zuerst das Spiel beenden.' }
+	Remove-GameAutoload $gameDir
 	$dll = Join-Path $gameDir 'alut.dll'
 	$orig = Join-Path $gameDir 'alut_orig.dll'
 	if (Test-Path $orig) { Move-Item $orig $dll -Force }
@@ -383,27 +385,30 @@ function Update-Fields {
     $portBox.Enabled=-not $loopRadio.Checked -and -not $script:internetTunnel -and -not $locked
     $gameBox.Enabled=-not $locked; $browse.Enabled=-not $locked
     $hostPage.Visible=$hostRadio.Checked; $joinPage.Visible=$clientRadio.Checked; $testPage.Visible=$testMode
-    $primary.Visible=-not $clientRadio.Checked
+    $hostConnected=$script:transferBusy -or ($script:presence -and $script:presence.Connected) -or ($script:lobby -and $script:lobby.Connected)
+    $primary.Visible=$testMode -or ($hostRadio.Checked -and $hostConnected)
+    $saveChoice.Visible=$hostRadio.Checked -and $hostConnected
+    $saveChoice.Enabled=-not $locked
     $primary.Text=if($hostRadio.Checked){'Spielstand bereitstellen'}else{'Test starten'}
-    $primary.Enabled=-not $locked -and -not (Test-GameRunning)
+    $primary.Enabled=-not $locked -and ($testMode -or ($script:presence -and $script:presence.Connected -and $saveChoice.SelectedItem))
     # Use the already scaled row width when switching roles after WinForms DPI scaling.
     $primary.Width=if($hostRadio.Checked){[int][Math]::Round($joinStatus.Width*336/694)}else{$joinStatus.Width}
-    $flowTitle.Text=if($testMode){'LOKAL TESTEN  /  ERGEBNIS PRÜFEN'}else{'SPIELSTAND  /  GEMEINSAMER START'}
+    $flowTitle.Text=if($testMode){'LOKAL TESTEN  /  ERGEBNIS PRÜFEN'}else{'02  SPIELSTAND  /  GEMEINSAMER START'}
     $remove.Enabled=-not $locked -and -not (Test-GameRunning)
-    $startBoth.Visible=$hostRadio.Checked
+    $startBoth.Visible=$hostRadio.Checked -and $hostConnected
     $startBoth.Enabled=Test-LobbyCanStart
     $startBoth.Text=if($startBoth.Enabled){'Spiel für beide starten'}elseif($script:lobbyPhase -eq 'started'){'Beide Spiele gestartet'}elseif($script:lobbyPhase -eq 'starting'){'Warte auf Startbestätigung ...'}else{'Spiel starten'}
     $startBoth.BackColor=if($startBoth.Enabled){$Accent}else{$Card}
     $startBoth.ForeColor=if($startBoth.Enabled){$Background}else{$Muted}
-    $joinStatus.Visible=$clientRadio.Checked
+    $joinStatus.Visible=$clientRadio.Checked -or ($hostRadio.Checked -and -not $hostConnected)
     $joinStatus.Text=switch($script:lobbyPhase){
         'ready' {'Warte auf das Starten des Gastgebers'}
-        'started' {'TF3 startet. Gemeinsamen Spielstand laden.'}
+        'started' {if($script:lobbyLoadSeen){'Gemeinsamer Spielstand geladen'}elseif($script:lobbyError){'Laden prüfen – siehe Protokoll'}else{'TF3 lädt den gemeinsamen Spielstand.'}}
         'error' {'Verbindung oder Spielstand prüfen'}
-        default {'Warte auf Spielstand vom Gastgeber'}
+        default {if($hostRadio.Checked){'Warte auf Verbindung zum Mitspieler'}elseif($script:lobbyJob -and $script:lobbyJob.Progress.Snapshot()[0] -like 'Verbunden.*'){'Warte auf Spielstand vom Gastgeber'}else{'Warte auf Verbindung zum Gastgeber'}}
     }
     if(-not $script:transferBusy -and -not $script:liveBusy -and -not $script:lobbyJob){
-        $workflowHint.Text=if($testMode){'Test wählen und starten. Die Auswertung findest du anschließend unter Details prüfen.'}elseif($script:lobbyError){$script:lobbyError}elseif($script:lobbyPhase -eq 'started'){'Im Spiel den vereinbarten Stand pausiert laden. Der Launcher bleibt offen.'}elseif($clientRadio.Checked -and $script:lobbyPhase -eq 'ready'){'Alles vorbereitet. Dein Gastgeber startet beide Spiele.'}elseif($clientRadio.Checked){'Adresse oder Einladung einfügen. Alles Weitere läuft automatisch.'}elseif($script:lobbyPhase -eq 'ready' -and -not $script:lobbyPeerReady){'Übertragen. Warte, bis der Mitspieler seine Einrichtung bestätigt.'}elseif($script:lobbyPeerReady){'Beide PCs sind bereit. Gemeinsam starten.'}else{'Wähle den Spielstand. Nach der bestätigten Übertragung wird der Start freigegeben.'}
+        $workflowHint.Text=if($testMode){'Test wählen und starten. Die Auswertung findest du anschließend unter Details prüfen.'}elseif($script:lobbyError){'Verbindung oder Vorbereitung fehlgeschlagen. Die Ursache steht im Protokoll.'}elseif($script:lobbyPhase -eq 'started'){'Der gemeinsame Spielstand wird automatisch geladen. Der Launcher bleibt offen.'}elseif($clientRadio.Checked -and $script:lobbyPhase -eq 'ready'){'Alles vorbereitet. Dein Gastgeber startet beide Spiele.'}elseif($clientRadio.Checked){'Adresse oder Einladung einfügen. Alles Weitere läuft automatisch.'}elseif($script:lobbyPhase -eq 'ready' -and -not $script:lobbyPeerReady){'Übertragen. Warte, bis der Mitspieler seine Einrichtung bestätigt.'}elseif($script:lobbyPeerReady){'Beide PCs sind bereit. Gemeinsam starten.'}elseif($hostConnected){'Spielstand oben wählen. Ein laufendes TF3 wird für die neue Sitzung beendet.'}else{'Erst verbinden. Danach den Spielstand teilen und gemeinsam starten.'}
     }
     $transfer.Visible=$script:transferBusy -or $script:liveBusy
     $transfer.Text='Abbrechen'; $transfer.Enabled=$true
@@ -412,11 +417,24 @@ function Update-Fields {
     $replay.Visible=$testMode; $replay.Enabled=$spotRadio.Checked -and -not $locked
     $recover.Visible=$hostRadio.Checked
     $recover.Enabled=$hostRadio.Checked -and -not $script:transferBusy -and -not $script:liveBusy -and -not $script:lobbyPreparing -and (Test-GameRunning)
+    $internetMode=$connectionMode.SelectedIndex -eq 0
+    $internetSetup.Visible=$internetMode; $ipv4Setup.Visible=$internetMode
     $internetSetup.Enabled=$hostRadio.Checked -and -not $locked
+    $ipv4Setup.Enabled=$internetSetup.Enabled
+    $connectionMode.Enabled=-not $locked
+    if($script:internetTunnel -and $script:internetRole -eq 'host'){$internetPortBox.Text="$($script:internetTunnel.Port)"}
+    $internetPortBox.Visible=$internetMode; $internetPortBox.Enabled=-not $locked -and -not $script:internetTunnel
+    $connectionPortLabel.Visible=$internetMode
+    $portBox.Visible=$testMode; $testPortLabel.Visible=$testMode
+    $clearAddress.Enabled=$clientRadio.Checked -and -not $locked
+    if(-not $testMode){$gameBox.Width=[int][Math]::Round($settings.Width*510/734)}
+    $connectionStatus.Text=if($hostConnected){'Mitspieler verbunden. Spielstand bereitstellen.'}elseif($script:internetRole -eq 'host'){'Internetzugang offen. Einladung teilen; warte auf Mitspieler.'}elseif(-not $internetMode){"VPN / LAN: TCP + UDP $($portBox.Text). Adresse teilen; warte auf Mitspieler."}else{'IPv6 wählen oder öffentliche IPv4 eingeben. Verbindung öffnen.'}
+    if($clientRadio.Checked){$joinConnection.Text=if($script:lobbyPhase -in 'ready','started','starting'){'Verbunden. Spielstand vorbereitet.'}elseif($script:lobbyJob -and $script:lobbyJob.Progress.Snapshot()[0] -like 'Verbunden.*'){'Verbunden. Warte auf den Spielstand.'}else{'Adresse einfügen. Die Verbindung startet automatisch.'}}
     $internetCheck.Enabled=-not $locked -and -not $script:lobbyJob
-    $hostAddress.Enabled=-not $script:internetTunnel -and -not $locked
+    $hostAddress.Enabled=-not $locked
     $refreshAddress.Enabled=$hostAddress.Enabled
-    $copyAddress.Text=if($script:internetRole -eq 'host'){'Einladung kopieren'}else{'Adresse kopieren'}
+    $copyAddress.Enabled=-not $locked -and (-not $internetMode -or [bool]$script:internetInvite)
+    $copyAddress.Text=if($internetMode){'Einladung kopieren'}else{'Adresse kopieren'}
     foreach($pair in @(@($navHost,$hostRadio.Checked),@($navJoin,$clientRadio.Checked),@($navTest,$testMode))){
         $pair[0].Enabled=-not $locked
         $pair[0].BackColor=if($pair[1]){$Accent}else{$Sidebar}
@@ -456,6 +474,8 @@ if ($script:replayRecording) {
 	}
 }
 $portBox.Text = $cfg.port
+if($cfg.transport -ne 'internet'){$connectionMode.SelectedIndex=1}
+Refresh-HostAddresses
 Update-Fields
 $out.Text = if ($gameBox.Text) { "Spiel gefunden: $($gameBox.Text)" } else { 'Spielordner nicht gefunden - bitte über "Suchen..." auswählen.' }
 if($script:internetNeedsSetup) { $out.AppendText("`r`nLetzte Sitzung: Internet ohne VPN. Gastgeber: Internetzugang neu einrichten und die neue Einladung teilen. Mitspieler: neue Einladung einfügen.") }
@@ -563,11 +583,17 @@ function Start-LauncherGame {
 		if ($cfg.test -eq 'fakehost') { Start-FakeHost $cfg.port }
 		elseif ($cfg.mode -in 'host','client' -and -not $cfg.test) {
 			$session = Get-LaunchSession $gameBox.Text.Trim() $steam -Installed
+			Stop-LauncherGameForStart
+			Request-GameAutoload $gameBox.Text.Trim() $session.SaveName
 			Initialize-GameFirewall
-			Write-LauncherLog "Sitzung geprüft. Im Spiel '$($session.SaveName)' pausiert laden."
+			Write-LauncherLog "Sitzung geprüft. TF3 lädt '$($session.SaveName)' automatisch."
 		}
 	} catch { throw }
-	try { Start-Process "steam://rungameid/$AppId" } catch { throw 'Steam konnte nicht gestartet werden.' }
+	try { Start-Process "steam://rungameid/$AppId" } catch {
+        $request=Join-Path $gameBox.Text.Trim() 'alut_proxy.launch'
+        if(Test-Path -LiteralPath $request){Remove-Item -LiteralPath $request -Force}
+        throw 'Steam konnte nicht gestartet werden.'
+    }
 }
 function Initialize-GameFirewall {
     $cfg=Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
@@ -614,18 +640,15 @@ function Invoke-Transfer {
     $others=@($install,$startBoth,$check,$remove,$replay,$recover,$primary,$navHost,$navJoin,$navTest,$gameBox,$browse,$ipBox,$portBox,$roleBox,$internetSetup,$internetCheck)
     $connection=$null
     try {
-        if(Test-GameRunning){throw 'TF3 vor einer neuen Sitzung auf beiden PCs beenden. Im laufenden Spiel verwendet der Gastgeber Neu abgleichen.'}
+        if(-not $script:presence -or -not $script:presence.Connected){throw 'Zuerst mit dem Mitspieler verbinden.'}
         $port=$portBox.Text.Trim()
         if($port -notmatch '^\d+$' -or [int]$port -lt 1024 -or [int]$port -gt 65535){throw 'Der Port muss zwischen 1024 und 65535 liegen.'}
         Assert-LauncherInternetMode 'host' ([int]$port) ''
         $saveDir=Get-SaveFolder $steam
         if(-not $saveDir){throw 'Kein Spielstandordner gefunden. Bitte zuerst einen Spielstand in TF3 speichern.'}
-        $dialog=New-Object Windows.Forms.OpenFileDialog
-        try {
-            $dialog.InitialDirectory=$saveDir; $dialog.Filter='Spielstände (*.sav)|*.sav'; $dialog.Title='Gemeinsamen Spielstand auswählen'
-            if($dialog.ShowDialog() -ne 'OK'){return}
-            $savePath=Assert-LauncherSavePath $dialog.FileName $saveDir
-        } finally {$dialog.Dispose()}
+        if(-not $saveChoice.SelectedItem){throw 'Bitte einen Spielstand in der Liste auswählen.'}
+        $savePath=Assert-LauncherSavePath $saveChoice.SelectedItem.Path $saveDir
+        $script:presence.BeginTransfer(); $script:presence.Dispose(); $script:presence=$null
         Close-LauncherLobby
         Enter-TransferBusy $others; Update-Fields
         $script:forceNewSession=$true; $script:transferOK=$false
@@ -633,13 +656,14 @@ function Invoke-Transfer {
         $tick={param($text,$done,$total) Set-LauncherProgress $text $done $total; Update-InternetDiagnostics; [Windows.Forms.Application]::DoEvents(); return $script:transferCancel}
         if($script:internetTunnel){Write-LauncherLog (Get-LauncherInternetSummary)}
         if(-not $script:internetTunnel){[void](Enable-InternetFirewall ([int]$port))}
+        Stop-LauncherGameForStart $tick
         $manifest=Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
         $session=New-MultiplayerSession -Manifest $manifest -SavePath $savePath
         $clock=[Diagnostics.Stopwatch]::StartNew()
         $result=Send-Savegame $savePath ([int]$port) $tick -Session $session -KeepConnection ([ref]$connection)
         Save-PreparedSession (Join-Path $gameBox.Text.Trim() 'alut_session.json') $result.Session $result.SavePath | Out-Null
         $script:forceNewSession=$false
-        Install-LauncherSettings; Initialize-GameFirewall
+        Install-LauncherSettings; Install-GameAutoload $gameBox.Text.Trim(); Initialize-GameFirewall
         Set-LobbyConnection $connection $result.Session $true; $connection=$null
         $script:lobbyKey="$($clientRadio.Checked)|$($hostRadio.Checked)|$($ipBox.Text.Trim())|$($portBox.Text.Trim())|$($gameBox.Text.Trim())"
         $script:transferOK=$true
@@ -703,6 +727,7 @@ $primary.Add_Click({
     try {Install-LauncherSettings; Start-LauncherGame} catch {Show-Error $_.Exception.Message}
 })
 $startBoth.Add_Click({Start-BothGames})
+$saveChoice.Add_SelectedIndexChanged({Update-Fields})
 $recover.Add_Click({
     if(-not $hostRadio.Checked -or $script:transferBusy -or $script:liveBusy){return}
     $values=Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
@@ -715,11 +740,15 @@ $recover.Add_Click({
         Invoke-LiveResync $values @{Kind='manual'; Detail='Gastgeber'}
     } catch {Show-Error $_.Exception.Message}
 })
-$navHost.Add_Click({ Close-LauncherLobby; Refresh-HostAddresses; $hostRadio.Checked=$true; Update-Fields })
-$navJoin.Add_Click({ Close-LauncherLobby; if ($fakeRadio.Checked -and $ipBox.Text -eq '127.0.0.1') { $ipBox.Text='' }; $clientRadio.Checked=$true; Update-Fields })
-$navTest.Add_Click({ Close-LauncherLobby; $fakeRadio.Checked=$true; Update-Fields })
-$internetSetup.Add_Click({ try { Show-InternetHostSetup; Update-Fields } catch { Show-Error $_.Exception.Message } })
-$internetCheck.Add_Click({ try { Test-LauncherInternetInvitation } catch { Show-Error $_.Exception.Message } })
+$navHost.Add_Click({ Close-LauncherLobby; if($script:internetRole -eq 'client'){Stop-LauncherInternet}; Refresh-HostAddresses; $hostRadio.Checked=$true; Update-Fields })
+$navJoin.Add_Click({ Close-LauncherLobby; if($script:internetRole -eq 'host'){Stop-LauncherInternet}; if ($fakeRadio.Checked -and $ipBox.Text -eq '127.0.0.1') { $ipBox.Text='' }; $clientRadio.Checked=$true; Update-Fields })
+$navTest.Add_Click({ Close-LauncherLobby; Stop-LauncherInternet; $fakeRadio.Checked=$true; Update-Fields })
+$hostAddress.Add_SelectedIndexChanged({ if(-not $script:refreshingAddresses -and -not $script:lobbyPreparing -and -not $script:transferBusy -and -not $script:liveBusy){Close-LauncherLobby; if($script:internetRole -eq 'host'){Stop-LauncherInternet}; Update-Fields} })
+$internetSetup.Add_Click({ Start-LauncherInternetHost $false })
+$ipv4Setup.Add_Click({ Start-LauncherInternetHost $true })
+$clearAddress.Add_Click({ Clear-LauncherJoinAddress })
+$connectionMode.Add_SelectedIndexChanged({ Close-LauncherLobby; Stop-LauncherInternet; $script:internetNeedsSetup=$connectionMode.SelectedIndex -eq 0; Refresh-HostAddresses; Update-Fields })
+$internetCheck.Add_Click({ try { Test-LauncherInternetInvitation } catch { Write-LauncherLog $_.Exception.Message } })
 $copyAddress.Add_Click({
 	if ($script:internetRole -eq 'host' -and $script:internetInvite) {
 		[System.Windows.Forms.Clipboard]::SetText($script:internetInvite)
@@ -907,7 +936,7 @@ $timer.Add_Tick({
         }
         $status = Get-SessionStatus $gameBox.Text.Trim()
         if(-not (Test-GameRunning)){
-            $status.Text=if($script:lobbyError){$script:lobbyError}elseif($clientRadio.Checked){$joinStatus.Text}elseif(Test-LobbyCanStart){'Mitspieler bereit. Ihr könnt gemeinsam starten.'}elseif($script:lobbyPhase -eq 'ready'){'Spielstand übertragen. Warte auf die Bereitschaft des Mitspielers.'}else{'Spielstand bereitstellen und gemeinsam starten.'}
+            $status.Text=if($script:lobbyError){$script:lobbyError}elseif($clientRadio.Checked){$joinStatus.Text}elseif(Test-LobbyCanStart){'Mitspieler bereit. Ihr könnt gemeinsam starten.'}elseif($script:lobbyPhase -eq 'ready'){'Spielstand übertragen. Warte auf die Bereitschaft des Mitspielers.'}elseif($script:presence -and $script:presence.Connected){'Mitspieler verbunden. Jetzt Spielstand bereitstellen.'}else{'Verbindung herstellen und Einladung oder VPN-Adresse teilen.'}
         }
         $statusKey=$status.Text -replace '\d+ Aktion\(en\) warten','Aktionen warten'
         if($statusKey -ne $script:lastVisibleStatus){
@@ -955,10 +984,7 @@ $form.Add_FormClosed({
 })
 if ($Preview) {
 	if (-not $PreviewPath) { $PreviewPath = Join-Path $env:TEMP 'tf3mp-launcher-preview.png' }
-	if ($PreviewRole -eq 'internet') {
-		Show-InternetHostSetup -PreviewPath $PreviewPath
-		$form.Close(); Write-Output $PreviewPath; return
-	}
+
 	$form.Show(); [System.Windows.Forms.Application]::DoEvents()
 	$bitmap=New-Object System.Drawing.Bitmap($form.Width,$form.Height)
 	$form.DrawToBitmap($bitmap,(New-Object System.Drawing.Rectangle(0,0,$form.Width,$form.Height)))

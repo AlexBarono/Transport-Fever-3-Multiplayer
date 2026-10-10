@@ -1,5 +1,7 @@
 # v52: Internetübertragung und Subventionen
 
+Aktueller Launcher: [v53](v53-launcher-start.md) integriert die Verbindung und Spielstandauswahl ins Hauptfenster und lädt den gemeinsamen Stand automatisch. Die folgende Beschreibung dokumentiert den vorherigen Stand.
+
 Beide PCs brauchen das v52-Paket. Mod v52, Bridge weiterhin v14. Der automatische Beitritt und der gemeinsame Start aus v51 bleiben erhalten.
 
 ## Gefundene Ursachen

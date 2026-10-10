@@ -1,5 +1,7 @@
 # v51: automatischer Beitritt und gemeinsamer Start
 
+Aktueller Launcher: [v53](v53-launcher-start.md) integriert die Verbindung und Spielstandauswahl ins Hauptfenster und lädt den gemeinsamen Stand automatisch. Die folgende Beschreibung dokumentiert den vorherigen Stand.
+
 **Launcher-Fix 1:** Die Bedienelemente für Spielstand und Start gehören jetzt zur gemeinsamen Hintergrundfläche. Zuvor konnte diese Fläche die Knöpfe und Hinweise verdecken. Rollenwechsel behalten die bereits skalierte Breite bei. Ein WinForms-Test prüft Sichtbarkeit, Überdeckung und Begrenzungen bei 100 %, 150 % und 200 % Skalierung (189 Prüfungen). Mod und Bridge bleiben v51 / v14.
 
 Beim Gastgeber auf **Spielstand bereitstellen** klicken und die gewünschte `.sav`-Datei auswählen. Der Mitspieler lässt seinen Launcher unter **Beitreten** mit eingetragener Gastgeberadresse offen. Sobald der Stand übertragen und eingerichtet ist, wird **Spiel für beide starten** grün.

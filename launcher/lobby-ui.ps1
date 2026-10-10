@@ -12,6 +12,8 @@ $script:lobbyKey = ''
 $script:lobbyChanged = [DateTime]::UtcNow
 $script:lobbyGameSeen = $false
 $script:lobbyPreparing = $false
+$script:presence = $null
+$script:lobbyLoadSeen = $false
 
 function Register-LobbyInputEvents {
     foreach($field in @($ipBox,$portBox,$gameBox)){
@@ -24,6 +26,7 @@ function Register-LobbyInputEvents {
 }
 
 function Close-LauncherLobby {
+    if($script:presence){$script:presence.Dispose(); $script:presence=$null}
     if ($script:lobbyJob) {
         $script:lobbyJob.Progress.Cancel = $true
         $script:retiredLobbyJobs.Add($script:lobbyJob)
@@ -33,7 +36,14 @@ function Close-LauncherLobby {
     $script:lobbyPeerReady = $false; $script:lobbyPhase = 'idle'
     $script:lobbySession = ''; $script:lobbyStart = ''; $script:lobbyStarted = ''
     $script:lobbyError = ''; $script:lobbyGameSeen = $false
+    $script:lobbyLoadSeen=$false
     $progressBar.Value = 0
+}
+
+function Clear-LauncherJoinAddress {
+    Close-LauncherLobby
+    if($script:internetRole -eq 'client'){Stop-LauncherInternet}
+    $ipBox.Clear(); [void]$ipBox.Focus(); Update-Fields
 }
 
 function Set-LauncherProgress([string]$Text, [long]$Done, [long]$Total) {
@@ -117,7 +127,7 @@ function Update-LauncherLobby {
                         Start-LauncherGame
                         $script:lobbyStarted=$argument; $script:lobbyPhase='started'; $script:lobbyStartTime=[DateTime]::UtcNow
                         $script:lobby.Send('STARTED',$argument)
-                        Write-LauncherLog "Gastgeber hat gestartet. TF3 wurde über Steam geöffnet. Jetzt '$($session.SaveName)' pausiert laden."
+                        Write-LauncherLog "Gastgeber hat gestartet. TF3 lädt '$($session.SaveName)' automatisch."
                     } catch {
                         $script:lobbyPhase='error'; $script:lobbyError=$_.Exception.Message
                         $script:lobby.Send('ERROR','Spielstart fehlgeschlagen. Protokoll am Mitspieler-PC prüfen.')
@@ -126,7 +136,7 @@ function Update-LauncherLobby {
                 }
                 'STARTED' {
                     if ($script:lobbyPhase -eq 'starting' -and $argument -eq $script:lobbyStart) {
-                        try { $script:lobbyPreparing=$true; Start-LauncherGame; $script:lobbyPhase='started'; Write-LauncherLog 'Beide Starts über Steam ausgelöst. Beide laden jetzt den gemeinsamen Spielstand pausiert.' }
+                        try { $script:lobbyPreparing=$true; Start-LauncherGame; $script:lobbyPhase='started'; Write-LauncherLog 'Beide Spiele starten und laden den gemeinsamen Spielstand automatisch.' }
                         catch { $script:lobbyPhase='error'; $script:lobbyError=$_.Exception.Message; Write-LauncherLog "Gastgeber-Spielstart fehlgeschlagen: $($_.Exception.Message)" }
                         finally { $script:lobbyPreparing=$false }
                     }
@@ -151,6 +161,9 @@ function Update-LauncherLobby {
             Write-LauncherLog $script:lobbyError
         }
     }
+    if($script:presence -and $script:presence.Connected -and (-not $script:saveChoicesAt -or ([DateTime]::UtcNow-$script:saveChoicesAt).TotalSeconds -gt 10)){
+        Refresh-SaveChoices; $script:saveChoicesAt=[DateTime]::UtcNow
+    }
     if ($script:lobbyJob) {
         $snapshot=$script:lobbyJob.Progress.Snapshot()
         Set-LauncherProgress $snapshot[0] $snapshot[1] $snapshot[2]
@@ -163,7 +176,9 @@ function Update-LauncherLobby {
                 $result=$received.Transfer
                 Save-PreparedSession (Join-Path $gameBox.Text.Trim() 'alut_session.json') $result.Session $result.SavePath | Out-Null
                 $script:forceNewSession=$false
+                Stop-LauncherGameForStart { param($text,$done,$total) Set-LauncherProgress $text $done $total; [Windows.Forms.Application]::DoEvents(); return $false }
                 Install-LauncherSettings
+                Install-GameAutoload $gameBox.Text.Trim()
                 Initialize-GameFirewall
                 Set-LobbyConnection $connection $result.Session $false; $connection=$null
                 $script:transferOK=$true
@@ -182,11 +197,35 @@ function Update-LauncherLobby {
         Write-LauncherLog $script:lobbyError
     }
     if ($script:lobbyPhase -eq 'started' -and $gameRunning) { $script:lobbyGameSeen=$true }
+    if($script:lobbyPhase -eq 'started' -and $gameRunning -and -not $script:lobbyLoadSeen){
+        $values=Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
+        if($values.loaded -eq '1' -and $values.initialized -eq '1'){
+            if($script:lobbyError -like 'Automatisches Laden fehlgeschlagen:*'){$script:lobbyError=''}
+            $script:lobbyLoadSeen=$true; Write-LauncherLog 'Gemeinsamer Spielstand geladen. Die Verbindung wartet auf beide spielbereiten Karten.'
+        } elseif(-not $script:autoloadCheckAt -or ([DateTime]::UtcNow-$script:autoloadCheckAt).TotalSeconds -ge 5){
+            $script:autoloadCheckAt=[DateTime]::UtcNow
+            $failure=Get-GameAutoloadFailure $gameBox.Text.Trim() $script:lobbyStartTime
+            if($failure -and -not $script:lobbyError){
+                $script:lobbyError="Automatisches Laden fehlgeschlagen: $failure. Gemeinsamen Stand im TF3-Hauptmenü auswählen."
+                Write-LauncherLog $script:lobbyError
+            }
+        }
+    }
     if ($script:lobbyPhase -eq 'started' -and $script:lobbyGameSeen -and -not $gameRunning) {
         Write-LauncherLog 'TF3 wurde beendet. Für die nächste Sitzung stellt der Gastgeber den Spielstand erneut bereit.'
         Close-LauncherLobby
     }
-    if ($clientRadio.Checked -and -not $script:lobbyJob -and -not $script:lobby -and $script:lobbyPhase -eq 'idle' -and -not $gameRunning -and ([DateTime]::UtcNow-$script:lobbyChanged).TotalSeconds -gt 1.5 -and $script:retiredLobbyJobs.Count -eq 0) {
+    if($hostRadio.Checked -and -not $script:presence -and -not $script:lobby -and $script:lobbyPhase -eq 'idle' -and ($connectionMode.SelectedIndex -eq 1 -or $script:internetRole -eq 'host')){
+        try {
+            $script:lobbyPreparing=$true
+            if(-not $script:internetTunnel){[void](Enable-InternetFirewall ([int]$portBox.Text))}
+            Refresh-SaveChoices
+            $script:presence=New-Object TF3MP.LobbyPresence([int]$portBox.Text)
+            Write-LauncherLog 'Verbindung offen. Warte auf den Mitspieler; danach wird Spielstand bereitstellen angezeigt.'
+        } catch { $script:lobbyPhase='error'; $script:lobbyError=$_.Exception.Message; Write-LauncherLog "Verbindung konnte nicht geöffnet werden: $script:lobbyError" }
+        finally {$script:lobbyPreparing=$false}
+    }
+    if ($clientRadio.Checked -and -not $script:lobbyJob -and -not $script:lobby -and $script:lobbyPhase -eq 'idle' -and ([DateTime]::UtcNow-$script:lobbyChanged).TotalSeconds -gt 1.5 -and $script:retiredLobbyJobs.Count -eq 0) {
         if (-not $ipBox.Text.Trim() -or -not $gameBox.Text.Trim()) { return }
         try {
             $script:lobbyPreparing=$true; Update-Fields
@@ -195,7 +234,7 @@ function Update-LauncherLobby {
             $manifest=Get-LauncherManifest $gameBox.Text.Trim() $steam
             $script:lobbyJob=Start-LobbyReceiver $Root $endpoint.Address $endpoint.Port (Get-SaveFolder $steam) $manifest
             $script:lobbyPhase='receiving'
-            Write-LauncherLog 'Warte auf Spielstand vom Gastgeber. Übertragung und Start erfolgen automatisch; dieser Launcher muss offen bleiben.'
+            Write-LauncherLog 'Verbinde mit dem Gastgeber. Danach werden Spielstand und gemeinsamer Start automatisch übernommen.'
         } catch { $script:lobbyPhase='error'; $script:lobbyError=$_.Exception.Message; Write-LauncherLog $script:lobbyError }
         finally { $script:lobbyPreparing=$false }
     }

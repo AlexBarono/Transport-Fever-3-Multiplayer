@@ -334,6 +334,7 @@ static int handle_line(void)
 	if (!line_cut && !find(line_buf, "[mp_probe]")) {
 		hit = find(line_buf, "Loading game from file ");
 		if (hit) {
+			set_state_env("", "AUTOLOAD", "");
 			if (net_world_loading(hit + 23)) resync_loaded();
 			wsprintfA(world_id, "%lu-%lu-%lu", GetCurrentProcessId(), GetTickCount(), ++world_serial);
 			acknowledged_world[0] = 0;
@@ -346,6 +347,10 @@ static int handle_line(void)
 	if (!command) return 1;
 	command += 10;
 	while (*command == ' ' || *command == '\t') command++;
+	if (starts_with(command, "autoload failed:")) {
+		proxy_log("launcher: %.800s", command);
+		return 1;
+	}
 	if (starts_with(command, "net initialized ")) {
 		if (world_id[0] && !lstrcmpA(command + 16, world_id)) {
 			net_game_initialized(); lstrcpyA(acknowledged_world, world_id);
@@ -469,6 +474,13 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 	}
 	putenv_s = (putenv_s_fn)GetProcAddress(GetModuleHandleA("ucrtbase.dll"), "_putenv_s");
 	proxy_log("bridge: ucrtbase _putenv_s %s", putenv_s ? "found" : "NOT found");
+	{
+		char launch[1441];
+		launch[0] = 0;
+		if (GetEnvironmentVariableA("TF3MP_AUTOLOAD", launch, sizeof(launch)) >= sizeof(launch)) launch[0] = 0;
+		/* Lua's os.getenv uses the CRT environment, which can already have been cached. */
+		set_state_env("", "AUTOLOAD", launch);
+	}
 	set_env("hello");
 	set_state_env("", "ROLE", net_mode_name());
 	set_state_env("", "WORLD", ""); set_state_env("", "WORLD_ACK", "");
