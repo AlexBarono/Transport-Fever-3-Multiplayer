@@ -365,7 +365,7 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 # $tick wird regelmäßig aufgerufen (Text, erledigte Bytes, Gesamtbytes) und gibt $true zurück,
 # wenn abgebrochen werden soll. Mit -Session kommt {Text, Session, SavePath} zurück, sonst Text.
 # Reißt die Verbindung ab, wartet der Gastgeber weiter; der Mitspieler versucht es selbst erneut.
-function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Session = $null, [int]$MaxAttempts = 5, [int]$Connections = 4, [bool]$Continuous = $true) {
+function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Session = $null, [int]$MaxAttempts = 5, [int]$Connections = 4, [bool]$Continuous = $true, $KeepConnection = $null) {
 	if ($Connections -lt 1 -or $Connections -gt 4) { throw 'Die Zahl der Datenverbindungen muss zwischen 1 und 4 liegen.' }
 	$script:LastSaveTransfer = $null
 	Start-SaveTransferTrace 'host'
@@ -412,8 +412,10 @@ function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Se
 				continue
 			}
 			try {
+				$handedOff = $false
 				Write-SaveTransferTrace 'attempt' @{ number = $attempt }
 				$text = Send-SaveToClient $client $Session $metadata $name $files $hashes $total $tick $listener $Connections $Continuous
+				if ($KeepConnection) { $KeepConnection.Value = $client; $handedOff = $true }
 				if ($Session) { return [pscustomobject]@{ Text = $text; Session = $Session; SavePath = [IO.Path]::GetFullPath($savPath) } }
 				return $text
 			} catch {
@@ -422,7 +424,7 @@ function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Se
 				if (-not $break -or $attempt -ge $MaxAttempts) { if ($break) { throw $break.Message }; throw }
 				$lastBreak = $break.Message
 				$waitText = "$lastBreak`r`nWarte auf den nächsten Versuch des Mitspielers (Port $port, Versuch $($attempt + 1) von $MaxAttempts) ..."
-			} finally { $client.Close() }
+			} finally { if (-not $handedOff) { $client.Close() } }
 		}
 	} catch {
 		Write-SaveTransferTrace 'failed' @{ error_type = $_.Exception.GetType().Name }
@@ -452,8 +454,9 @@ function Send-ReceiverAbort($client, $writer, $text) {
 }
 
 # Mitspieler: ein Übertragungsversuch. Netzwerkfehler kommen als IOException zurück, alles andere ist endgültig.
-function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest, $partsRef, [int]$Connections = 4, [bool]$Continuous = $true) {
+function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest, $partsRef, [int]$Connections = 4, [bool]$Continuous = $true, $KeepConnection = $null) {
 	$client = New-Object System.Net.Sockets.TcpClient
+	$handedOff = $false
 	$writer = $null
 	$session = $null
 	try {
@@ -581,6 +584,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		$text = "Spielstand '$name' gespeichert ($([Math]::Round($done / 1MB, 1)) MB)."
 		$writer.Write([byte]1); $writer.Write($text); $writer.Flush()
 		Write-SaveTransferTrace 'complete' @{ total_bytes = $total }
+		if ($KeepConnection) { $KeepConnection.Value = $client; $handedOff = $true }
 		if ($session) { return [pscustomobject]@{ Text = $text; Session = $session; SavePath = (Join-Path $saveDir ($name + '.sav')) } }
 		return $text
 	} catch {
@@ -589,7 +593,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		if ($writer -and -not (Get-TransferNetworkError $_.Exception)) { Send-ReceiverAbort $client $writer $_.Exception.Message }
 		throw
 	} finally {
-		$client.Close()
+		if (-not $handedOff) { $client.Close() }
 	}
 }
 
@@ -598,7 +602,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 # -LocalManifest verlangt Version 2 und liefert {Text, Session, SavePath} erst nach dem Speichern.
 # Reißt die Verbindung ab, verbindet er sich bis zu $MaxAttempts-mal neu; der Gastgeber wartet so lange.
 # -WaitSeconds (Neuabgleich): Wartet der Gastgeber noch nicht, versucht er es so lange alle 2 Sekunden erneut.
-function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest = $null, [int]$MaxAttempts = 5, [int]$WaitSeconds = 0, [int]$Connections = 4, [bool]$Continuous = $true) {
+function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest = $null, [int]$MaxAttempts = 5, [int]$WaitSeconds = 0, [int]$Connections = 4, [bool]$Continuous = $true, $KeepConnection = $null, [string]$WaitText = 'Warte auf den Gastgeber und seinen Spielstand') {
 	if ($Connections -lt 1 -or $Connections -gt 4) { throw 'Die Zahl der Datenverbindungen muss zwischen 1 und 4 liegen.' }
 	$script:LastSaveTransfer = $null
 	Start-SaveTransferTrace 'client'
@@ -609,7 +613,7 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		for ($attempt = 1; ; $attempt++) {
 			try {
 				Write-SaveTransferTrace 'attempt' @{ number = $attempt }
-				return Receive-SaveOnce $hostIp $port $saveDir $tick $confirm $LocalManifest ([ref]$parts) $Connections $Continuous
+				return Receive-SaveOnce $hostIp $port $saveDir $tick $confirm $LocalManifest ([ref]$parts) $Connections $Continuous $KeepConnection
 			} catch {
 				if ((Test-NoHostError $_.Exception) -and [DateTime]::UtcNow -lt $waitUntil) {
 					# Kein Versuch verbraucht: Es wurde noch nichts übertragen.
@@ -617,7 +621,7 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 					$until = [DateTime]::UtcNow.AddSeconds(2)
 					while ([DateTime]::UtcNow -lt $until) {
 						$left = [int][Math]::Max(0, ($waitUntil - [DateTime]::UtcNow).TotalSeconds)
-						if (& $tick "Warte auf den Gastgeber ($($hostIp):$port). Er klickt ebenfalls auf 'Neu abgleichen' (noch $left Sekunden) ..." 0 0) { throw 'Abgebrochen.' }
+						if (& $tick $WaitText 0 0) { throw 'Abgebrochen.' }
 						Start-Sleep -Milliseconds 100
 					}
 					continue

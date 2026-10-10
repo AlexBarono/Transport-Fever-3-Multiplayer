@@ -1,26 +1,29 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Haltestellen, Signale, Bahnhöfe, Depots, Abriss, Linien und Fahrzeuge werden zwischen zwei Spielen gespiegelt. Aktueller Stand: **Probe v50 / DLL v14**. v30 hat alle 21 aufgenommenen Aktionen im Spiel erfolgreich nachgebaut, v31 lief mit zwei PCs über VPN. v32 überträgt zusätzlich Depotfahrten, Umkehren und Kredite und macht den Neuabgleich zu einem Klick. v33 behebt den Kreditfehler aus Run 35 und ordnet gleichzeitige Aktionen beider PCs. v34 baut Bauten auf beiden PCs zum selben Spielzeitpunkt. v35 macht das auch für Zug umdrehen, Start/Stopp und Depotfahrten und gleicht Abweichungen im laufenden Spiel neu ab. v36 macht das auch für „Linie zuweisen“ und Verkaufen und überträgt den Spielstand schneller. v37 hält die Sitzung bei einer abgelehnten Aktion nicht mehr an, gleicht nur noch bei bleibenden Abweichungen im Aufbau neu ab und versucht es nach einem Fehlschlag von selbst wieder. **Beide PCs brauchen das v50-Paket (DLL v14).**
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v51 / DLL v14**. **Beide PCs brauchen das v51-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
 
-## Ohne VPN starten (v50)
+[Neuer Launcher und Testablauf für v51](docs/v51-launcher.md)
 
-1. Beide verwenden das [v50-Paket](release/TF3-Multiplayer-v50-Windows.zip), beenden TF3 und öffnen `Start.bat`.
+## Ohne VPN starten (v51)
+
+1. Beide verwenden das [v51-Paket](release/TF3-Multiplayer-v51-Windows.zip), beenden TF3 und öffnen `Start.bat`.
 2. Gastgeber: **Internet ohne VPN** öffnen, die öffentliche IPv6 auswählen und **Direkt starten**. Alternativ **IPv4 / Routerfreigabe** für UPnP wählen. Bei manueller IPv4-Freigabe oben die öffentliche Routeradresse eintragen. Standard ist **TCP 47801**.
 3. Der Start prüft die Windows-Regel automatisch und fordert für IPv6 eine befristete TCP-Freigabe am Router an. Falls Windows nach Administratorrechten fragt, bestätigen. Bei bereits passender Regel erscheint keine Abfrage. Den angezeigten Routerstatus prüfen, dann **Einladung kopieren**. Die Einladung nur dem Mitspieler geben; sie gilt bis zum Schließen dieses Launchers.
-4. Mitspieler: unter **Beitreten** die vollständige Einladung einfügen und **Interneteinladung prüfen**. Erst die erfolgreiche Prüfung vom anderen Anschluss bestätigt die Erreichbarkeit. Bei IPv6 brauchen beide Anschlüsse IPv6; die Router-Firewall des Gastgebers kann zusätzlich eine TCP-Freigabe verlangen. UPnP kann im Router deaktiviert sein oder abgelehnt werden. CGNAT/DS-Lite ohne erreichbares IPv6 braucht weiterhin VPN oder einen späteren Relaydienst.
-5. Danach wie gewohnt den Spielstand bereitstellen/holen und beide Spiele starten. **Beide Launcher bleiben geöffnet.** Spielaktionen und die vier Spielstand-Datenströme laufen verschlüsselt über denselben Internetport; der gemeinsame Zeitplan bleibt erhalten. Neuabgleich bleibt auf Wunsch.
+4. Mitspieler: unter **Beitreten** die vollständige Einladung einfügen. Der Launcher wartet automatisch auf den Gastgeber. **Interneteinladung prüfen** kann vor der Übertragung zusätzlich die Erreichbarkeit prüfen. Erst die erfolgreiche Prüfung vom anderen Anschluss bestätigt die Erreichbarkeit. Bei IPv6 brauchen beide Anschlüsse IPv6; die Router-Firewall des Gastgebers kann zusätzlich eine TCP-Freigabe verlangen. UPnP kann im Router deaktiviert sein oder abgelehnt werden. CGNAT/DS-Lite ohne erreichbares IPv6 braucht weiterhin VPN oder einen späteren Relaydienst.
+5. Gastgeber: **Spielstand bereitstellen**. Der Mitspieler lädt ihn automatisch herunter. Nach seiner Bereitschaft wird **Spiel für beide starten** grün. Ein Klick öffnet TF3 auf beiden PCs; beide laden dort den angezeigten Stand pausiert. **Beide Launcher bleiben geöffnet.** Spielaktionen und die vier Spielstand-Datenströme laufen verschlüsselt über denselben Internetport; der gemeinsame Zeitplan bleibt erhalten. Neuabgleich bleibt auf Wunsch.
 
 Der Internetweg benötigt keinen Vermittlungsserver. Er ersetzt jedoch keine fehlende Erreichbarkeit beider Internetanschlüsse. Steam-Relays sind hier nicht integriert; die vorhandene Steam-DLL bestätigt keinen verfügbaren Relayzugang für diese Mod. [v50: Routerfreigabe, Ladebereitschaft und Diagnose](docs/v50-verbindung.md), [Internettransport](docs/v49-internet.md).
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe Paket auf beide PCs kopieren und entpacken, beide mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen. Das portable Paket liegt unter `release/TF3-Multiplayer-v50-Windows.zip`.
-2. Gastgeber: **Gastgeber** auswählen, die Adresse des VPN-Adapters wählen und **Adresse kopieren**. Den Mitspieler diese Adresse einfügen lassen. **Als Gastgeber starten** bietet beim ersten Start die Auswahl eines Spielstands aus dem aktuellen Steam-Spielstandordner an und wartet auf den Mitspieler.
-3. Mitspieler: **Beitreten** wählen, die kopierte Adresse einfügen (z. B. `100.80.12.4:47800`) und **Beitreten und Spiel starten** klicken. Der Launcher holt den Spielstand, vergleicht Spielversion, Multiplayer-Paket und zusätzliche Mods und bereitet eine gemeinsame Sitzung vor. Unterschiedliche Dateien werden konkret gemeldet. Auch installierte inaktive Zusatzmods werden verglichen.
-4. Nach erfolgreicher Übertragung installieren beide Launcher den Mod und starten TF3. Beide laden den angezeigten Spielstand pausiert. Die Verbindung wartet auf den vereinbarten Stand auf beiden PCs; danach gemeinsam fortsetzen. Die Welt muss im Spiel selbst geladen werden.
-5. Der Launcher zeigt Verbindung, ausstehende Aktionen, Weltprüfung und Fehler an. **Details prüfen** öffnet die letzten Meldungen. Ein späterer Start kann die vorbereitete Sitzung verwenden, solange ihre Dateien unverändert sind und beide wieder denselben Ausgangsstand laden.
+1. Dasselbe [v51-Paket](release/TF3-Multiplayer-v51-Windows.zip) auf beide PCs entpacken, mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen.
+2. Gastgeber: **Gastgeber**, VPN-Adresse auswählen, **Adresse kopieren** und mit dem Mitspieler teilen. **Spielstand bereitstellen** öffnet die Dateiauswahl und wartet auf die automatische Verbindung.
+3. Mitspieler: **Beitreten**, Adresse einfügen (z. B. `100.80.12.4:47800`) und den Launcher offen lassen. Er empfängt und prüft den Stand und richtet die Mod ein. Ein anderer gleichnamiger Stand wird automatisch ersetzt; die alte Datei bleibt als `.bak`. Versionen und zusätzliche installierte Mods müssen übereinstimmen.
+4. Beim Mitspieler steht **Warte auf das Starten des Gastgebers**. Der Gastgeber bekommt den grünen Knopf **Spiel für beide starten**, sobald Empfang und Einrichtung bestätigt sind. Ein Klick öffnet TF3 über Steam auf beiden PCs.
+5. Beide laden im Spiel den angezeigten gemeinsamen Stand pausiert. Der Launcher startet TF3; die erste Weltwahl erfolgt weiterhin im Spiel. Sobald beide Karten bereit sind, die Pause aufheben und bauen.
+6. **Beide Launcher bleiben offen.** Wichtige Verbindungs-, Übertragungs- und Aktionsfehler stehen automatisch unter **Sitzung & Protokoll**. Gelbe Weltabweichungen erzwingen keinen Neuabgleich. Nur der Gastgeber sieht **Neu abgleichen**; der Knopf überträgt einen frischen Stand und lädt ihn bei beiden im offenen Spiel.
 
-Standard: UDP 47800 für Spieldaten und TCP 47800 für den Spielstand. Die Windows-Firewall muss TF3 und die Spielstandübertragung über den verwendeten VPN-Adapter zulassen. Im gemeinsamen VPN wird die erreichbare VPN-IPv4 des Gastgebers verwendet; eine Router-Portfreigabe ist dafür nicht erforderlich. **Mod entfernen** stellt die gesicherte Original-DLL wieder her.
+**Nur Einstellungen speichern** und **Am selben Ort nachbauen** stehen im Testlabor. Der erste Knopf installiert Mod/Bridge und schreibt die Einstellungen, ohne Steam zu öffnen. Der zweite spielt eine aufgezeichnete Baufolge im Test *Gleiche Stelle* nach dem Neuladen am ursprünglichen Ort ab. Im normalen Gastgeber-/Mitspielerablauf werden diese Werkzeuge nicht benötigt.
 
 ## Neu in v48
 
@@ -206,6 +209,7 @@ python tools/run_lua.py tests/run_transport.lua
 python tools/run_lua.py tests/run_fingerprint.lua
 python tests/run_fake_partner.py
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_launcher.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_lobby.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_save_transfer.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_session.ps1
 ```

@@ -627,8 +627,16 @@ Test 'parallel: a dropped data connection is retried with clean parts on the sam
 		# The real host keeps its listener for retries, too. Avoid a loopback/Any rebind race
 		# in the test fixture while old accepted Windows sockets are still closing.
 		$deadline = [DateTime]::UtcNow.AddSeconds(15)
-		while (-not $listener.Pending()) { if ([DateTime]::UtcNow -gt $deadline) { throw 'receiver did not retry' }; Start-Sleep -Milliseconds 50 }
-		$retryClient = $listener.AcceptTcpClient(); $sockets += $retryClient
+		# Cancellation of the failed attempt may finish a late data-lane connection.
+		# Such a lane sends its preamble first; the retry control waits for our greeting.
+		$retryClient = $null
+		while (-not $retryClient) {
+			if ([DateTime]::UtcNow -gt $deadline) { throw 'receiver did not retry' }
+			if (-not $listener.Pending()) { Start-Sleep -Milliseconds 50; continue }
+			$candidate = $listener.AcceptTcpClient(); $sockets += $candidate
+			if ($candidate.Client.Poll(100000, [Net.Sockets.SelectMode]::SelectRead)) { $candidate.Close(); continue }
+			$retryClient = $candidate
+		}
 		$files = Get-SaveFiles $path; $hashes = @{}; $total = [int64]0
 		foreach ($f in $files) { $hashes[$f.Name] = Get-FileSha256 $f.FullName; $total += $f.Length }
 		Send-SaveToClient $retryClient $newSession $metadata 'Det' $files $hashes $total $tick $listener 4 | Out-Null

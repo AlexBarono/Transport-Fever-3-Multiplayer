@@ -17,6 +17,7 @@ $ModName = 'mp_probe'
 . (Join-Path $Root 'tools\same-spot.ps1')
 # Spielstand vom Gastgeber zum Mitspieler übertragen.
 . (Join-Path $Root 'tools\save-transfer.ps1')
+. (Join-Path $Root 'tools\lobby.ps1')
 . (Join-Path $Root 'tools\session.ps1')
 # Neu abgleichen mit einem Klick.
 . (Join-Path $Root 'tools\resync.ps1')
@@ -240,7 +241,7 @@ function Get-SessionStatus($gameDir) {
 	$clockStopped = $values.world -eq 'diff' -and @([string]$values.world_fields -split '[,\s]+') -contains 'clock'
 	if ($clockStopped) { return @{ Text="Aktionszeitplan blockiert. Bei Bedarf 'Neu abgleichen' anklicken."; Color='error' } }
 	if ($values.connected -ne '1' -and $values.epoch -match '^\d+$' -and $script:peerEpoch -gt [int]$values.epoch + 1) {
-		return @{ Text="Der Mitspieler ist mehrere Neuabgleiche weiter. Bitte auf beiden PCs 'Neu abgleichen' klicken."; Color='error' }
+		return @{ Text="Der Mitspieler ist mehrere Neuabgleiche weiter. Bitte den Gastgeber bitten, 'Neu abgleichen' zu starten."; Color='error' }
 	}
 	$drift = ''
 	if ($values.world -eq 'diff' -and $values.world_fields) { $drift = "  |  Abweichung ($(Get-WorldDifferenceText $values.world_fields)), Spiel läuft weiter. Neuabgleich bei Bedarf." }
@@ -256,7 +257,7 @@ function Get-SessionStatus($gameDir) {
 	}
 	if ($values.mode -eq 'loopback') { return @{ Text="Allein-Test  |  $pending Aktion(en) warten$disk"; Color='ok' } }
 	if ($values.protocol -eq '3' -and $values.ready -eq '0') {
-		if($values.loaded -eq '1') { return @{ Text='Spielstand geladen, aber Mod noch nicht bereit. Details prüfen; TF3MP-Mod muss aktiv sein.'; Color='idle' } }
+		if($values.loaded -eq '1') { return @{ Text='Spielstand geladen, aber Mod noch nicht bereit. Details stehen im Protokoll; TF3MP-Mod muss aktiv sein.'; Color='idle' } }
 		return @{ Text='Sitzung geprüft - den vereinbarten Spielstand pausiert laden'; Color='idle' }
 	}
 	if($values.protocol -eq '3' -and $values.compatible -eq '1' -and $values.peer_ready -eq '0') { return @{ Text='Partner erreicht; sein Spielstand / Mod ist noch nicht bereit.'; Color='idle' } }
@@ -348,15 +349,10 @@ function Get-LaunchSession($gameDir, $steam, [switch]$Installed) {
 }
 
 function Get-RecoveryInstructions([string]$role) {
-	if ($role -eq 'host') {
-		return "Neu abgleichen (Gastgeber):`r`n" +
-			"1. Der Launcher nimmt den Spielstand, den das Spiel bei der Abweichung selbst gespeichert hat ('$ResyncSaveName'), oder bittet dich, jetzt zu speichern.`r`n" +
-			"2. TF3 wird beendet und der Stand an deinen Mitspieler geschickt. Er klickt ebenfalls auf 'Neu abgleichen'.`r`n" +
-			"3. TF3 startet neu. Beide laden denselben Spielstand pausiert und setzen gemeinsam fort."
-	}
-	return "Neu abgleichen (Mitspieler):`r`n" +
-		"1. TF3 wird beendet. Der Launcher wartet, bis der Gastgeber ebenfalls auf 'Neu abgleichen' klickt, und holt seinen Spielstand.`r`n" +
-		"2. TF3 startet neu. Lade den genannten Spielstand pausiert und setzt gemeinsam fort."
+    if($role -eq 'host'){
+        return "Neu abgleichen (Gastgeber): TF3 speichert einen frischen Stand automatisch. Der Launcher schickt eine geprüfte Kopie und beide offenen Spiele laden sie automatisch. Nur der Gastgeber startet den Vorgang."
+    }
+    return "Neu abgleichen (Mitspieler): Der Launcher wartet, bis der Gastgeber den Neuabgleich startet, holt den neuen Spielstand und lädt ihn im offenen Spiel automatisch. Kein eigener Knopf nötig."
 }
 
 $script:replayRecording = if ($ReplayLog) { Read-ReplayRecording $ReplayLog } else { $null }
@@ -378,26 +374,53 @@ trap {
 }
 # ---------- Oberfläche ----------
 . (Join-Path $PSScriptRoot 'view.ps1')
+. (Join-Path $PSScriptRoot 'lobby-ui.ps1')
 
 function Update-Fields {
-	$ipBox.Enabled = $clientRadio.Checked
-	$portBox.Enabled = -not $loopRadio.Checked -and -not $script:internetTunnel
-	$replay.Enabled = $spotRadio.Checked
-	$recover.Enabled = $hostRadio.Checked -or $clientRadio.Checked
-	$hostPage.Visible = $hostRadio.Checked
-	$joinPage.Visible = $clientRadio.Checked
-	$testPage.Visible = $loopRadio.Checked -or $spotRadio.Checked -or $fakeRadio.Checked
-	$primary.Text = if ($hostRadio.Checked) { 'Als Gastgeber starten' } elseif ($clientRadio.Checked) { 'Beitreten und Spiel starten' } else { 'Test starten' }
-	$transfer.Text = if ($clientRadio.Checked) { 'Spielstand vom Gastgeber holen' } else { 'Spielstand bereitstellen' }
-	$transfer.Enabled = $hostRadio.Checked -or $clientRadio.Checked
-	$internetSetup.Enabled = $hostRadio.Checked
-	$hostAddress.Enabled = -not $script:internetTunnel
-	$refreshAddress.Enabled = -not $script:internetTunnel
-	$copyAddress.Text = if($script:internetRole -eq 'host') { 'Einladung kopieren' } else { 'Adresse kopieren' }
-	foreach ($pair in @(@($navHost,$hostRadio.Checked),@($navJoin,$clientRadio.Checked),@($navTest,($loopRadio.Checked -or $spotRadio.Checked -or $fakeRadio.Checked)))) {
-		$pair[0].BackColor = if ($pair[1]) { $Accent } else { $Sidebar }
-		$pair[0].ForeColor = if ($pair[1]) { $Sidebar } else { $TextColor }
-	}
+    $testMode=$loopRadio.Checked -or $spotRadio.Checked -or $fakeRadio.Checked
+    $locked=$script:transferBusy -or $script:liveBusy -or $script:lobbyPreparing -or $script:lobbyPhase -in 'starting','started'
+    $ipBox.Enabled=$clientRadio.Checked -and -not $locked
+    $portBox.Enabled=-not $loopRadio.Checked -and -not $script:internetTunnel -and -not $locked
+    $gameBox.Enabled=-not $locked; $browse.Enabled=-not $locked
+    $hostPage.Visible=$hostRadio.Checked; $joinPage.Visible=$clientRadio.Checked; $testPage.Visible=$testMode
+    $primary.Visible=-not $clientRadio.Checked
+    $primary.Text=if($hostRadio.Checked){'Spielstand bereitstellen'}else{'Test starten'}
+    $primary.Enabled=-not $locked -and -not (Test-GameRunning)
+    $primary.Width=if($hostRadio.Checked){336}else{694}
+    $flowTitle.Text=if($testMode){'LOKAL TESTEN  /  ERGEBNIS PRÜFEN'}else{'SPIELSTAND  /  GEMEINSAMER START'}
+    $remove.Enabled=-not $locked -and -not (Test-GameRunning)
+    $startBoth.Visible=$hostRadio.Checked
+    $startBoth.Enabled=Test-LobbyCanStart
+    $startBoth.Text=if($startBoth.Enabled){'Spiel für beide starten'}elseif($script:lobbyPhase -eq 'started'){'Beide Spiele gestartet'}elseif($script:lobbyPhase -eq 'starting'){'Warte auf Startbestätigung ...'}else{'Spiel starten'}
+    $startBoth.BackColor=if($startBoth.Enabled){$Accent}else{$Card}
+    $startBoth.ForeColor=if($startBoth.Enabled){$Background}else{$Muted}
+    $joinStatus.Visible=$clientRadio.Checked
+    $joinStatus.Text=switch($script:lobbyPhase){
+        'ready' {'Warte auf das Starten des Gastgebers'}
+        'started' {'TF3 startet. Gemeinsamen Spielstand laden.'}
+        'error' {'Verbindung oder Spielstand prüfen'}
+        default {'Warte auf Spielstand vom Gastgeber'}
+    }
+    if(-not $script:transferBusy -and -not $script:liveBusy -and -not $script:lobbyJob){
+        $workflowHint.Text=if($testMode){'Test wählen und starten. Die Auswertung findest du anschließend unter Details prüfen.'}elseif($script:lobbyError){$script:lobbyError}elseif($script:lobbyPhase -eq 'started'){'Im Spiel den vereinbarten Stand pausiert laden. Der Launcher bleibt offen.'}elseif($clientRadio.Checked -and $script:lobbyPhase -eq 'ready'){'Alles vorbereitet. Dein Gastgeber startet beide Spiele.'}elseif($clientRadio.Checked){'Adresse oder Einladung einfügen. Alles Weitere läuft automatisch.'}elseif($script:lobbyPhase -eq 'ready' -and -not $script:lobbyPeerReady){'Übertragen. Warte, bis der Mitspieler seine Einrichtung bestätigt.'}elseif($script:lobbyPeerReady){'Beide PCs sind bereit. Gemeinsam starten.'}else{'Wähle den Spielstand. Nach der bestätigten Übertragung wird der Start freigegeben.'}
+    }
+    $transfer.Visible=$script:transferBusy -or $script:liveBusy
+    $transfer.Text='Abbrechen'; $transfer.Enabled=$true
+    $check.Visible=$testMode; $check.Enabled=-not $locked
+    $install.Visible=$testMode; $install.Enabled=-not $locked
+    $replay.Visible=$testMode; $replay.Enabled=$spotRadio.Checked -and -not $locked
+    $recover.Visible=$hostRadio.Checked
+    $recover.Enabled=$hostRadio.Checked -and -not $script:transferBusy -and -not $script:liveBusy -and -not $script:lobbyPreparing -and (Test-GameRunning)
+    $internetSetup.Enabled=$hostRadio.Checked -and -not $locked
+    $internetCheck.Enabled=-not $locked -and -not $script:lobbyJob
+    $hostAddress.Enabled=-not $script:internetTunnel -and -not $locked
+    $refreshAddress.Enabled=$hostAddress.Enabled
+    $copyAddress.Text=if($script:internetRole -eq 'host'){'Einladung kopieren'}else{'Adresse kopieren'}
+    foreach($pair in @(@($navHost,$hostRadio.Checked),@($navJoin,$clientRadio.Checked),@($navTest,$testMode))){
+        $pair[0].Enabled=-not $locked
+        $pair[0].BackColor=if($pair[1]){$Accent}else{$Sidebar}
+        $pair[0].ForeColor=if($pair[1]){$Sidebar}else{$TextColor}
+    }
 }
 $hostRadio.Add_CheckedChanged({ Update-Fields })
 $clientRadio.Add_CheckedChanged({ Update-Fields })
@@ -442,6 +465,10 @@ if ($script:replayRecording) {
 # v36: Protokoll des Launchers neben alut_proxy.log im Spielordner (Lauf 38: ohne Protokoll war nicht zu
 # sehen, ob der Launcher den Neuabgleich überhaupt versucht hat).
 function Write-LauncherLog([string]$text) {
+	if ($out -and -not $out.IsDisposed) {
+		if ($out.TextLength -gt 80000) { $out.Text=$out.Text.Substring($out.TextLength-60000) }
+		$out.AppendText("`r`n[$(Get-Date -Format 'HH:mm:ss')] $text`r`n"); $out.SelectionStart=$out.TextLength; $out.ScrollToCaret()
+	}
 	try {
 		$dir = $gameBox.Text.Trim()
 		if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) { return }
@@ -469,7 +496,7 @@ function Get-TransferRateText([string]$path, $clock) {
 	} catch { return '' }
 }
 
-$install.Add_Click({
+function Install-LauncherSettings {
 	$script:installOK = $false
 	try {
 		$mode = if ($clientRadio.Checked -or $fakeRadio.Checked) { 'client' } elseif ($loopRadio.Checked) { 'loopback' } else { 'host' }
@@ -496,7 +523,7 @@ $install.Add_Click({
 			else { "Gastgeber, wartet auf Port $port" }
 		$next = if ($test -eq 'fakehost') {
 			"Der simulierte Gastgeber läuft im Hintergrund; sein UDP-Port wurde geprüft.`r`n" +
-			"1. 'Spiel starten', einen Spielstand laden, Tempo 1x lassen.`r`n" +
+			"1. 'Test starten', einen Spielstand laden, Tempo 1x lassen.`r`n" +
 			"2. Etwa 5 Minuten zuschauen: nach gut 1 Minute pausiert das Spiel von selbst, 20 Sekunden später läuft es weiter,`r`n" +
 			"   kurz danach eine Weile doppelt so schnell.`r`n" +
 			"3. Dann bauen: Gleise, zwei Bahnhöfe, Bahndepot, Signal, Linie, Zug. Danach einen Bahnhof`r`n" +
@@ -509,19 +536,21 @@ $install.Add_Click({
 			"2. Direkt hier 'Am selben Ort nachbauen' klicken: die $($script:replayRecording.Lines.Count) gespeicherten Aktionen werden wiederholt.`r`n" +
 			"3. Ergebnis prüfen und ohne Speichern beenden. Du brauchst vorher nichts neu zu bauen."
 		} elseif ($test) {
-			"1. 'Spiel starten' und einen Spielstand laden.`r`n2. Bauen (z. B. Straße und Depot).`r`n" +
+			"1. 'Test starten' und einen Spielstand laden.`r`n2. Bauen (z. B. Straße und Depot).`r`n" +
 			"3. OHNE Speichern ins Hauptmenü und denselben Spielstand neu laden (Spiel nicht beenden).`r`n" +
 			"4. Hier 'Am selben Ort nachbauen' klicken."
 		} elseif ($session) {
 			"Sitzung geprüft. Beide laden jetzt '$($session.SaveName)' pausiert und setzen gemeinsam fort.`r`n" +
 			"Die Verbindung wartet, bis beide den vereinbarten Spielstand geladen haben."
-		} else { "Jetzt 'Spiel starten', einen Spielstand laden und danach 'Details prüfen'." }
+		} else { "Jetzt 'Test starten', einen Spielstand laden und danach 'Details prüfen'." }
 		$script:installOK = $true
-		$out.Text = "Installiert.`r`nRolle: $role`r`nMod kopiert in $n Steam-Konto/Konten.`r`n`r`n$next"
-	} catch { Show-Error $_.Exception.Message }
-})
+		Write-LauncherLog "Multiplayer eingerichtet: $role. Mod in $n Steam-Konto/Konten."
+		if ($test -or $mode -eq 'loopback') { Write-LauncherLog $next }
+	} catch { throw }
+}
+$install.Add_Click({ try { Install-LauncherSettings } catch { Show-Error $_.Exception.Message } })
 
-$startGame.Add_Click({
+function Start-LauncherGame {
 	# Simulierter Gastgeber: falls sein Fenster inzwischen zu ist, wieder starten.
 	try {
 		$cfg = Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
@@ -533,13 +562,19 @@ $startGame.Add_Click({
 		if ($cfg.test -eq 'fakehost') { Start-FakeHost $cfg.port }
 		elseif ($cfg.mode -in 'host','client' -and -not $cfg.test) {
 			$session = Get-LaunchSession $gameBox.Text.Trim() $steam -Installed
-			$ruleResult=Enable-InternetFirewall ([int]$cfg.port) (Join-Path $gameBox.Text.Trim() 'TransportFever3.exe') $cfg.mode
-			Write-LauncherLog "Spiel-Firewall geprüft: UDP / $($cfg.mode) / Port $($cfg.port), $ruleResult"
-			$out.Text="Sitzung geprüft. Im Spiel '$($session.SaveName)' pausiert laden.`r`n`r`nWeltabweichungen bleiben Hinweise. Bei Bedarf 'Neu abgleichen' anklicken. Den Launcher fuer den angeforderten Spielstandaustausch offen lassen."
+			Initialize-GameFirewall
+			Write-LauncherLog "Sitzung geprüft. Im Spiel '$($session.SaveName)' pausiert laden."
 		}
-	} catch { Show-Error $_.Exception.Message; return }
-	try { Start-Process "steam://rungameid/$AppId" } catch { Show-Error 'Steam konnte nicht gestartet werden.' }
-})
+	} catch { throw }
+	try { Start-Process "steam://rungameid/$AppId" } catch { throw 'Steam konnte nicht gestartet werden.' }
+}
+function Initialize-GameFirewall {
+    $cfg=Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
+    if($cfg.mode -in 'host','client' -and -not $cfg.test){
+        $result=Enable-InternetFirewall ([int]$cfg.port) (Join-Path $gameBox.Text.Trim() 'TransportFever3.exe') $cfg.mode
+        Write-LauncherLog "Spiel-Firewall geprüft: UDP / $($cfg.mode) / Port $($cfg.port), $result"
+    }
+}
 
 $check.Add_Click({
 	try {
@@ -567,139 +602,55 @@ $script:transferHint = ''
 
 function Enter-TransferBusy($others) {
 	$script:transferBusy = $true; $script:transferCancel = $false
-	$transfer.Text = 'Abbrechen'
+	$transfer.Text = 'Abbrechen'; $transfer.Visible=$true
 	foreach ($b in $others) { $b.Enabled = $false }
 }
 
-# Gastgeber beim Neuabgleich, TF3 läuft: der neueste seit dem Spielstart gespeicherte Stand (meist der,
-# den der Mod bei der Abweichung gespeichert hat), oder einer, den der Gastgeber jetzt speichert.
-# $null heißt abgebrochen.
-function Select-ResyncSave([string]$saveDir, $tick) {
-	$since = Get-GameStartTime
-	if (-not $since) { $since = [DateTime]::UtcNow }
-	$file = Find-ResyncSave $saveDir $since
-	if ($file) {
-		$file = Wait-SaveWritten $file $tick
-		$answer = [System.Windows.Forms.MessageBox]::Show(
-			"Spielstand für den Neuabgleich: '$($file.BaseName)', gespeichert um $($file.LastWriteTime.ToString('HH:mm:ss')) Uhr.`r`n`r`n" +
-			"Ja: diesen Stand nehmen. TF3 wird dafür beendet, bei Bedarf auch sein Prozess.`r`n" +
-			"Nein: Ich speichere jetzt im Spiel einen neueren Stand.`r`n" +
-			"Abbrechen: nichts tun.", 'Neu abgleichen', 'YesNoCancel', 'Question')
-		if ($answer -eq 'Cancel') { return $null }
-		if ($answer -eq 'Yes') { return $file.FullName }
-		$since = [DateTime]::UtcNow
-	}
-	return (Wait-NewSave $saveDir $since $tick).FullName
-}
-
-# Spielstand teilen (Gastgeber) oder holen (Mitspieler). -Resync ist der Knopf 'Neu abgleichen': Er
-# beendet TF3 selbst, nimmt beim Gastgeber den gerade gespeicherten Stand ohne Dateiauswahl und lässt
-# den Mitspieler warten, bis der Gastgeber so weit ist.
-function Invoke-Transfer([switch]$Resync) {
-	# Ein zweiter Klick während der Übertragung bricht sie ab.
-	if ($script:transferBusy) { $script:transferCancel = $true; return }
-	$others = @($install, $startGame, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox, $internetSetup, $internetCheck)
-	# Bricht der Spieler den Neuabgleich vor dem Beenden von TF3 ab, bleibt die bisherige Sitzung gültig.
-	$previousForce = $script:forceNewSession
-	try {
-		$script:transferOK = $false
-		$script:forceNewSession = $true
-		$script:transferHint = ''
-		if ((Test-GameRunning) -and -not $Resync) { throw 'Bitte TF3 auf beiden PCs vollständig beenden, bevor ihr eine gemeinsame Sitzung vorbereitet.' }
-		$port = $portBox.Text.Trim()
-		if ($port -notmatch '^\d+$' -or [int]$port -lt 1024 -or [int]$port -gt 65535) { throw 'Der Port muss eine Zahl zwischen 1024 und 65535 sein (Standard 47800).' }
-		$saveDir = Get-SaveFolder $steam
-		if (-not $saveDir) { throw "Kein Spielstand-Ordner unter $steam\userdata gefunden.`nBitte TF3 einmal starten und einen Spielstand speichern." }
-		$tick = {
-			param($text, $done, $total)
-			$mb = if ($total -gt 0) { " ($([Math]::Round($done / 1MB, 1)) von $([Math]::Round($total / 1MB, 1)) MB)" } else { '' }
-			if ($done -gt 0 -and $total -gt 0 -and $text -match '^(Schicke|Empfange) ') {
-				if (-not $script:transferMeter -or $done -lt $script:transferMeter.StartBytes) { $script:transferMeter = @{ Clock = [Diagnostics.Stopwatch]::StartNew(); StartBytes = $done } }
-				$seconds = $script:transferMeter.Clock.Elapsed.TotalSeconds
-				if ($seconds -ge 0.2 -and $done -gt $script:transferMeter.StartBytes) {
-					$rate = ($done - $script:transferMeter.StartBytes) / $seconds
-					$left = [int][Math]::Ceiling(($total - $done) / $rate)
-					$mb += "  |  $([Math]::Round($rate / 1MB, 1)) MB/s  |  etwa $left Sekunden verbleibend"
-				}
-			} else { $script:transferMeter = $null }
-			$out.Text = "$text$mb$($script:transferHint)`r`n`r`nAbbrechen: noch einmal auf den Knopf klicken."
-			[System.Windows.Forms.Application]::DoEvents()
-			return $script:transferCancel
-		}
-		if ($Resync) { $out.Text = Get-RecoveryInstructions $(if ($hostRadio.Checked) { 'host' } else { 'client' }) }
-		if ($hostRadio.Checked) {
-			Assert-LauncherInternetMode 'host' ([int]$port) ''
-			if ($Resync -and (Test-GameRunning)) {
-				Enter-TransferBusy $others
-				$offeredSave = Select-ResyncSave $saveDir $tick
-				if (-not $offeredSave) { $script:forceNewSession = $previousForce; $out.Text = 'Neuabgleich abgebrochen. Nichts wurde geändert.'; return }
-				Stop-GameForResync $tick | Out-Null
-				# Hat das Spiel beim Beenden noch einmal gespeichert, erst danach weiter.
-				Wait-SaveWritten (Get-Item -LiteralPath $offeredSave) $tick -quietSeconds 0.2 | Out-Null
-			} else {
-				$dialog = New-Object System.Windows.Forms.OpenFileDialog
-				$dialog.InitialDirectory = $saveDir
-				$dialog.Filter = 'Spielstände (*.sav)|*.sav'
-				$dialog.Title = 'Welchen Spielstand soll der Mitspieler bekommen?'
-				if ($Resync) {
-					$newest = Find-ResyncSave $saveDir ([datetime]::MinValue)
-					if ($newest) { $dialog.FileName = $newest.Name }
-				}
-				if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
-				$offeredSave = $dialog.FileName
-				Enter-TransferBusy $others
-			}
-			$offeredSave = Assert-LauncherSavePath $offeredSave $saveDir
-			if ($Resync) { $script:transferHint = "`r`nDein Mitspieler klickt jetzt ebenfalls auf 'Neu abgleichen'." }
-			$out.Text='Prüfe Spielversion und Moddateien ...'
-			[System.Windows.Forms.Application]::DoEvents()
-			$manifest = Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
-			$session = New-MultiplayerSession -Manifest $manifest -SavePath $offeredSave
-			$clock = [Diagnostics.Stopwatch]::StartNew()
-			$script:LastSaveTransfer = $null
-			$result = Send-Savegame $offeredSave ([int]$port) $tick -Session $session
-			Write-LauncherLog "Spielstand geschickt: $(Split-Path -Leaf $offeredSave), $(Get-TransferRateText $offeredSave $clock)"
-			Save-PreparedSession -Path (Join-Path $gameBox.Text.Trim() 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
-			$script:transferOK = $true; $script:forceNewSession = $false
-			$out.Text = "Fertig: $($result.Text)`r`n`r`nSpielversion, Moddateien und Spielstand stimmen überein. " +
-				"Beide starten jetzt über den großen Startknopf und laden '$($result.Session.SaveName)' pausiert. Das anschließende Laden der Welt übernimmt TF3."
-		}
-		elseif ($clientRadio.Checked) {
-			$endpoint = Resolve-LauncherEndpoint $ipBox.Text $port
-			$ip = $endpoint.Address; $port=$endpoint.Port
-			Assert-LauncherInternetMode 'client' ([int]$port) ''
-			$parsed = $null
-			if (-not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) { throw 'Bitte die IP-Adresse des Gastgebers eingeben, z. B. 192.168.1.10.' }
-			if ($Resync -and (Test-GameRunning)) {
-				$question = "TF3 wird beendet und der Spielstand des Gastgebers geholt. Dein jetziger Stand wird nicht gespeichert. Reagiert TF3 nicht auf Schließen, wird sein Prozess beendet.`r`n`r`nWeiter?"
-				if ([System.Windows.Forms.MessageBox]::Show($question, 'Neu abgleichen', 'YesNo', 'Question') -ne 'Yes') { $script:forceNewSession = $previousForce; return }
-				Enter-TransferBusy $others
-				Stop-GameForResync $tick | Out-Null
-			} else { Enter-TransferBusy $others }
-			# Beim Neuabgleich ersetzt der Stand des Gastgebers einen gleichnamigen ohne Rückfrage (der alte bleibt als .bak).
-			$confirm = if ($Resync) { { param($question) $true } } else { { param($question) [System.Windows.Forms.MessageBox]::Show($question, 'Spielstand ersetzen?', 'YesNo', 'Question') -eq 'Yes' } }
-			$out.Text='Prüfe Spielversion und Moddateien ...'
-			[System.Windows.Forms.Application]::DoEvents()
-			$manifest = Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
-			$wait = if ($Resync) { 600 } elseif ($endpoint.Internet) { 150 } else { 0 }
-			$clock = [Diagnostics.Stopwatch]::StartNew()
-			$script:LastSaveTransfer = $null
-			$result = Receive-Savegame $ip ([int]$port) $saveDir $tick $confirm -LocalManifest $manifest -WaitSeconds $wait
-			Write-LauncherLog "Spielstand geholt: $(Split-Path -Leaf $result.SavePath), $(Get-TransferRateText $result.SavePath $clock) (inklusive Warten auf den Gastgeber)"
-			Save-PreparedSession -Path (Join-Path $gameBox.Text.Trim() 'alut_session.json') -Session $result.Session -SavePath $result.SavePath | Out-Null
-			$script:transferOK = $true; $script:forceNewSession = $false
-			$out.Text = "Fertig: $($result.Text)`r`n`r`nSpielversion, Moddateien und Spielstand stimmen überein. " +
-				"Jetzt über den großen Startknopf starten und '$($result.Session.SaveName)' pausiert laden. Das anschließende Laden der Welt übernimmt TF3."
-		}
-		else { throw "Bitte oben 'Gastgeber' oder 'Mitspieler' wählen. Der Gastgeber schickt, der Mitspieler holt." }
-	} catch { Show-Error $_.Exception.Message }
-	finally {
-		$script:transferBusy = $false
-		$script:transferHint = ''
-		Update-Fields
-		foreach ($b in $others) { $b.Enabled = $true }
-		Update-Fields
-	}
+# The host prepares the save; the joining launcher receives in its background worker.
+function Invoke-Transfer {
+    if($script:transferBusy){$script:transferCancel=$true; return}
+    if(-not $hostRadio.Checked){return}
+    $others=@($install,$startBoth,$check,$remove,$replay,$recover,$primary,$navHost,$navJoin,$navTest,$gameBox,$browse,$ipBox,$portBox,$roleBox,$internetSetup,$internetCheck)
+    $connection=$null
+    try {
+        if(Test-GameRunning){throw 'TF3 vor einer neuen Sitzung auf beiden PCs beenden. Im laufenden Spiel verwendet der Gastgeber Neu abgleichen.'}
+        $port=$portBox.Text.Trim()
+        if($port -notmatch '^\d+$' -or [int]$port -lt 1024 -or [int]$port -gt 65535){throw 'Der Port muss zwischen 1024 und 65535 liegen.'}
+        Assert-LauncherInternetMode 'host' ([int]$port) ''
+        $saveDir=Get-SaveFolder $steam
+        if(-not $saveDir){throw 'Kein Spielstandordner gefunden. Bitte zuerst einen Spielstand in TF3 speichern.'}
+        $dialog=New-Object Windows.Forms.OpenFileDialog
+        try {
+            $dialog.InitialDirectory=$saveDir; $dialog.Filter='Spielstände (*.sav)|*.sav'; $dialog.Title='Gemeinsamen Spielstand auswählen'
+            if($dialog.ShowDialog() -ne 'OK'){return}
+            $savePath=Assert-LauncherSavePath $dialog.FileName $saveDir
+        } finally {$dialog.Dispose()}
+        Close-LauncherLobby
+        Enter-TransferBusy $others; Update-Fields
+        $script:forceNewSession=$true; $script:transferOK=$false
+        Write-LauncherLog "Bereite '$(Split-Path -Leaf $savePath)' vor und warte auf den Mitspieler."
+        $tick={param($text,$done,$total) Set-LauncherProgress $text $done $total; [Windows.Forms.Application]::DoEvents(); return $script:transferCancel}
+        if(-not $script:internetTunnel){[void](Enable-InternetFirewall ([int]$port))}
+        $manifest=Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
+        $session=New-MultiplayerSession -Manifest $manifest -SavePath $savePath
+        $clock=[Diagnostics.Stopwatch]::StartNew()
+        $result=Send-Savegame $savePath ([int]$port) $tick -Session $session -KeepConnection ([ref]$connection)
+        Save-PreparedSession (Join-Path $gameBox.Text.Trim() 'alut_session.json') $result.Session $result.SavePath | Out-Null
+        $script:forceNewSession=$false
+        Install-LauncherSettings; Initialize-GameFirewall
+        Set-LobbyConnection $connection $result.Session $true; $connection=$null
+        $script:lobbyKey="$($clientRadio.Checked)|$($hostRadio.Checked)|$($ipBox.Text.Trim())|$($portBox.Text.Trim())|$($gameBox.Text.Trim())"
+        $script:transferOK=$true
+        Write-LauncherLog "Spielstand übertragen: $(Get-TransferRateText $savePath $clock). Warte auf die Bereitschaft des Mitspielers."
+    } catch {
+        $script:lobbyPhase='error'; $script:lobbyError=$_.Exception.Message
+        if($_.Exception.Message -eq 'Abgebrochen.'){Write-LauncherLog 'Spielstandübertragung abgebrochen.'}else{Show-Error $_.Exception.Message}
+    } finally {
+        if($connection){$connection.Close()}
+        $script:transferBusy=$false
+        foreach($control in $others){$control.Enabled=$true}
+        Update-Fields
+    }
 }
 $transfer.Add_Click({ Invoke-Transfer })
 
@@ -736,47 +687,41 @@ $remove.Add_Click({
 	$answer = [System.Windows.Forms.MessageBox]::Show('Original-Datei wiederherstellen und Mod entfernen?', 'Entfernen', 'YesNo', 'Question')
 	if ($answer -ne 'Yes') { return }
 	try {
+		Close-LauncherLobby
 		Uninstall-All $gameBox.Text.Trim() $steam
-		$out.Text = 'Entfernt. Das Spiel ist wieder im Originalzustand.'
+		$script:lobbyPhase='error'; $script:lobbyError='Mod entfernt. Für eine neue Sitzung Rolle auswählen und den Stand erneut bereitstellen.'
+		Write-LauncherLog 'Entfernt. Das Spiel ist wieder im Originalzustand.'
+		Update-Fields
 	} catch { Show-Error $_.Exception.Message }
 })
 
 $primary.Add_Click({
-	if ($hostRadio.Checked -or $clientRadio.Checked) {
-		$prepared = $false
-		if (-not $script:forceNewSession) {
-			try { Get-LaunchSession $gameBox.Text.Trim() $steam | Out-Null; $prepared = $true } catch {}
-		}
-		if (-not $prepared) { $transfer.PerformClick(); if (-not $script:transferOK) { return } }
-	}
-	$install.PerformClick()
-	if ($script:installOK) { $startGame.PerformClick() }
+    if($hostRadio.Checked){Invoke-Transfer; return}
+    if($clientRadio.Checked){return}
+    try {Install-LauncherSettings; Start-LauncherGame} catch {Show-Error $_.Exception.Message}
 })
-# Neu abgleichen mit einem Klick: TF3 beenden, Spielstand teilen oder holen, einrichten und neu starten.
+$startBoth.Add_Click({Start-BothGames})
 $recover.Add_Click({
-	if ($script:transferBusy) { return }
-	$values = Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
-	$config = Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
-	if (Test-ManualLiveResyncAvailable $values $config (Test-GameRunning)) {
-		Invoke-LiveResync $values @{ Kind = 'manual'; Detail = 'button' }
-		return
-	}
-	Invoke-Transfer -Resync
-	if (-not $script:transferOK) { return }
-	$install.PerformClick()
-	if (-not $script:installOK) { return }
-	$startGame.PerformClick()
-	$out.AppendText("`r`n`r`nNeuabgleich: TF3 startet neu. Wenn beide den Spielstand pausiert geladen haben, setzt ihr gemeinsam fort.")
+    if(-not $hostRadio.Checked -or $script:transferBusy -or $script:liveBusy){return}
+    $values=Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
+    $config=Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
+    if(-not (Test-ManualLiveResyncAvailable $values $config (Test-GameRunning))){
+        Write-LauncherLog 'Neuabgleich noch nicht möglich. Beide PCs müssen TF3 mit der gemeinsamen Karte geöffnet haben.'; return
+    }
+    try {
+        if($script:lobby -and $script:lobby.Connected){$script:lobby.Send('RESYNC',[Guid]::NewGuid().ToString('N'))}
+        Invoke-LiveResync $values @{Kind='manual'; Detail='Gastgeber'}
+    } catch {Show-Error $_.Exception.Message}
 })
-$navHost.Add_Click({ Refresh-HostAddresses; $hostRadio.Checked=$true; Update-Fields })
-$navJoin.Add_Click({ if ($fakeRadio.Checked -and $ipBox.Text -eq '127.0.0.1') { $ipBox.Text='' }; $clientRadio.Checked=$true; Update-Fields })
-$navTest.Add_Click({ $fakeRadio.Checked=$true; Update-Fields })
+$navHost.Add_Click({ Close-LauncherLobby; Refresh-HostAddresses; $hostRadio.Checked=$true; Update-Fields })
+$navJoin.Add_Click({ Close-LauncherLobby; if ($fakeRadio.Checked -and $ipBox.Text -eq '127.0.0.1') { $ipBox.Text='' }; $clientRadio.Checked=$true; Update-Fields })
+$navTest.Add_Click({ Close-LauncherLobby; $fakeRadio.Checked=$true; Update-Fields })
 $internetSetup.Add_Click({ try { Show-InternetHostSetup; Update-Fields } catch { Show-Error $_.Exception.Message } })
 $internetCheck.Add_Click({ try { Test-LauncherInternetInvitation } catch { Show-Error $_.Exception.Message } })
 $copyAddress.Add_Click({
 	if ($script:internetRole -eq 'host' -and $script:internetInvite) {
 		[System.Windows.Forms.Clipboard]::SetText($script:internetInvite)
-		$out.Text='Interneteinladung kopiert. Der Mitspieler fügt sie unter Beitreten ein und prüft sie von seinem PC.'
+		Write-LauncherLog 'Interneteinladung kopiert. Der Mitspieler fügt sie unter Beitreten ein und prüft sie von seinem PC.'
 		return
 	}
 	if ($hostAddress.SelectedItem) {
@@ -785,7 +730,7 @@ $copyAddress.Add_Click({
 			[System.Windows.Forms.Clipboard]::SetText("$($endpoint.Address):$($endpoint.Port)")
 			$script:internetNeedsSetup=$false
 		} catch { Show-Error $_.Exception.Message; return }
-		$out.Text='Beitrittsadresse kopiert. Teile sie mit deinem Mitspieler im gemeinsamen VPN.'
+		Write-LauncherLog 'Beitrittsadresse kopiert. Teile sie mit deinem Mitspieler im gemeinsamen VPN.'
 	}
 })
 # v40: explicit local/peer request. The host sends a separate copy of a fresh save;
@@ -796,7 +741,7 @@ $script:liveBusy = $false
 function Invoke-LiveResync($values, $reason) {
 	$script:liveBusy = $true
 	$gameDir = $gameBox.Text.Trim()
-	$others = @($install, $startGame, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox)
+	$others = @($install, $startBoth, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox)
 	$why = switch ($reason.Kind) {
 		'manual' { 'von dir per Knopf gestartet' }
 		'diff' { "Abweichung im Aufbau ($(Get-WorldDifferenceText $reason.Detail))" }
@@ -812,7 +757,7 @@ function Invoke-LiveResync($values, $reason) {
 	$tick = {
 		param($text, $done, $total)
 		$mb = if ($total -gt 0) { " ($([Math]::Round($done / 1MB, 1)) von $([Math]::Round($total / 1MB, 1)) MB)" } else { '' }
-		$out.Text = "$text$mb$($script:transferHint)`r`n`r`nAbbrechen: auf 'Abbrechen' klicken."
+		Set-LauncherProgress $text $done $total
 		[System.Windows.Forms.Application]::DoEvents()
 		return $script:transferCancel
 	}
@@ -862,21 +807,24 @@ function Invoke-LiveResync($values, $reason) {
 		Wait-LiveReload $statusPath $epochBefore $tick 120 $reloadPath | Out-Null
 		Write-LauncherLog "Neuabgleich: '$name' geladen"
 		$success = $true
-		$out.Text = "Neuabgleich im laufenden Spiel: '$name' ist geladen.`r`nSobald beide PCs ihn geladen haben, verbinden sie sich wieder. Dann gemeinsam weiterspielen (Pause aufheben)." +
-			"`r`nGrund war: $why."
+		Write-LauncherLog "Neuabgleich abgeschlossen: '$name' geladen. Sobald beide Karten bereit sind, gemeinsam die Pause aufheben."
 	} catch {
 		$problem = $_.Exception.Message
 		Write-LauncherLog "Neuabgleich fehlgeschlagen: $problem"
 		if ($problem -eq 'Abgebrochen.') {
 			# Selbst abgebrochen: nicht gleich wieder anfangen.
 			$success = $true
-			$out.Text = "Neuabgleich abgebrochen. Er startet erst wieder, wenn ihr 'Neu abgleichen' anklickt."
+			Write-LauncherLog 'Neuabgleich abgebrochen. Nur der Gastgeber kann einen weiteren Versuch starten.'
 		} else {
-			$out.Text = "Neuabgleich im laufenden Spiel hat nicht geklappt: $problem`r`n`r`n" +
-				"Kein automatischer weiterer Versuch. Bei Bedarf erneut 'Neu abgleichen' anklicken."
+			Write-LauncherLog 'Kein automatischer weiterer Versuch. Bei Bedarf startet der Gastgeber Neu abgleichen erneut.'
 		}
 	} finally {
 		Complete-LiveResync $script:liveMemory $success ([DateTime]::UtcNow)
+		try {
+			$latest=Read-ProxyStatusValues (Join-Path $gameDir 'alut_proxy.status')
+			$script:liveMemory.PeerReq=[string]$latest.resync_peer
+			if($latest.pid){$script:liveMemory.Pid=$latest.pid}
+		} catch {}
 		# Ältere Kopien weg, auch nach einem Fehlschlag; die zuletzt ausgetauschte bleibt.
 		try {
 			$old = Remove-OldSyncSaves (Get-SaveFolder $steam) $LiveResyncKeepSaves $script:liveMemory.LastSave
@@ -896,13 +844,13 @@ function Invoke-LiveResync($values, $reason) {
 function Invoke-EpochCatchUp($values, [string]$savePath, [int]$peerEpoch) {
 	$script:liveBusy = $true
 	$gameDir = $gameBox.Text.Trim()
-	$others = @($install, $startGame, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox)
+	$others = @($install, $startBoth, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox)
 	$name = ''
 	Write-LauncherLog "Neuabgleich nachholen: Mitspieler in Runde $peerEpoch, dieses Spiel in $($values.epoch); lade $(Split-Path -Leaf $savePath)"
 	$script:transferHint = "`r`n`r`nDer Mitspieler hat den gemeinsamen Spielstand schon geladen, dieses Spiel noch nicht. Es lädt ihn jetzt nach."
 	$tick = {
 		param($text, $done, $total)
-		$out.Text = "$text$($script:transferHint)"
+		Set-LauncherProgress $text $done $total
 		[System.Windows.Forms.Application]::DoEvents()
 		return $script:transferCancel
 	}
@@ -918,7 +866,7 @@ function Invoke-EpochCatchUp($values, [string]$savePath, [int]$peerEpoch) {
 	} catch {
 		Write-LauncherLog "Neuabgleich nachholen fehlgeschlagen: $($_.Exception.Message)"
 		$out.Text = "Der Mitspieler hat den gemeinsamen Spielstand geladen, dieses Spiel konnte ihn nicht nachladen: $($_.Exception.Message)`r`n`r`n" +
-			"Bitte auf beiden PCs 'Neu abgleichen' klicken (TF3 startet dabei neu)."
+			"Bitte den Gastgeber bitten, 'Neu abgleichen' zu starten (TF3 startet dabei neu)."
 	} finally {
 		$script:transferBusy = $false
 		$script:transferHint = ''
@@ -930,18 +878,48 @@ function Invoke-EpochCatchUp($values, [string]$savePath, [int]$peerEpoch) {
 
 $script:peerEpoch = -1
 $script:peerEpochRead = [datetime]::MinValue
+Register-LobbyInputEvents
 $timer = New-Object System.Windows.Forms.Timer
-$timer.Interval=2000
+$timer.Interval=500
+$script:lastStatusUpdate=[datetime]::MinValue
+$script:lastVisibleStatus=''
+$script:shownActionIssues=@{}
 $timer.Add_Tick({
+	if($script:liveBusy -or $script:transferBusy -or $script:lobbyPreparing){return}
+	try {Update-LauncherLobby} catch {Write-LauncherLog "Sitzungssteuerung: $($_.Exception.Message)"}
+	if(([DateTime]::UtcNow-$script:lastStatusUpdate).TotalSeconds -lt 2){return}
+	$script:lastStatusUpdate=[DateTime]::UtcNow
 	Update-InternetDiagnostics
-	if ($script:liveBusy) { return }
 	try {
 		if (-not $Preview -and -not $script:transferBusy -and (Test-GameRunning)) {
 			Update-LauncherActionIssues $steam $gameBox.Text.Trim()
 		}
-		$issueLabel.Text = if ($script:actionIssues.Count) { "$($script:actionIssues.Count) Aktion(en) fehlgeschlagen – Details prüfen und fehlende Bauten kontrollieren." } else { '' }
-		$status = Get-SessionStatus $gameBox.Text.Trim()
-		$statusLabel.Text=$status.Text
+		$issueLabel.Text = if ($script:actionIssues.Count) { "$($script:actionIssues.Count) Aktion(en) fehlgeschlagen – Ursachen stehen unten im Protokoll." } else { '' }
+        foreach($issue in @($script:actionIssues.Issues)){
+            $key="$($script:actionIssues.Pid)/$($issue.Place)/$($issue.Token)"
+            if(-not $script:shownActionIssues.ContainsKey($key)){
+                $script:shownActionIssues[$key]=$true
+                $place=if($issue.Place -eq 'peer'){'beim Mitspieler'}else{'auf diesem PC'}
+                Write-LauncherLog "Fehlgeschlagene Aktion $place | $($issue.Label): $(Get-ActionReasonText $issue.Reason) Kennung: $($issue.Token)"
+            }
+        }
+        $status = Get-SessionStatus $gameBox.Text.Trim()
+        if(-not (Test-GameRunning)){
+            $status.Text=if($script:lobbyError){$script:lobbyError}elseif($clientRadio.Checked){$joinStatus.Text}elseif(Test-LobbyCanStart){'Mitspieler bereit. Ihr könnt gemeinsam starten.'}elseif($script:lobbyPhase -eq 'ready'){'Spielstand übertragen. Warte auf die Bereitschaft des Mitspielers.'}else{'Spielstand bereitstellen und gemeinsam starten.'}
+        }
+        $statusKey=$status.Text -replace '\d+ Aktion\(en\) warten','Aktionen warten'
+        if($statusKey -ne $script:lastVisibleStatus){
+            $script:lastVisibleStatus=$statusKey
+            Write-LauncherLog $status.Text
+            if(Test-GameRunning){
+                $diagnostic=Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
+                Write-LauncherLog "Spielkanal: Rolle=$($diagnostic.mode), Quelle geladen=$($diagnostic.loaded), Mod bereit=$($diagnostic.initialized), Partner bereit=$($diagnostic.peer_ready); UDP-Antworten=$($diagnostic.hello_received)."
+                if($status.Color -eq 'error' -or $status.Text -match 'Abweichung|Warte auf Partner'){
+                    $sync=Get-SyncStatus $steam; if($sync -and $sync -ne $script:lastSyncDiagnostic){$script:lastSyncDiagnostic=$sync; Write-LauncherLog $sync}
+                }
+            }
+        }
+        $statusLabel.Text=$status.Text
 		$statusLabel.ForeColor = if ($status.Color -eq 'error') { [System.Drawing.ColorTranslator]::FromHtml('#FF8990') } elseif ($status.Color -eq 'ok') { $Accent } else { $Muted }
 	} catch { $statusLabel.Text='Verbindungsstatus wird aktualisiert ...' }
 	if ($Preview -or $script:transferBusy -or -not (Test-GameRunning)) { return }
@@ -949,7 +927,7 @@ $timer.Add_Tick({
 		$values = Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
 		$liveConfig = Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
 		if (-not (Test-AutomaticResyncEnabled $values $liveConfig)) { return }
-		$reason = Get-LiveResyncReason $values $script:liveMemory ([DateTime]::UtcNow)
+		$reason = Get-LauncherResyncReason $values
 		# Ohne Verbindung: in welcher Runde ist der Mitspieler (höchstens alle 10 Sekunden lesen)?
 		if ($values.connected -eq '1' -or $values.mode -notin 'host', 'client') { $script:peerEpoch = -1 }
 		elseif (([DateTime]::UtcNow - $script:peerEpochRead).TotalSeconds -ge 10) {
@@ -965,10 +943,10 @@ $timer.Add_Tick({
 		}
 	} catch { $script:liveBusy = $false; Write-LauncherLog "Zeitgeber: $($_.Exception.Message)" }
 })
-$form.Add_Shown({ Write-LauncherLog "Launcher gestartet ($(Split-Path -Leaf $Root))"; $timer.Start() })
+$form.Add_Shown({ if($Preview){return}; Write-LauncherLog "Launcher gestartet ($(Split-Path -Leaf $Root))"; $timer.Start() })
 # v34: das normale X schließt den Launcher immer, auch während einer Übertragung. Laufende Schritte
 # werden abgebrochen; danach endet der (versteckte) PowerShell-Prozess sicher.
-$form.Add_FormClosing({ $script:transferCancel = $true; Write-LauncherLog 'Launcher geschlossen'; Stop-LauncherInternet })
+$form.Add_FormClosing({ $script:transferCancel = $true; Close-LauncherLobby; if(-not $Preview){Write-LauncherLog 'Launcher geschlossen'}; Stop-LauncherInternet })
 $form.Add_FormClosed({
 	$timer.Stop(); $timer.Dispose()
 	if (-not $Preview) { [Environment]::Exit(0) }

@@ -10,7 +10,7 @@ Nach der Sitzungsprüfung vereinbaren die Launcher vier Datenverbindungen und be
 
 Die zusätzlichen Verbindungen müssen die IP-Adresse der Steuerverbindung, die zufällige Kennung dieses Übertragungsversuchs und einen freien Bereichsindex vorweisen. Eine andere Kennung belegt keinen Bereich. Es werden höchstens vier Datenverbindungen angenommen; ungültige Verbindungen und die Wartezeit auf fehlende Verbindungen sind begrenzt. Je Verbindung wird spätestens nach einem MiB Empfang bestätigt. Seit v48 liest eine eigene Hintergrundaufgabe diese Bestätigungen, während der Sender kontinuierlich weitersendet. Der gemeldete Fortschritt zählt bestätigte Daten und nicht bloß große Windows-Sendepuffer. Die Kennung ist eine Zuordnung innerhalb des VPN, keine Verschlüsselung des Spielstands.
 
-Anschließend wird jede komplette Datei mit SHA-256 geprüft. Eine fehlende, doppelte, zu große oder beschädigte Datei ersetzt keinen vorhandenen Spielstand. Empfangene Dateien liegen zunächst als `.part` vor. Vor dem Ersetzen eines anderen gleichnamigen Spielstands fragt der Launcher nach; bei Zustimmung bleibt die alte Datei als `.bak`. Der ausdrücklich gestartete Neuabgleich stimmt dem Ersetzen selbst zu und behält ebenfalls die Sicherung.
+Anschließend wird jede komplette Datei mit SHA-256 geprüft. Eine fehlende, doppelte, zu große oder beschädigte Datei ersetzt keinen vorhandenen Spielstand. Empfangene Dateien liegen zunächst als `.part` vor. Im Launcher v51 wird ein anderer gleichnamiger Spielstand automatisch ersetzt; die alte Datei bleibt als `.bak`. Die Versions- und SHA-Prüfung bleibt vorgeschaltet. Direkte Werkzeugaufrufe können über ihren Bestätigungs-Callback weiter ablehnen.
 
 ## Oberfläche und Abbruch
 
@@ -36,3 +36,13 @@ pwsh -NoProfile -File tests/run_save_transfer.ps1
 ```
 
 Für parallele Testläufe kann ein anderer Testport mit `-Port 47970` gewählt werden; alle Datenverbindungen verwenden denselben Port. Diese Tests verändern keine installierten Spielstände und starten TF3 nicht. Die Geschwindigkeit und Bedienbarkeit müssen zusätzlich auf den beiden tatsächlichen VPN-PCs geprüft werden.
+
+## Automatischer Beitritt und Start (v51)
+
+`tools/lobby.ps1` empfängt in einem eigenen PowerShell-Runspace. Fortschritt und Abbruch werden über ein gemeinsames C#-Objekt weitergereicht; der Hintergrundcode greift nicht auf WinForms zu. Der Empfänger wartet auf das Bereitstellen des Spielstands, ohne die Oberfläche zu blockieren. Ein Wechsel von Adresse, Rolle oder Spielordner bricht den bisherigen Empfänger ab und schließt seine Verbindung.
+
+Mit `-KeepConnection ([ref]$connection)` behalten Sender und Empfänger nach dem bestätigten Dateispeichern die bestehende TCP-Steuerverbindung. `tools/lobby-channel.cs` übernimmt sie für `READY`, `START`, `STARTED` und `RESYNC`. Kein zusätzlicher Port und keine zusätzliche Routerfreigabe sind nötig; der bestehende TLS-Tunnel trägt dieselbe Verbindung. Ohne diesen optionalen Parameter schließen die Werkzeuge ihre Verbindung wie bisher.
+
+Nach Versionsprüfung, Speichern und Installation meldet der Mitspieler `READY`. Erst dann gibt der Gastgeber-Launcher den Start frei. Ein Start bekommt eine neue Kennung; die Bestätigung muss zu ihr passen. Doppelte Starts öffnen Steam nicht erneut. Die Nachrichten sind an die Sitzung gebunden, größenbegrenzt und auf erlaubte Befehle je Rolle beschränkt. Heartbeats erkennen einen Verbindungsverlust. Eine alte gespeicherte Sitzungsdatei löst keinen Start aus. Nach Verlust der Steuerverbindung braucht ein neuer gemeinsamer Start eine neue Übertragung. Ein laufender Spielkanal bleibt davon unabhängig.
+
+Nur der Gastgeber bietet Neuabgleich an. Er benachrichtigt den Mitspieler über die Launcher-Verbindung; der bestehende Spielkanal kann die Anfrage ebenfalls weiterreichen. Beide Launcher tauschen den frischen Stand aus und laden ihn über die vorhandene Mod-/Bridge-Anbindung im offenen TF3. Weltabweichungen starten diesen Vorgang weiterhin nicht automatisch.

@@ -200,4 +200,9 @@ function Update-InternetDiagnostics {
     }
     $snapshot=($values | ConvertTo-Json -Compress)
     if($snapshot -ne $script:internetLastStats) { $script:internetLastStats=$snapshot; Write-InternetLog 'transport' $values }
+    $notice="Tunnel verbunden=$($t.GameChannelConnected); $script:internetRouterStatus; $($t.LastError)"
+    if($notice -ne $script:internetLastNotice) {
+        $script:internetLastNotice=$notice
+        if(Get-Command Write-LauncherLog -ErrorAction SilentlyContinue) { Write-LauncherLog "Internet: $notice" }
+    }
 }
