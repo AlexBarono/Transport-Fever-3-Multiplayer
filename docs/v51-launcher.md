@@ -1,5 +1,9 @@
 # v51: automatischer Beitritt und gemeinsamer Start
 
+**Launcher-Fix 1:** Die Bedienelemente für Spielstand und Start gehören jetzt zur gemeinsamen Hintergrundfläche. Zuvor konnte diese Fläche die Knöpfe und Hinweise verdecken. Rollenwechsel behalten die bereits skalierte Breite bei. Ein WinForms-Test prüft Sichtbarkeit, Überdeckung und Begrenzungen bei 100 %, 150 % und 200 % Skalierung (189 Prüfungen). Mod und Bridge bleiben v51 / v14.
+
+Beim Gastgeber auf **Spielstand bereitstellen** klicken und die gewünschte `.sav`-Datei auswählen. Der Mitspieler lässt seinen Launcher unter **Beitreten** mit eingetragener Gastgeberadresse offen. Sobald der Stand übertragen und eingerichtet ist, wird **Spiel für beide starten** grün.
+
 Der Gastgeber stellt einen Spielstand bereit. Auf dem Mitspieler-PC genügt es, unter **Beitreten** seine Adresse oder Interneteinladung einzufügen und den Launcher offen zu lassen. Ein eigener Beitritts-, Download- oder Startknopf entfällt.
 
 1. **Warte auf Spielstand vom Gastgeber:** Empfang läuft im Hintergrund. Spielversion, Multiplayer-Paket, zusätzliche Mods und Dateiinhalt werden geprüft. Gleichnamige alte Spielstände bleiben als `.bak` gesichert; die Rückfrage entfällt.

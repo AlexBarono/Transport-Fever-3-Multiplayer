@@ -386,7 +386,8 @@ function Update-Fields {
     $primary.Visible=-not $clientRadio.Checked
     $primary.Text=if($hostRadio.Checked){'Spielstand bereitstellen'}else{'Test starten'}
     $primary.Enabled=-not $locked -and -not (Test-GameRunning)
-    $primary.Width=if($hostRadio.Checked){336}else{694}
+    # Use the already scaled row width when switching roles after WinForms DPI scaling.
+    $primary.Width=if($hostRadio.Checked){[int][Math]::Round($joinStatus.Width*336/694)}else{$joinStatus.Width}
     $flowTitle.Text=if($testMode){'LOKAL TESTEN  /  ERGEBNIS PRÜFEN'}else{'SPIELSTAND  /  GEMEINSAMER START'}
     $remove.Enabled=-not $locked -and -not (Test-GameRunning)
     $startBoth.Visible=$hostRadio.Checked

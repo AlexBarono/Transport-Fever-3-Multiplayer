@@ -7,7 +7,7 @@ $TextColor=[System.Drawing.ColorTranslator]::FromHtml('#EDF3F8')
 $Muted=[System.Drawing.ColorTranslator]::FromHtml('#A5B6C7')
 $Accent=[System.Drawing.ColorTranslator]::FromHtml('#75E0C0')
 $form=New-Object System.Windows.Forms.Form
-$form.Text='Transport Fever 3 | Multiplayer'
+$form.Text='Transport Fever 3 | Multiplayer (Launcher-Fix 1)'
 $form.ClientSize=New-Object System.Drawing.Size(1024,900)
 $form.StartPosition='CenterScreen'; $form.FormBorderStyle='FixedSingle'; $form.MaximizeBox=$false
 $form.BackColor=$Background; $form.ForeColor=$TextColor
@@ -132,9 +132,9 @@ New-Label $testPage 'Der simulierte Gastgeber startet automatisch im Hintergrund
 
 $workflow=New-Panel $form 250 390 734 113
 $flowTitle=New-Label $workflow 'SPIELSTAND  /  GEMEINSAMER START' 20 8 565 20 9 $Accent
-$primary=New-Button $form 'Spielstand bereitstellen' 270 420 336 44 $true
+$primary=New-Button $workflow 'Spielstand bereitstellen' 20 30 336 44 $true
 $primary.Font=New-Object System.Drawing.Font('Segoe UI',11,[System.Drawing.FontStyle]::Bold)
-$startBoth=New-Button $form 'Spiel starten' 620 420 344 44
+$startBoth=New-Button $workflow 'Spiel starten' 370 30 344 44
 $startBoth.Font=$primary.Font
 $startBoth.Add_Paint({param($sender,$event)
     $brush=New-Object Drawing.SolidBrush($sender.BackColor)
@@ -142,13 +142,13 @@ $startBoth.Add_Paint({param($sender,$event)
     $color=if($sender.Enabled){$Background}else{$Muted}
     [Windows.Forms.TextRenderer]::DrawText($event.Graphics,$sender.Text,$sender.Font,$sender.ClientRectangle,$color,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))
 })
-$joinStatus=New-Label $form 'Warte auf Spielstand vom Gastgeber' 270 420 694 39 16 $TextColor
-$workflowHint=New-Label $form 'Nach der Übertragung startet der Gastgeber beide Spiele.' 270 469 694 31 9 $Muted
+$joinStatus=New-Label $workflow 'Warte auf Spielstand vom Gastgeber' 20 30 694 39 16 $TextColor
+$workflowHint=New-Label $workflow 'Nach der Übertragung startet der Gastgeber beide Spiele.' 20 79 694 31 9 $Muted
 $joinStatus.BackColor=$Card; $workflowHint.BackColor=$Card
 $progressBar=New-Object Windows.Forms.ProgressBar
-$progressBar.Location=New-Object Drawing.Point(250,501); $progressBar.Size=New-Object Drawing.Size(734,3)
-$progressBar.Style='Continuous'; $form.Controls.Add($progressBar)
-$transfer=New-Button $form 'Abbrechen' 854 393 110 25
+$progressBar.Location=New-Object Drawing.Point(0,111); $progressBar.Size=New-Object Drawing.Size(734,2)
+$progressBar.Style='Continuous'; $workflow.Controls.Add($progressBar)
+$transfer=New-Button $workflow 'Abbrechen' 604 3 110 25
 $transfer.Font=New-Object System.Drawing.Font('Segoe UI',9); $transfer.Visible=$false
 $check=New-Button $form 'Details prüfen' 686 622 152 32
 $issueLabel=New-Label $form '' 252 660 732 22 9 ([System.Drawing.ColorTranslator]::FromHtml('#FFCA80'))
