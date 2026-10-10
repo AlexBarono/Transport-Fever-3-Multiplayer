@@ -8,6 +8,8 @@ import socket
 import tempfile
 import threading
 import time
+import sys
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 work = Path(tempfile.mkdtemp(prefix="tf3mp-net-"))
@@ -18,6 +20,7 @@ def bind():
     return sock
 
 host_port_socket = bind(); host_port = host_port_socket.getsockname()[1]; host_port_socket.close()
+route_port = host_port
 front, back = bind(), bind()
 paused = threading.Event()
 stopping = threading.Event()
@@ -45,8 +48,8 @@ def relay():
                 client = address
                 if b" FRAG " in data and data.split(b" ", 4)[3] == b"1" and not loss["fragment"]:
                     loss["fragment"] = True; continue
-                back.sendto(data, ("127.0.0.1", host_port))
-                if b" FRAG " in data: back.sendto(data, ("127.0.0.1", host_port))
+                back.sendto(data, ("127.0.0.1", route_port))
+                if b" FRAG " in data: back.sendto(data, ("127.0.0.1", route_port))
             elif client:
                 if b" PART " in data and not loss["ack"]: loss["ack"] = True; continue
                 front.sendto(data, client)
@@ -361,6 +364,19 @@ finally:
     guarded_host.mp_stop(); probe.close()
 print("PASS host OACK/RACK gates, fair pending-direction selection and stale/future WANT guards", flush=True)
 
+internet_fixture = None
+if "--internet" in sys.argv:
+    ready, stop = work / "internet-ready.txt", work / "internet-stop.txt"
+    internet_fixture = subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", str(ROOT / "tests/internet_fixture.ps1"), "-HostPort", str(host_port),
+        "-ReadyFile", str(ready), "-StopFile", str(stop)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        wait(lambda: ready.exists() or internet_fixture.poll() is not None)
+        assert ready.exists(), internet_fixture.communicate(timeout=2)
+        route_port = int(ready.read_text(encoding="utf-8-sig"))
+    except BaseException:
+        internet_fixture.terminate(); internet_fixture.wait(timeout=5); raise
+    print("Testing native action ordering through an IPv6 TLS Internet tunnel", flush=True)
 thread = threading.Thread(target=relay, daemon=True); thread.start()
 host = dll("host", host_port); client = dll("client", front.getsockname()[1])
 try:
@@ -517,4 +533,8 @@ try:
 finally:
     client.mp_stop(); host.mp_stop(); stopping.set(); thread.join(timeout=1)
     front.close(); back.close()
+    if internet_fixture:
+        stop.write_text("stop")
+        try: internet_fixture.communicate(timeout=5)
+        except subprocess.TimeoutExpired: internet_fixture.terminate(); internet_fixture.communicate(timeout=5)
     print(f"Test files: {work}", flush=True)

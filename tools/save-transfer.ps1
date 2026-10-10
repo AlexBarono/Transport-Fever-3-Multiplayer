@@ -476,6 +476,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		$writer = New-Object System.IO.BinaryWriter($stream, [System.Text.Encoding]::UTF8)
 		$headerText = 'Warte auf die Übertragungsdaten des Gastgebers ...'
 		$magic = Read-SaveHeader $reader 'text' $tick $headerText 32
+		if ($magic -eq 'TF3MPWAIT') { throw (New-NoHostError 'Der Internetzugang steht. Der Gastgeber hat den Spielstand noch nicht bereitgestellt; warte auf seinen Launcher.') }
 		if ($magic -eq $SaveSessionMagic) {
 			if (-not $LocalManifest) { throw 'Der Gastgeber verlangt die neue Kompatibilitätsprüfung. Bitte denselben aktuellen Launcher verwenden.' }
 			$metadataLength = Read-SaveHeader $reader 'int' $tick $headerText

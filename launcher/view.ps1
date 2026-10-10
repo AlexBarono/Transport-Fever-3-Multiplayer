@@ -49,16 +49,16 @@ New-Label $side "Gemeinsam bauen.`r`nGemeinsam verbinden." 24 77 177 60 12 | Out
 $navHost=New-Button $side 'Gastgeber' 16 176 186 46
 $navJoin=New-Button $side 'Beitreten' 16 232 186 46
 $navTest=New-Button $side 'Testlabor' 16 288 186 46
-New-Label $side "VERBINDUNG ÜBER VPN" 24 650 180 24 9 $Accent | Out-Null
-New-Label $side "Beide PCs im selben VPN.`r`nNutze die VPN-IP des`r`nGastgebers zum Beitreten." 24 684 176 75 10 $Muted | Out-Null
-New-Label $side 'Probe v48  /  Bridge v13' 24 801 185 22 9 $Muted | Out-Null
+New-Label $side "VPN ODER INTERNET" 24 650 180 24 9 $Accent | Out-Null
+New-Label $side "Ohne VPN: Internetzugang`r`neinrichten und Einladung`r`nbeim Mitspieler einfügen." 24 684 176 75 10 $Muted | Out-Null
+New-Label $side 'Probe v49  /  Bridge v13' 24 801 185 22 9 $Muted | Out-Null
 New-Label $form 'Eure nächste Verbindung.' 250 28 734 44 25 | Out-Null
 New-Label $form 'Sitzung vorbereiten, Spielstand teilen und gemeinsam loslegen.' 252 77 734 28 11 $Muted | Out-Null
 $statusLabel=New-Label $form 'Bereit zum Einrichten' 252 115 734 30 10 $Accent
 
 $hostPage=New-Panel $form 250 155 734 220
 New-Label $hostPage 'Du bist der Gastgeber' 22 18 680 34 18 | Out-Null
-New-Label $hostPage 'Wähle deine VPN-Adresse und teile sie mit deinem Mitspieler.' 22 60 690 28 10 $Muted | Out-Null
+New-Label $hostPage 'VPN / LAN: Adresse teilen. Ohne VPN: Internetzugang einrichten.' 22 60 690 28 10 $Muted | Out-Null
 $hostAddress=New-Object System.Windows.Forms.ComboBox
 $hostAddress.Location=New-Object System.Drawing.Point(22,100); $hostAddress.Size=New-Object System.Drawing.Size(390,30)
 $hostAddress.DropDownStyle='DropDownList'; $hostAddress.DisplayMember='Display'
@@ -93,13 +93,15 @@ $refreshAddress=New-Button $hostPage 'Neu laden' 426 98 76 36
 $refreshAddress.Font=New-Object System.Drawing.Font('Segoe UI',9)
 $refreshAddress.Add_Click({ Refresh-HostAddresses })
 $copyAddress=New-Button $hostPage 'Adresse kopieren' 516 98 196 36 $true
-New-Label $hostPage "1. VPN-Adresse teilen und den gemeinsamen Spielstand bereitstellen.`r`n2. Nach der Prüfung starten beide und laden diesen Spielstand pausiert." 22 155 690 55 10 $Muted | Out-Null
+$internetSetup=New-Button $hostPage 'Internet ohne VPN' 22 155 220 36 $true
+New-Label $hostPage "IPv6 oder automatische Routerfreigabe, verschlüsselt.`r`nDanach den Spielstand wie gewohnt bereitstellen." 258 153 455 55 10 $Muted | Out-Null
 
 $joinPage=New-Panel $form 250 155 734 220
 New-Label $joinPage 'Bei deinem Mitspieler beitreten' 22 18 690 34 18 | Out-Null
-New-Label $joinPage 'VPN-Adresse des Gastgebers' 22 66 680 24 10 $Muted | Out-Null
+New-Label $joinPage 'Einladung oder VPN-Adresse des Gastgebers' 22 66 680 24 10 $Muted | Out-Null
 $ipBox=New-Box $joinPage 22 100 690
-New-Label $joinPage "Zum Beispiel 100.80.12.4:47800 - eine kopierte Adresse kannst du direkt einfügen.`r`nÜbertragung läuft im VPN. Danach lädt TF3 die Welt; lade den gemeinsamen Stand pausiert." 22 155 690 55 10 $Muted | Out-Null
+$internetCheck=New-Button $joinPage 'Interneteinladung prüfen' 22 155 220 36
+New-Label $joinPage "Ohne VPN: vollständige tf3mp-internet://-Einladung einfügen.`r`nMit VPN: z. B. 100.80.12.4:47800. Danach Spielstand holen." 258 153 455 55 10 $Muted | Out-Null
 
 $testPage=New-Panel $form 250 155 734 220
 New-Label $testPage 'Testlabor / ein PC' 22 15 690 34 18 | Out-Null

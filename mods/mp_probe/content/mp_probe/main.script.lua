@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 48
+main.PROBE_VERSION = 49
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7

@@ -1,4 +1,4 @@
-﻿param([switch]$LibraryOnly, [switch]$Preview, [string]$PreviewPath = "", [ValidateSet("host","join","test")][string]$PreviewRole = "host", [string]$ReplayLog = "")
+﻿param([switch]$LibraryOnly, [switch]$Preview, [string]$PreviewPath = "", [ValidateSet("host","join","test","internet")][string]$PreviewRole = "host", [string]$ReplayLog = "")
 # Einfache Oberfläche zum Einrichten des TF3-Multiplayer-Tests.
 # Wird über Start.bat im Hauptordner gestartet (Doppelklick).
 # Installiert die Proxy-DLL (launcher\bin\alut.dll) und den Mod mods\mp_probe,
@@ -22,6 +22,8 @@ $ModName = 'mp_probe'
 . (Join-Path $Root 'tools\resync.ps1')
 . (Join-Path $Root 'tools\fake-report.ps1')
 . (Join-Path $Root 'tools\action-issues.ps1')
+. (Join-Path $Root 'tools\internet.ps1')
+. (Join-Path $Root 'tools\internet-view.ps1')
 $script:actionIssues = New-ActionIssueReader
 $script:actionLogPath = ''
 $script:actionLogChecked = [datetime]::MinValue
@@ -85,16 +87,16 @@ function Get-LocalIPs {
 function Test-GameRunning { return [bool](Get-Process -Name 'TransportFever3' -ErrorAction SilentlyContinue) }
 
 function Read-Ini($path) {
-	$cfg = @{ mode = 'host'; port = '47800'; host = ''; test = '' }
+	$cfg = @{ mode = 'host'; port = '47800'; host = ''; test = ''; transport = '' }
 	if (Test-Path $path) {
 		foreach ($line in Get-Content $path) {
-			if ($line -match '^\s*(mode|port|host|test)\s*=\s*(.*?)\s*$') { $cfg[$matches[1]] = $matches[2] }
+			if ($line -match '^\s*(mode|port|host|test|transport)\s*=\s*(.*?)\s*$') { $cfg[$matches[1]] = $matches[2] }
 		}
 	}
 	return $cfg
 }
 
-function Install-All($gameDir, $mode, $port, $partner, $steam, $test = '', $session = $null) {
+function Install-All($gameDir, $mode, $port, $partner, $steam, $test = '', $session = $null, $transport = '') {
 	if (Test-GameRunning) { throw 'Transport Fever 3 läuft noch. Bitte zuerst das Spiel beenden.' }
 	if ($mode -in 'host','client' -and -not $test -and -not $session) {
 		throw 'Bitte zuerst den gemeinsamen Spielstand teilen oder vom Gastgeber holen. Damit wird die Sitzung geprüft.'
@@ -117,6 +119,7 @@ function Install-All($gameDir, $mode, $port, $partner, $steam, $test = '', $sess
 	Unblock-File $dll -ErrorAction SilentlyContinue
 
 	$ini = @('[net]', "mode=$mode", "port=$port")
+	if ($transport -eq 'internet') { $ini += 'transport=internet' }
 	if ($mode -eq 'client') { $ini += "host=$partner" }
 	# Ausdrücklich gewählte lokale Tests benötigen keine gemeinsame Sitzung.
 	if ($test) { $ini += "test=$test" }
@@ -355,7 +358,7 @@ trap {
 
 function Update-Fields {
 	$ipBox.Enabled = $clientRadio.Checked
-	$portBox.Enabled = -not $loopRadio.Checked
+	$portBox.Enabled = -not $loopRadio.Checked -and -not $script:internetTunnel
 	$replay.Enabled = $spotRadio.Checked
 	$recover.Enabled = $hostRadio.Checked -or $clientRadio.Checked
 	$hostPage.Visible = $hostRadio.Checked
@@ -364,6 +367,10 @@ function Update-Fields {
 	$primary.Text = if ($hostRadio.Checked) { 'Als Gastgeber starten' } elseif ($clientRadio.Checked) { 'Beitreten und Spiel starten' } else { 'Test starten' }
 	$transfer.Text = if ($clientRadio.Checked) { 'Spielstand vom Gastgeber holen' } else { 'Spielstand bereitstellen' }
 	$transfer.Enabled = $hostRadio.Checked -or $clientRadio.Checked
+	$internetSetup.Enabled = $hostRadio.Checked
+	$hostAddress.Enabled = -not $script:internetTunnel
+	$refreshAddress.Enabled = -not $script:internetTunnel
+	$copyAddress.Text = if($script:internetRole -eq 'host') { 'Einladung kopieren' } else { 'Adresse kopieren' }
 	foreach ($pair in @(@($navHost,$hostRadio.Checked),@($navJoin,$clientRadio.Checked),@($navTest,($loopRadio.Checked -or $spotRadio.Checked -or $fakeRadio.Checked)))) {
 		$pair[0].BackColor = if ($pair[1]) { $Accent } else { $Sidebar }
 		$pair[0].ForeColor = if ($pair[1]) { $Sidebar } else { $TextColor }
@@ -383,11 +390,15 @@ elseif ($cfg.mode -eq 'loopback') { $loopRadio.Checked = $true }
 elseif ($cfg.test -eq 'samespot') { $spotRadio.Checked = $true }
 else { $hostRadio.Checked = $true }
 if ($Preview) {
-	if ($PreviewRole -eq 'host') { $hostRadio.Checked=$true }
+	if ($PreviewRole -in 'host','internet') { $hostRadio.Checked=$true }
 	elseif ($PreviewRole -eq 'join') { $clientRadio.Checked=$true }
 	else { $fakeRadio.Checked=$true }
 }
 $ipBox.Text = $cfg.host
+if($cfg.transport -eq 'internet') {
+	$script:internetNeedsSetup=$true
+	if($cfg.mode -eq 'client') { $ipBox.Text='' }
+}
 if ($script:replayRecording) {
 	$spotRadio.Checked=$true
 	$spotRadio.Text='Gleiche Stelle / gespeicherte Aufnahme erneut nachbauen'
@@ -400,6 +411,7 @@ if ($script:replayRecording) {
 $portBox.Text = $cfg.port
 Update-Fields
 $out.Text = if ($gameBox.Text) { "Spiel gefunden: $($gameBox.Text)" } else { 'Spielordner nicht gefunden - bitte über "Suchen..." auswählen.' }
+if($script:internetNeedsSetup) { $out.AppendText("`r`nLetzte Sitzung: Internet ohne VPN. Gastgeber: Internetzugang neu einrichten und die neue Einladung teilen. Mitspieler: neue Einladung einfügen.") }
 if ($script:replayRecording) {
 	$out.AppendText("`r`nGespeicherte Aufnahme: $($script:replayRecording.Lines.Count) Aktionen aus '$($script:replayRecording.Save)'.`r`nTest starten, diesen ursprünglichen Spielstand laden und 'Am selben Ort nachbauen' klicken. Ohne neue Bauaufnahme.")
 }
@@ -445,12 +457,14 @@ $install.Add_Click({
 		$port = $portBox.Text.Trim()
 		if ($port -notmatch '^\d+$' -or [int]$port -lt 1024 -or [int]$port -gt 65535) { throw 'Der Port muss eine Zahl zwischen 1024 und 65535 sein (Standard 47800).' }
 		$ip = $ipBox.Text.Trim()
-		if ($mode -eq 'client') { $endpoint = Parse-JoinAddress $ip $port; $ip = $endpoint.Address; $port = $endpoint.Port; $ipBox.Text=$ip; $portBox.Text="$port" }
+		if ($mode -eq 'client') { $endpoint = Resolve-LauncherEndpoint $ip $port; $ip = $endpoint.Address; $port = $endpoint.Port; if(-not $endpoint.Internet) { $ipBox.Text=$ip }; $portBox.Text="$port" }
+		Assert-LauncherInternetMode $mode ([int]$port) $test
 		$parsed = $null
 		if ($mode -eq 'client' -and -not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) { throw 'Bitte die IP-Adresse des Gastgebers eingeben, z. B. 192.168.1.10.' }
 		$session = $null
 		if ($mode -in 'host','client' -and -not $test) { $session = Get-LaunchSession $gameBox.Text.Trim() $steam }
-		$n = Install-All $gameBox.Text.Trim() $mode $port $ip $steam $test $session
+		$transport = if($script:internetTunnel -and -not $test) { 'internet' } else { '' }
+		$n = Install-All $gameBox.Text.Trim() $mode $port $ip $steam $test $session $transport
 		if ($test -eq 'fakehost') { Start-FakeHost $port }
 		$role = if ($test -eq 'fakehost') { "Mitspieler eines simulierten Gastgebers auf diesem PC (Port $port)" }
 			elseif ($test) { "Gleiche Stelle testen (Port $port)" }
@@ -488,6 +502,11 @@ $startGame.Add_Click({
 	# Simulierter Gastgeber: falls sein Fenster inzwischen zu ist, wieder starten.
 	try {
 		$cfg = Read-Ini (Join-Path $gameBox.Text.Trim() 'alut_proxy.ini')
+		if ($cfg.transport -eq 'internet') {
+			if ($cfg.mode -eq 'client') { [void](Resolve-LauncherEndpoint $ipBox.Text $cfg.port) }
+			if (-not $script:internetTunnel) { throw 'Internetzugang zuerst neu einrichten und die neue Einladung mit dem Mitspieler teilen.' }
+			Assert-LauncherInternetMode $cfg.mode ([int]$cfg.port) $cfg.test
+		}
 		if ($cfg.test -eq 'fakehost') { Start-FakeHost $cfg.port }
 		elseif ($cfg.mode -in 'host','client' -and -not $cfg.test) {
 			$session = Get-LaunchSession $gameBox.Text.Trim() $steam -Installed
@@ -510,7 +529,7 @@ $check.Add_Click({
 			$out.Text = $report.Text + "`r`n`r`nGespeichert: $reportPath"
 		} else {
 			Update-LauncherActionIssues $steam $gameBox.Text.Trim()
-			$out.Text = (Get-ActionIssueDetails $script:actionIssues) + (Get-ConnectionStatus $gameBox.Text.Trim()) + (Get-SyncStatus $steam)
+			$out.Text = (Get-LauncherInternetSummary) + (Get-ActionIssueDetails $script:actionIssues) + (Get-ConnectionStatus $gameBox.Text.Trim()) + (Get-SyncStatus $steam)
 		}
 	} catch { Show-Error $_.Exception.Message }
 })
@@ -554,7 +573,7 @@ function Select-ResyncSave([string]$saveDir, $tick) {
 function Invoke-Transfer([switch]$Resync) {
 	# Ein zweiter Klick während der Übertragung bricht sie ab.
 	if ($script:transferBusy) { $script:transferCancel = $true; return }
-	$others = @($install, $startGame, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox)
+	$others = @($install, $startGame, $check, $remove, $replay, $recover, $primary, $navHost, $navJoin, $navTest, $gameBox, $browse, $ipBox, $portBox, $roleBox, $internetSetup, $internetCheck)
 	# Bricht der Spieler den Neuabgleich vor dem Beenden von TF3 ab, bleibt die bisherige Sitzung gültig.
 	$previousForce = $script:forceNewSession
 	try {
@@ -584,6 +603,7 @@ function Invoke-Transfer([switch]$Resync) {
 		}
 		if ($Resync) { $out.Text = Get-RecoveryInstructions $(if ($hostRadio.Checked) { 'host' } else { 'client' }) }
 		if ($hostRadio.Checked) {
+			Assert-LauncherInternetMode 'host' ([int]$port) ''
 			if ($Resync -and (Test-GameRunning)) {
 				Enter-TransferBusy $others
 				$offeredSave = Select-ResyncSave $saveDir $tick
@@ -620,8 +640,9 @@ function Invoke-Transfer([switch]$Resync) {
 				"Beide starten jetzt über den großen Startknopf und laden '$($result.Session.SaveName)' pausiert. Das anschließende Laden der Welt übernimmt TF3."
 		}
 		elseif ($clientRadio.Checked) {
-			$endpoint = Parse-JoinAddress $ipBox.Text $port
+			$endpoint = Resolve-LauncherEndpoint $ipBox.Text $port
 			$ip = $endpoint.Address; $port=$endpoint.Port
+			Assert-LauncherInternetMode 'client' ([int]$port) ''
 			$parsed = $null
 			if (-not [System.Net.IPAddress]::TryParse($ip, [ref]$parsed)) { throw 'Bitte die IP-Adresse des Gastgebers eingeben, z. B. 192.168.1.10.' }
 			if ($Resync -and (Test-GameRunning)) {
@@ -635,7 +656,7 @@ function Invoke-Transfer([switch]$Resync) {
 			$out.Text='Prüfe Spielversion und Moddateien ...'
 			[System.Windows.Forms.Application]::DoEvents()
 			$manifest = Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
-			$wait = if ($Resync) { 600 } else { 0 }
+			$wait = if ($Resync) { 600 } elseif ($endpoint.Internet) { 150 } else { 0 }
 			$clock = [Diagnostics.Stopwatch]::StartNew()
 			$script:LastSaveTransfer = $null
 			$result = Receive-Savegame $ip ([int]$port) $saveDir $tick $confirm -LocalManifest $manifest -WaitSeconds $wait
@@ -725,11 +746,19 @@ $recover.Add_Click({
 $navHost.Add_Click({ Refresh-HostAddresses; $hostRadio.Checked=$true; Update-Fields })
 $navJoin.Add_Click({ if ($fakeRadio.Checked -and $ipBox.Text -eq '127.0.0.1') { $ipBox.Text='' }; $clientRadio.Checked=$true; Update-Fields })
 $navTest.Add_Click({ $fakeRadio.Checked=$true; Update-Fields })
+$internetSetup.Add_Click({ try { Show-InternetHostSetup; Update-Fields } catch { Show-Error $_.Exception.Message } })
+$internetCheck.Add_Click({ try { Test-LauncherInternetInvitation } catch { Show-Error $_.Exception.Message } })
 $copyAddress.Add_Click({
+	if ($script:internetRole -eq 'host' -and $script:internetInvite) {
+		[System.Windows.Forms.Clipboard]::SetText($script:internetInvite)
+		$out.Text='Interneteinladung kopiert. Der Mitspieler fügt sie unter Beitreten ein und prüft sie von seinem PC.'
+		return
+	}
 	if ($hostAddress.SelectedItem) {
 		try {
 			$endpoint = Parse-JoinAddress "$($hostAddress.SelectedItem.Address):$($portBox.Text.Trim())" '47800'
 			[System.Windows.Forms.Clipboard]::SetText("$($endpoint.Address):$($endpoint.Port)")
+			$script:internetNeedsSetup=$false
 		} catch { Show-Error $_.Exception.Message; return }
 		$out.Text='Beitrittsadresse kopiert. Teile sie mit deinem Mitspieler im gemeinsamen VPN.'
 	}
@@ -879,6 +908,7 @@ $script:peerEpochRead = [datetime]::MinValue
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval=2000
 $timer.Add_Tick({
+	Update-InternetDiagnostics
 	if ($script:liveBusy) { return }
 	try {
 		if (-not $Preview -and -not $script:transferBusy -and (Test-GameRunning)) {
@@ -913,13 +943,17 @@ $timer.Add_Tick({
 $form.Add_Shown({ Write-LauncherLog "Launcher gestartet ($(Split-Path -Leaf $Root))"; $timer.Start() })
 # v34: das normale X schließt den Launcher immer, auch während einer Übertragung. Laufende Schritte
 # werden abgebrochen; danach endet der (versteckte) PowerShell-Prozess sicher.
-$form.Add_FormClosing({ $script:transferCancel = $true; Write-LauncherLog 'Launcher geschlossen' })
+$form.Add_FormClosing({ $script:transferCancel = $true; Write-LauncherLog 'Launcher geschlossen'; Stop-LauncherInternet })
 $form.Add_FormClosed({
 	$timer.Stop(); $timer.Dispose()
 	if (-not $Preview) { [Environment]::Exit(0) }
 })
 if ($Preview) {
 	if (-not $PreviewPath) { $PreviewPath = Join-Path $env:TEMP 'tf3mp-launcher-preview.png' }
+	if ($PreviewRole -eq 'internet') {
+		Show-InternetHostSetup -PreviewPath $PreviewPath
+		$form.Close(); Write-Output $PreviewPath; return
+	}
 	$form.Show(); [System.Windows.Forms.Application]::DoEvents()
 	$bitmap=New-Object System.Drawing.Bitmap($form.Width,$form.Height)
 	$form.DrawToBitmap($bitmap,(New-Object System.Drawing.Rectangle(0,0,$form.Width,$form.Height)))

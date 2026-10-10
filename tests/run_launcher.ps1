@@ -15,7 +15,14 @@ foreach($entry in @('::1','vpn.example.com','127.1','0.0.0.0','10.0.0.1:99999','
     if(-not $rejected){throw "Invalid address accepted: $entry"}
     $passed++
 }
-foreach($script in @('launcher\launcher.ps1','launcher\view.ps1','tools\session.ps1','tools\resync.ps1','tools\save-transfer.ps1','tools\transport.ps1','tools\fake-partner.ps1','tools\same-spot.ps1')) {
+$script:internetNeedsSetup=$true
+$rejected=$false; try { Assert-LauncherInternetMode 'host' 47800 '' } catch { $rejected=$true }
+if(-not $rejected) { throw 'A restarted Internet host silently reverted to raw UDP' }; $passed++
+$rejected=$false; try { Resolve-LauncherEndpoint '127.0.0.1' '47800' | Out-Null } catch { $rejected=$true }
+if(-not $rejected) { throw 'A restarted Internet client reused a dead local tunnel' }; $passed++
+$value=Resolve-LauncherEndpoint '100.80.12.4:47800' '47800'
+if($script:internetNeedsSetup -or $value.Address -ne '100.80.12.4') { throw 'Explicit VPN switch failed' }; $passed++
+foreach($script in @('launcher\launcher.ps1','launcher\view.ps1','tools\session.ps1','tools\resync.ps1','tools\save-transfer.ps1','tools\transport.ps1','tools\fake-partner.ps1','tools\same-spot.ps1','tools\internet.ps1','tools\internet-view.ps1','tools\internet-firewall.ps1')) {
     $tokens=$null; $errors=$null
     [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $Root $script),[ref]$tokens,[ref]$errors)
     if($errors.Count){throw ($errors | Out-String)}
