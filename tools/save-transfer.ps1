@@ -15,13 +15,53 @@
 # vor Dateiempfang abgelehnt, wenn Spiel, Paket oder installierte zusätzliche Mods abweichen.
 # v37: Antwort mit parallel=4 vereinbart TF3MPDATA3 (Dateibereiche auf vier Datenverbindungen).
 # Ohne diese Vereinbarung bleiben der alte Dateistrom und lokale Version-1-Tests unverändert.
+# v48: Zusätzlich bulk=1 vereinbart TF3MPDATA4: kontinuierliche Datenströme mit
+# nebenläufig gelesenen Empfangsbestätigungen statt Warten nach jedem MiB.
 
 $SaveMagic = 'TF3MPSAVE1'
 $SaveSessionMagic = 'TF3MPSAVE2'
 $SaveParallelMagic = 'TF3MPDATA3'
+$SaveContinuousMagic = 'TF3MPDATA4'
 # Additional streams share the already opened TCP port. One control socket + four data sockets.
 if (-not ('TF3MP.TransferJob' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'save-transfer-net.cs') }
 $script:LastSaveTransfer = $null
+$script:SaveTransferTrace = $null
+
+# JSONL remains readable after cancellation or a disconnected VPN. No session tokens,
+# IP addresses, save names or file content are recorded. Logging can never abort IO.
+function Start-SaveTransferTrace([string]$Role) {
+	try {
+		$option = Get-Variable SaveTransferLogDirectory -Scope Script -ErrorAction SilentlyContinue
+		$dir = if ($option) { $option.Value } else { '' }
+		if (-not $dir) { $dir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'TF3MP\Logs' }
+		[IO.Directory]::CreateDirectory($dir) | Out-Null
+		$path = Join-Path $dir ('save-transfer-{0}-{1}-{2}.jsonl' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $PID, [Guid]::NewGuid().ToString('N').Substring(0,8))
+		$script:SaveTransferTrace = @{ Path = $path; Role = $Role; Clock = [Diagnostics.Stopwatch]::StartNew() }
+		Write-SaveTransferTrace 'start' @{ socket_buffer_bytes = 8MB }
+		if (Get-Command Write-LauncherLog -ErrorAction SilentlyContinue) { Write-LauncherLog "Spielstand-Messprotokoll: $path" }
+	} catch { $script:SaveTransferTrace = $null }
+}
+function Write-SaveTransferTrace([string]$Event, $Fields = @{}) {
+	if (-not $script:SaveTransferTrace) { return }
+	try {
+		$trace = $script:SaveTransferTrace
+		$row = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); elapsed_s = [Math]::Round($trace.Clock.Elapsed.TotalSeconds,3); role = $trace.Role; event = $Event }
+		foreach ($key in $Fields.Keys) { $row[$key] = $Fields[$key] }
+		[IO.File]::AppendAllText($trace.Path, (($row | ConvertTo-Json -Depth 5 -Compress) + [Environment]::NewLine), (New-Object Text.UTF8Encoding($false)))
+	} catch {}
+}
+function Write-SaveJobTrace($Job, [string]$Event, $Watch) {
+	if ($Job.Kind -notin 'send','receive','hash') { return }
+	Write-SaveTransferTrace $Event @{
+		kind = $Job.Kind; phase = $Job.Phase; method = $Job.Method; streams = $Job.Streams
+		bytes = $Job.Bytes; seconds = [Math]::Round($Watch.Elapsed.TotalSeconds,3)
+		mib_per_s = [Math]::Round(($Job.Bytes / 1MB / [Math]::Max(0.001, $Watch.Elapsed.TotalSeconds)),3)
+		lane_bytes = @($Job.LaneBytes); file_read_ms = [Math]::Round($Job.FileReadMs,1); file_write_ms = [Math]::Round($Job.FileWriteMs,1)
+		network_read_ms = [Math]::Round($Job.NetworkReadMs,1); network_write_ms = [Math]::Round($Job.NetworkWriteMs,1); ack_wait_ms = [Math]::Round($Job.AckWaitMs,1)
+		verify_s = [Math]::Round($Job.VerifySeconds,3); data_s = [Math]::Round($Job.Seconds,3)
+		send_buffer_bytes = $Job.SendBufferBytes; receive_buffer_bytes = $Job.ReceiveBufferBytes
+	}
+}
 $SaveChunk = 1MB
 # v36: Socketpuffer. Ein Puffer von 64 KB erlaubt nur 64 KB unterwegs; über ein VPN mit etwa 60 ms Ping sind das
 # rund 1 MB/s (Lauf 38). 8 MB reichen auch bei hohem Ping für über 50 MB/s.
@@ -145,8 +185,11 @@ function Write-SaveProgress($State, $Tick, [string]$Text, [int64]$Done, [int64]$
 # Only this polling callback touches WinForms; closing the worker's sockets cancels blocked IO.
 function Wait-SaveJob($Job, $Tick, [string]$Text, [int64]$Total = 0, [int64]$BaseDone = 0, $ControlClient = $null, $ControlReader = $null) {
 	$meter = New-SaveProgress
+	$jobClock = [Diagnostics.Stopwatch]::StartNew(); $sampleAt = [int64]0
+	Write-SaveJobTrace $Job 'job_start' $jobClock
 	try {
 		while (-not $Job.Work.Wait(100)) {
+			if ($jobClock.ElapsedMilliseconds - $sampleAt -ge 1000) { $sampleAt = $jobClock.ElapsedMilliseconds; Write-SaveJobTrace $Job 'sample' $jobClock }
 			if (Write-SaveProgress $meter $Tick $Text ($BaseDone + $Job.Bytes) $Total) { throw 'Abgebrochen.' }
 			if ($ControlClient -and $ControlClient.GetStream().DataAvailable) {
 				$replyByte = New-Object byte[] 1
@@ -160,10 +203,12 @@ function Wait-SaveJob($Job, $Tick, [string]$Text, [int64]$Total = 0, [int64]$Bas
 		}
 		if ($Job.Error) { throw $Job.Error }
 		if (Write-SaveProgress $meter $Tick $Text ($BaseDone + $Job.Bytes) $Total) { throw 'Abgebrochen.' }
+		Write-SaveJobTrace $Job 'job_done' $jobClock
 		return ,$Job.Result
 	} catch {
 		$Job.Cancel()
 		[void]$Job.Work.Wait(3000)
+		Write-SaveJobTrace $Job 'job_failed' $jobClock
 		throw
 	}
 }
@@ -184,7 +229,10 @@ function Write-SaveData($Stream, [byte[]]$Buffer, [int]$Offset, [int]$Count, $Pr
 }
 
 function Set-SaveTransferStats($Job) {
-	$script:LastSaveTransfer = [pscustomobject]@{ Bytes = $Job.Bytes; Seconds = $Job.Seconds; Streams = $Job.Streams }
+	$rate = if ($Job.Seconds -gt 0) { $Job.Bytes / 1MB / $Job.Seconds } else { 0 }
+	$tracePath = if ($script:SaveTransferTrace) { $script:SaveTransferTrace.Path } else { '' }
+	$script:LastSaveTransfer = [pscustomobject]@{ Bytes = $Job.Bytes; Seconds = $Job.Seconds; Streams = $Job.Streams; Method = $Job.Method; VerifySeconds = $Job.VerifySeconds; LogPath = $tracePath; LaneBytes = @($Job.LaneBytes) }
+	Write-SaveTransferTrace 'data_summary' @{ bytes = $Job.Bytes; data_s = $Job.Seconds; mib_per_s = [Math]::Round($rate,3); streams = $Job.Streams; method = $Job.Method; slow = ($Job.Bytes -ge 8MB -and $rate -lt 2); verify_s = $Job.VerifySeconds }
 }
 
 # Asynchroner Nutzdatenempfang hält den Abbrechen-Knopf auch bei einem stehenden VPN bedienbar.
@@ -218,7 +266,7 @@ function Read-ReceiverAbort($client, $reader, [int]$waitMs, $tick = { $false }) 
 }
 
 # Gastgeber: ein einzelner Übertragungsversuch über eine angenommene Verbindung.
-function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes, [int64]$total, $tick, $listener = $null, [int]$Connections = 4) {
+function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes, [int64]$total, $tick, $listener = $null, [int]$Connections = 4, [bool]$Continuous = $true) {
 	$client.SendTimeout = 30000
 	$client.SendBufferSize = $SaveSocketBuffer
 	$client.NoDelay = $true
@@ -236,11 +284,14 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 			if ($compatible -ne 1) { throw "Die Sitzung wurde vom Mitspieler abgelehnt: $compatibilityText" }
 		} else { $writer.Write($SaveMagic) }
 		$parallel = $Session -and $listener -and $Connections -gt 1 -and $compatibilityText -match '(?:^| )parallel=([2-4])(?: |$)'
+		$bulk = $parallel -and $Continuous -and $compatibilityText -match '(?:^| )bulk=1(?: |$)'
 		if ($parallel) {
+			$null = $compatibilityText -match '(?:^| )parallel=([2-4])(?: |$)'
 			$streams = [Math]::Min($Connections, [int]$Matches[1])
 			$token = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
-			$writer.Write($SaveParallelMagic)
+			$writer.Write($(if ($bulk) { $SaveContinuousMagic } else { $SaveParallelMagic }))
 		}
+		Write-SaveTransferTrace 'negotiated' @{ method = $(if ($bulk) { 'continuous' } elseif ($parallel) { 'block-ack' } else { 'legacy' }); streams = $(if ($parallel) { $streams } else { 1 }); total_bytes = $total }
 		$writer.Write($name)
 		$writer.Write([int]$files.Count)
 		$writer.Write([int64]$total)
@@ -282,7 +333,7 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 		}
 		$writer.Flush()
 		if ($parallel) {
-			$job = [TF3MP.TransferJob]::Send($listener, $client.Client.RemoteEndPoint.Address, $token, [TF3MP.TransferFile[]]$plans, $streams)
+			$job = [TF3MP.TransferJob]::Send($listener, $client.Client.RemoteEndPoint.Address, $token, [TF3MP.TransferFile[]]$plans, $streams, [bool]$bulk)
 			Wait-SaveJob $job $tick "Schicke '$name' über $streams Datenverbindungen ..." $total 0 $client $reader | Out-Null
 			Set-SaveTransferStats $job
 			$done = $job.Bytes
@@ -297,6 +348,7 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 		throw
 	}
 	if (& $tick "Warte auf die Bestätigung des Mitspielers ..." $done $total) { throw 'Abgebrochen.' }
+	Write-SaveTransferTrace 'confirmation_wait'
 	try {
 		$ok = Read-SaveHeader $reader 'byte' $tick 'Warte auf die Bestätigung des Mitspielers ...'
 		$text = Read-SaveHeader $reader 'text' $tick 'Warte auf die Bestätigung des Mitspielers ...'
@@ -305,6 +357,7 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 		throw
 	}
 	if ($ok -ne 1) { throw "Der Mitspieler hat den Spielstand nicht gespeichert: $text" }
+	Write-SaveTransferTrace 'complete' @{ total_bytes = $total }
 	return $text
 }
 
@@ -312,13 +365,16 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 # $tick wird regelmäßig aufgerufen (Text, erledigte Bytes, Gesamtbytes) und gibt $true zurück,
 # wenn abgebrochen werden soll. Mit -Session kommt {Text, Session, SavePath} zurück, sonst Text.
 # Reißt die Verbindung ab, wartet der Gastgeber weiter; der Mitspieler versucht es selbst erneut.
-function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Session = $null, [int]$MaxAttempts = 5, [int]$Connections = 4) {
+function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Session = $null, [int]$MaxAttempts = 5, [int]$Connections = 4, [bool]$Continuous = $true) {
 	if ($Connections -lt 1 -or $Connections -gt 4) { throw 'Die Zahl der Datenverbindungen muss zwischen 1 und 4 liegen.' }
 	$script:LastSaveTransfer = $null
+	Start-SaveTransferTrace 'host'
+	Write-SaveTransferTrace 'settings' @{ streams = $Connections; continuous = $Continuous }
 	$files = Get-SaveFiles $savPath
 	$name = [System.IO.Path]::GetFileNameWithoutExtension($savPath)
 	$hashes = @{}
 	foreach ($f in $files) { $hashes[$f.Name] = Get-FileSha256 $f.FullName $tick }
+	Write-SaveTransferTrace 'hash_ready'
 	$metadata = $null
 	if ($Session) {
 		Assert-SessionMetadata $Session
@@ -356,16 +412,21 @@ function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Se
 				continue
 			}
 			try {
-				$text = Send-SaveToClient $client $Session $metadata $name $files $hashes $total $tick $listener $Connections
+				Write-SaveTransferTrace 'attempt' @{ number = $attempt }
+				$text = Send-SaveToClient $client $Session $metadata $name $files $hashes $total $tick $listener $Connections $Continuous
 				if ($Session) { return [pscustomobject]@{ Text = $text; Session = $Session; SavePath = [IO.Path]::GetFullPath($savPath) } }
 				return $text
 			} catch {
+				Write-SaveTransferTrace 'attempt_failed' @{ number = $attempt; error_type = $_.Exception.GetType().Name }
 				$break = Get-TransferNetworkError $_.Exception
 				if (-not $break -or $attempt -ge $MaxAttempts) { if ($break) { throw $break.Message }; throw }
 				$lastBreak = $break.Message
 				$waitText = "$lastBreak`r`nWarte auf den nächsten Versuch des Mitspielers (Port $port, Versuch $($attempt + 1) von $MaxAttempts) ..."
 			} finally { $client.Close() }
 		}
+	} catch {
+		Write-SaveTransferTrace 'failed' @{ error_type = $_.Exception.GetType().Name }
+		throw
 	} finally {
 		$listener.Stop()
 	}
@@ -391,7 +452,7 @@ function Send-ReceiverAbort($client, $writer, $text) {
 }
 
 # Mitspieler: ein Übertragungsversuch. Netzwerkfehler kommen als IOException zurück, alles andere ist endgültig.
-function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest, $partsRef, [int]$Connections = 4) {
+function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest, $partsRef, [int]$Connections = 4, [bool]$Continuous = $true) {
 	$client = New-Object System.Net.Sockets.TcpClient
 	$writer = $null
 	$session = $null
@@ -407,6 +468,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			try { $client.EndConnect($async) } catch { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt? ($((Get-TransferNetworkError $_.Exception).Message))") }
 		} finally { $async.AsyncWaitHandle.Close() }
 		$client.ReceiveTimeout = 60000
+		Write-SaveTransferTrace 'connected'
 		$client.SendTimeout = 30000
 		$client.ReceiveBufferSize = $SaveSocketBuffer
 		$stream = $client.GetStream()
@@ -423,12 +485,15 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			try { $session = [Text.Encoding]::UTF8.GetString($metadata) | ConvertFrom-Json } catch { throw 'Die Sitzungsbeschreibung ist beschädigt.' }
 			Assert-SessionCompatibility $session $LocalManifest
 			$capability = if ($Connections -gt 1) { " parallel=$Connections" } else { '' }
+			if ($Connections -gt 1 -and $Continuous) { $capability += ' bulk=1' }
 			$writer.Write([byte]1); $writer.Write("Kompatibilität geprüft.$capability"); $writer.Flush()
 		} elseif ($magic -eq $SaveMagic) {
 			if ($LocalManifest) { throw 'Der Gastgeber verwendet einen alten Launcher ohne Sitzungsprüfung. Bitte auf beiden PCs dieselbe aktuelle Version verwenden.' }
 		} else { throw 'Die Gegenstelle ist kein Launcher dieses Mods.' }
 		$name = Read-SaveHeader $reader 'text' $tick $headerText 800
-		$parallel = $name -eq $SaveParallelMagic
+		$bulk = $name -eq $SaveContinuousMagic
+		if ($bulk -and -not $Continuous) { throw 'Nicht vereinbarte kontinuierliche Übertragung.' }
+		$parallel = $name -eq $SaveParallelMagic -or $bulk
 		if ($parallel) {
 			if (-not $session -or $Connections -lt 2) { throw 'Nicht vereinbarte parallele Übertragung.' }
 			$name = Read-SaveHeader $reader 'text' $tick $headerText 800
@@ -443,6 +508,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			$streams = Read-SaveHeader $reader 'int' $tick $headerText
 			if ($token -cnotmatch '^[0-9a-f]{64}$' -or $streams -lt 2 -or $streams -gt $Connections -or $streams -gt 4) { throw 'Ungültige parallele Übertragungsbeschreibung.' }
 		}
+		Write-SaveTransferTrace 'negotiated' @{ method = $(if ($bulk) { 'continuous' } elseif ($parallel) { 'block-ack' } else { 'legacy' }); streams = $(if ($parallel) { $streams } else { 1 }); total_bytes = $total }
 		$received = @()
 		$plans = @()
 		$buffer = New-Object byte[] $SaveChunk
@@ -491,11 +557,12 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		}
 		if ($done -ne $total -or @($received | Where-Object { [IO.Path]::GetExtension($_.Name) -ieq '.sav' }).Count -ne 1) { throw 'Die übertragenen Dateien stimmen nicht mit der angekündigten Spielstandgröße überein.' }
 		if ($parallel) {
-			$job = [TF3MP.TransferJob]::Receive($hostIp, $port, $token, [TF3MP.TransferFile[]]$plans, $streams)
+			$job = [TF3MP.TransferJob]::Receive($hostIp, $port, $token, [TF3MP.TransferFile[]]$plans, $streams, [bool]$bulk)
 			Wait-SaveJob $job $tick "Empfange '$name' über $streams Datenverbindungen ..." $total | Out-Null
 			Set-SaveTransferStats $job
 		}
 		# Gibt es schon einen anderen Spielstand mit diesem Namen?
+		Write-SaveTransferTrace 'replacement_check'
 		$replace = @()
 		foreach ($r in $received) {
 			$target = Join-Path $saveDir $r.Name
@@ -512,9 +579,11 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		$partsRef.Value = @()
 		$text = "Spielstand '$name' gespeichert ($([Math]::Round($done / 1MB, 1)) MB)."
 		$writer.Write([byte]1); $writer.Write($text); $writer.Flush()
+		Write-SaveTransferTrace 'complete' @{ total_bytes = $total }
 		if ($session) { return [pscustomobject]@{ Text = $text; Session = $session; SavePath = (Join-Path $saveDir ($name + '.sav')) } }
 		return $text
 	} catch {
+		Write-SaveTransferTrace 'receive_failed' @{ error_type = $_.Exception.GetType().Name }
 		# Endgültige Gründe gehen an den Gastgeber, damit er sie anzeigen kann; Netzwerkfehler versucht der Aufrufer erneut.
 		if ($writer -and -not (Get-TransferNetworkError $_.Exception)) { Send-ReceiverAbort $client $writer $_.Exception.Message }
 		throw
@@ -528,15 +597,18 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 # -LocalManifest verlangt Version 2 und liefert {Text, Session, SavePath} erst nach dem Speichern.
 # Reißt die Verbindung ab, verbindet er sich bis zu $MaxAttempts-mal neu; der Gastgeber wartet so lange.
 # -WaitSeconds (Neuabgleich): Wartet der Gastgeber noch nicht, versucht er es so lange alle 2 Sekunden erneut.
-function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest = $null, [int]$MaxAttempts = 5, [int]$WaitSeconds = 0, [int]$Connections = 4) {
+function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $LocalManifest = $null, [int]$MaxAttempts = 5, [int]$WaitSeconds = 0, [int]$Connections = 4, [bool]$Continuous = $true) {
 	if ($Connections -lt 1 -or $Connections -gt 4) { throw 'Die Zahl der Datenverbindungen muss zwischen 1 und 4 liegen.' }
 	$script:LastSaveTransfer = $null
+	Start-SaveTransferTrace 'client'
+	Write-SaveTransferTrace 'settings' @{ streams = $Connections; continuous = $Continuous }
 	$parts = @()
 	$waitUntil = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
 	try {
 		for ($attempt = 1; ; $attempt++) {
 			try {
-				return Receive-SaveOnce $hostIp $port $saveDir $tick $confirm $LocalManifest ([ref]$parts) $Connections
+				Write-SaveTransferTrace 'attempt' @{ number = $attempt }
+				return Receive-SaveOnce $hostIp $port $saveDir $tick $confirm $LocalManifest ([ref]$parts) $Connections $Continuous
 			} catch {
 				if ((Test-NoHostError $_.Exception) -and [DateTime]::UtcNow -lt $waitUntil) {
 					# Kein Versuch verbraucht: Es wurde noch nichts übertragen.
@@ -563,6 +635,9 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 				}
 			}
 		}
+	} catch {
+		Write-SaveTransferTrace 'failed' @{ error_type = $_.Exception.GetType().Name }
+		throw
 	} finally {
 		foreach ($p in $parts) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue } }
 	}

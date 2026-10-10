@@ -66,7 +66,11 @@ end
 function gui.release_hold(env, g, clock_ui, speed, now, getenv)
 	local run = tonumber(clock_ui.run) or 0
 	local releasing = tonumber(clock_ui.release) == 1
-	if releasing and (speed == run or (speed > 0 and (clock_ui.ack == 1 or clock_ui.stopped == 1))) then
+	-- Seeing the old positive speed is not proof of a resume: a quick menu
+	-- close may leave its earlier pause command queued. Wait for our resume
+	-- acknowledgement before removing the guard, including when speed==run.
+	if releasing and ((clock_ui.ack == 1 and speed == run) or
+		(speed > 0 and (clock_ui.ack == 1 or clock_ui.stopped == 1))) then
 		logger.info("net state clockui hold=0 run=" .. speed)
 		-- A different positive speed after the command's acknowledgement is the
 		-- player's choice; the ordinary speed register detects it on the next step.
@@ -152,9 +156,14 @@ function gui.step(env, g, now)
 	-- Do not feed this automatic pause into the user's shared speed register.
 	local clock = sync.decode(getenv("TF3MP_OWN_CLOCK"))
 	local clock_ui = sync.decode(getenv("TF3MP_OWN_CLOCKUI"))
+	local own_menu = sync.decode(getenv("TF3MP_OWN_MENU"))
+	local peer_menu = sync.decode(getenv("TF3MP_PEER_MENU"))
+	local menu_hold = getenv("TF3MP_ORDERING") == "1" and
+		((own_menu and own_menu.open == 1) or (peer_menu and peer_menu.open == 1))
 	local at = clock and tonumber(clock.at)
 	local holding = clock and ((clock.phase == "failed" and at and at > 0) or tonumber(clock.hold) == 1 or
 		(at and at > 0 and gt >= at and clock.phase ~= "idle"))
+	holding = holding or menu_hold
 	if getenv("TF3MP_ORDERING") == "1" and (speed == 0 or holding) then
 		-- Simulation update() stops at a barrier; script events still run while paused.
 		-- gui.update already throttles this heartbeat to four events per second.
@@ -169,7 +178,11 @@ function gui.step(env, g, now)
 	end
 	if holding then
 		if not clock_ui or tonumber(clock_ui.hold) ~= 1 or clock_ui.release == 1 then
-			local run = restore and tonumber(restore.tg or restore.run) or speed
+			-- Overlapping menu/action holds keep the original speed, even if a
+			-- delayed resume command from the previous hold is still in flight.
+			local run = clock_ui and clock_ui.hold == 1 and tonumber(clock_ui.run) or
+				(restore and tonumber(restore.tg or restore.run) or speed)
+			logger.info("sync automatic pause: " .. (menu_hold and "a player is in the game menu" or "common action"))
 			logger.info("net state clockui hold=1 run=" .. tostring(run))
 		end
 		if speed ~= 0 then sync.set_speed(env, 0) end

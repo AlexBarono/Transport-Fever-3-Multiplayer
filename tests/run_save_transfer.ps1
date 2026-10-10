@@ -16,6 +16,7 @@ function Assert($cond, $msg) { if (-not $cond) { throw "assertion failed: $msg" 
 $base = Join-Path ([System.IO.Path]::GetTempPath()) ("tf3mp-save-test-" + [Guid]::NewGuid().ToString('N'))
 $hostDir = Join-Path $base 'host'; $clientDir = Join-Path $base 'client'
 New-Item -ItemType Directory -Force $hostDir, $clientDir | Out-Null
+$script:SaveTransferLogDirectory = Join-Path $base 'metrics'
 $rng = New-Object System.Random 7
 function New-RandomFile($path, $size) {
 	$bytes = New-Object byte[] $size
@@ -28,18 +29,19 @@ New-RandomFile (Join-Path $hostDir 'Det.jpg') 80000
 # Der Mitspieler läuft in einem zweiten PowerShell-Prozess.
 $shell = (Get-Process -Id $PID).Path
 $testPeers = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
-function Start-Receiver($answer, $manifest = $null, $preparedPath = '', [int]$Connections = 4, [string]$StatsPath = '', [string]$TracePath = '') {
+function Start-Receiver($answer, $manifest = $null, $preparedPath = '', [int]$Connections = 4, [string]$StatsPath = '', [string]$TracePath = '', [bool]$Continuous = $true) {
 	$manifestPath = ''
 	if ($manifest) { $manifestPath = Join-Path $base 'receiver-manifest.json'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8 }
 	$script = @"
 `$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object Text.UTF8Encoding(`$false)
 . '$((Join-Path $root 'tools\save-transfer.ps1').Replace("'", "''"))'
+`$script:SaveTransferLogDirectory = '$((Join-Path $base 'receiver-metrics').Replace("'", "''"))'
 try {
 	Start-Sleep -Milliseconds 500
 	`$manifest = if ('$($manifestPath.Replace("'", "''"))') { Get-Content -LiteralPath '$($manifestPath.Replace("'", "''"))' -Raw | ConvertFrom-Json } else { `$null }
 	`$out = [pscustomobject]@{ Text = '' }  # wie das Textfeld im Launcher
-	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$out.Text = `$a; if ('$($TracePath.Replace("'", "''"))') { [IO.File]::AppendAllText('$($TracePath.Replace("'", "''"))', "`$a`r`n") }; `$false } { param(`$q) `$$answer } -LocalManifest `$manifest -Connections $Connections
+	`$t = Receive-Savegame '127.0.0.1' $port '$($clientDir.Replace("'", "''"))' { param(`$a, `$b, `$c) `$out.Text = `$a; if ('$($TracePath.Replace("'", "''"))') { [IO.File]::AppendAllText('$($TracePath.Replace("'", "''"))', "`$a`r`n") }; `$false } { param(`$q) `$$answer } -LocalManifest `$manifest -Connections $Connections -Continuous `$$Continuous
 	if ('$($StatsPath.Replace("'", "''"))') { `$script:LastSaveTransfer | ConvertTo-Json | Set-Content -LiteralPath '$($StatsPath.Replace("'", "''"))' -Encoding UTF8 }
 	if ('$($preparedPath.Replace("'", "''"))' -and `$t.Session) { Save-PreparedSession -Path '$($preparedPath.Replace("'", "''"))' -Session `$t.Session -SavePath `$t.SavePath | Out-Null }
 	`$text = if (`$t.Session) { `$t.Text } else { `$t }
@@ -430,6 +432,15 @@ Test 'parallel: four connections transfer odd file sizes and unicode names with 
 	Assert ($script:LastSaveTransfer.Streams -eq 4 -and $remoteStats.Streams -eq 4) 'four actual streams on both peers'
 	Assert ($script:LastSaveTransfer.Bytes -eq 12123464 -and $remoteStats.Bytes -eq 12123464) 'exact disjoint ranges'
 	Assert ($script:LastSaveTransfer.Seconds -gt 0 -and $remoteStats.Seconds -gt 0) 'data-only telemetry'
+	Assert ($script:LastSaveTransfer.Method -eq 'continuous' -and $remoteStats.Method -eq 'continuous') 'new streaming protocol negotiated on both peers'
+	Assert (($script:LastSaveTransfer.LaneBytes | Measure-Object -Sum).Sum -eq 12123464) 'all sender progress is receiver-confirmed'
+	foreach ($stats in $script:LastSaveTransfer, $remoteStats) {
+		$rows = @(Get-Content -LiteralPath $stats.LogPath | ForEach-Object { $_ | ConvertFrom-Json })
+		Assert (@($rows | Where-Object event -eq 'complete').Count -eq 1) 'completed trace survives worker teardown'
+		$summary = @($rows | Where-Object event -eq 'data_summary')[0]
+		Assert ($summary.bytes -eq 12123464 -and $summary.streams -eq 4 -and $summary.mib_per_s -gt 0) 'measured byte counts, streams and throughput'
+		Assert ((Get-Content -LiteralPath $stats.LogPath -Raw) -notmatch 'Parallel|127\.0\.0\.1|[a-f0-9]{64}') 'trace has no save names, IPs or tokens'
+	}
 	foreach ($f in 'Parallel ä .sav','Parallel ä .jpg') { Assert (Test-SameBytes (Get-FileSha256 (Join-Path $hostDir $f)) (Get-FileSha256 (Join-Path $clientDir $f))) $f }
 	Assert (@(Get-ChildItem $clientDir -Filter '*.part').Count -eq 0) 'no parts'
 }
@@ -440,6 +451,28 @@ Test 'parallel: a single-stream receiver keeps the session protocol compatible' 
 	Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30 -Session $newSession | Out-Null
 	Assert ((Wait-Receiver $r) -like 'OK *gespeichert*') 'legacy payload after capability negotiation'
 	Assert ($null -eq $script:LastSaveTransfer) 'parallel mode was not used'
+}
+
+Test 'parallel: continuous mode falls back when either side only supports block acknowledgements' {
+	$newSession = New-MultiplayerSession $manifest (Join-Path $hostDir 'Det.sav')
+	foreach ($newSender in $true,$false) {
+		$r = Start-Receiver 'true' $manifest -Continuous (-not $newSender)
+		Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30 -Session $newSession -Continuous $newSender | Out-Null
+		Assert ((Wait-Receiver $r) -like 'OK *gespeichert*') 'mixed capability transfer succeeds'
+		Assert ($script:LastSaveTransfer.Method -eq 'block-ack' -and $script:LastSaveTransfer.Streams -eq 4) 'compatible DATA3 fallback'
+	}
+}
+
+Test 'parallel: a broken diagnostic directory cannot abort a verified transfer' {
+	$previous = $script:SaveTransferLogDirectory
+	try {
+		$script:SaveTransferLogDirectory = Join-Path (Join-Path $hostDir 'Det.sav') 'not-a-directory'
+		$newSession = New-MultiplayerSession $manifest (Join-Path $hostDir 'Det.sav')
+		$r = Start-Receiver 'true' $manifest
+		Send-Savegame (Join-Path $hostDir 'Det.sav') $port $tick 30 -Session $newSession | Out-Null
+		Assert ((Wait-Receiver $r) -like 'OK *gespeichert*') 'diagnostics cannot block network or filesystem result'
+		Assert ($script:LastSaveTransfer.LogPath -eq '') 'unavailable trace is not advertised'
+	} finally { $script:SaveTransferLogDirectory = $previous }
 }
 
 Test 'parallel: the sender can cancel while the peer never answers compatibility' {
@@ -558,19 +591,21 @@ Test 'parallel: wrong data tokens are refused and valid connections still succee
 }
 
 Test 'parallel: corrupted payloads fail the worker hash check' {
+	foreach ($continuous in $false,$true) {
 	$listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 0); $listener.Start()
 	$sendJob = $null; $receiveJob = $null
 	try {
 		$path = Join-Path $hostDir 'Det.sav'; $token = ('c' * 64)
 		$source = New-Object TF3MP.TransferFile; $source.Path = $path; $source.Name = 'Det.sav'; $source.Length = (Get-Item $path).Length; $source.Hash = Get-FileSha256 $path
 		$dest = New-Object TF3MP.TransferFile; $dest.Path = Join-Path $clientDir 'hash-check.part'; $dest.Name = 'Det.sav'; $dest.Length = $source.Length; $dest.Hash = [byte[]]$source.Hash.Clone(); $dest.Hash[0] = $dest.Hash[0] -bxor 255
-		$sendJob = [TF3MP.TransferJob]::Send($listener, [Net.IPAddress]::Loopback, $token, [TF3MP.TransferFile[]]@($source), 4)
-		$receiveJob = [TF3MP.TransferJob]::Receive('127.0.0.1', $listener.LocalEndpoint.Port, $token, [TF3MP.TransferFile[]]@($dest), 4)
+		$sendJob = [TF3MP.TransferJob]::Send($listener, [Net.IPAddress]::Loopback, $token, [TF3MP.TransferFile[]]@($source), 4, $continuous)
+		$receiveJob = [TF3MP.TransferJob]::Receive('127.0.0.1', $listener.LocalEndpoint.Port, $token, [TF3MP.TransferFile[]]@($dest), 4, $continuous)
 		Wait-SaveJob $sendJob $tick 'Schicke ...' $source.Length | Out-Null
 		$err = ''; try { Wait-SaveJob $receiveJob $tick 'Empfange ...' $source.Length | Out-Null } catch { $err = $_.Exception.Message }
 		Assert ($err -like '*kam beschädigt an*') $err
 		Remove-Item -LiteralPath $dest.Path
 	} finally { if ($sendJob) { $sendJob.Cancel() }; if ($receiveJob) { $receiveJob.Cancel() }; $listener.Stop() }
+	}
 }
 
 Test 'parallel: a dropped data connection is retried with clean parts on the same port' {

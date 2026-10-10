@@ -1,0 +1,22 @@
+[
+    {
+        "method":  "block-ack",
+        "bytes":  67108864,
+        "streams":  4,
+        "receipt_delay_ms":  60,
+        "data_s":  1.065,
+        "mib_per_s":  60.08,
+        "total_s":  1.188,
+        "verified":  true
+    },
+    {
+        "method":  "continuous",
+        "bytes":  67108864,
+        "streams":  4,
+        "receipt_delay_ms":  60,
+        "data_s":  0.141,
+        "mib_per_s":  454.04,
+        "total_s":  0.21,
+        "verified":  true
+    }
+]

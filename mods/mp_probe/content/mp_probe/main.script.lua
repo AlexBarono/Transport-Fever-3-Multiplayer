@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 47
+main.PROBE_VERSION = 48
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -1678,6 +1678,12 @@ end
 --- Without a GUI script the simulation keeps the shared speed (it stops while paused).
 function main.sync_speed_fallback(env, ss, role, gt, getenv)
 	local common = sync.decode(getenv("TF3MP_OWN_CLOCK"))
+	local own_menu = sync.decode(getenv("TF3MP_OWN_MENU"))
+	local peer_menu = sync.decode(getenv("TF3MP_PEER_MENU"))
+	if getenv("TF3MP_ORDERING") == "1" and ((own_menu and own_menu.open == 1) or (peer_menu and peer_menu.open == 1)) then
+		sync.set_speed(env, 0)
+		return
+	end
 	if common and (common.hold == 1 or (common.phase == "failed" and tonumber(common.at) and common.at > 0) or
 		(tonumber(common.at) and common.at > 0 and gt >= common.at and common.phase ~= "idle")) then
 		-- The shared speed register describes the user's speed, not this temporary barrier.

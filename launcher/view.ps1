@@ -51,7 +51,7 @@ $navJoin=New-Button $side 'Beitreten' 16 232 186 46
 $navTest=New-Button $side 'Testlabor' 16 288 186 46
 New-Label $side "VERBINDUNG ÜBER VPN" 24 650 180 24 9 $Accent | Out-Null
 New-Label $side "Beide PCs im selben VPN.`r`nNutze die VPN-IP des`r`nGastgebers zum Beitreten." 24 684 176 75 10 $Muted | Out-Null
-New-Label $side 'Probe v47  /  Bridge v13' 24 801 185 22 9 $Muted | Out-Null
+New-Label $side 'Probe v48  /  Bridge v13' 24 801 185 22 9 $Muted | Out-Null
 New-Label $form 'Eure nächste Verbindung.' 250 28 734 44 25 | Out-Null
 New-Label $form 'Sitzung vorbereiten, Spielstand teilen und gemeinsam loslegen.' 252 77 734 28 11 $Muted | Out-Null
 $statusLabel=New-Label $form 'Bereit zum Einrichten' 252 115 734 30 10 $Accent

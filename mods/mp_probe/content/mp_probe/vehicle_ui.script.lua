@@ -5,8 +5,9 @@ local builtin = ug_require "::/gui/main/builtin.lua"
 local entry = ug_require "::/gui/main/mod_entry_point.tl"
 local hooks = ug_require "mp_probe_1::/mp_probe/vehicle_hooks.lua"
 local economy_hooks = ug_require "mp_probe_1::/mp_probe/economy_hooks.lua"
+local menu_hooks = ug_require "mp_probe_1::/mp_probe/menu_hooks.lua"
 local wire = ug_require "mp_probe_1::/mp_probe/wire.lua"
-local env, memory, economy_memory = { api = api, os = os }, {}, {}
+local env, memory, economy_memory, menu_memory = { api = api, os = os }, {}, {}, {}
 local function get(key)
 	local ok, value = pcall(function() return os.getenv(key) end)
 	return ok and value or ""
@@ -27,6 +28,10 @@ local function economy_issue(label, reason)
 	output("[mp_probe]net send " .. issue)
 end
 local function step()
+	menu_hooks.watch(env, menu_memory, { log = note, enabled = function()
+		local role = get("TF3MP_ROLE")
+		return (role == "host" or role == "client") and get("TF3MP_ORDERING") == "1"
+	end, publish = function(text) output("[mp_probe]net state menu " .. text) end })
 	hooks.watch_vehicles(env, memory, {
 		log = note, encode = wire.encode,
 		clock = function() return os.clock() end,

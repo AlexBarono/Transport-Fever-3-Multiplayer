@@ -969,6 +969,64 @@ test("a clock warning with no planned action cannot pause the simulation fallbac
 	assert(g.speed == 3 and #g.sent == 0)
 end)
 
+test("either player's menu holds both engines and restores every previous speed", function()
+	for _, opener in ipairs({ "host", "client" }) do
+		for _, speed in ipairs({ 0, 1, 2, 4 }) do
+			local h,c=pair(); h.speed,c.speed=speed,speed
+			h.vars.TF3MP_ORDERING,c.vars.TF3MP_ORDERING="1","1"
+			for _=1,3 do h.gui();c.gui() end
+			local first,other=opener=="host" and h or c,opener=="host" and c or h
+			first.run(function() first.print("net state menu open=1") end)
+			for _=1,3 do h.gui();c.gui() end
+			assert(h.speed==0 and c.speed==0)
+			other.speed=4 -- A speed click cannot unpause while the menu is open.
+			other.gui(); assert(other.speed==0)
+			other.run(function() other.print("net state menu open=1") end)
+			first.run(function() first.print("net state menu open=0") end)
+			for _=1,3 do h.gui();c.gui() end
+			assert(h.speed==0 and c.speed==0, "the second menu still holds both games")
+			other.run(function() other.print("net state menu open=0") end)
+			for _=1,5 do h.gui();c.gui() end
+			assert(h.speed==speed and c.speed==speed, "restore "..speed)
+			assert(not has(h.logs,"speed changed here: paused") and not has(c.logs,"speed changed here: paused"))
+		end
+	end
+end)
+
+test("vehicle action pause and overlapping menus resume after both holds finish, with delayed commands", function()
+	for _, role in ipairs({ "host", "client" }) do
+		for _, speed in ipairs({ 0,1,2,4 }) do
+			local g=game(role); g.speed,g.gt=speed,1200; g.vars.TF3MP_ORDERING="1"
+			g.gui()
+			g.vars.TF3MP_OWN_CLOCK="at=1200 phase=committed hold=1 seq=1"
+			g.gui(); assert(g.speed==0)
+			g.vars.TF3MP_PEER_MENU="open=1"
+			g.vars.TF3MP_OWN_CLOCK="at=0 phase=idle hold=0"
+			g.gui(); assert(g.speed==0, "menu outlasts reverse action")
+			g.vars.TF3MP_PEER_MENU="open=0"; g.delay_speed=true
+			g.env={api=g.api,os=g.os}; g.gui();g.gui()
+			g.apply_speed_commands(); g.delay_speed=false
+			for _=1,4 do g.gui() end
+			assert(g.speed==speed and sync.decode(g.vars.TF3MP_OWN_GUI).speed==speed)
+			assert(sync.decode(g.vars.TF3MP_OWN_GUI).ver==0)
+		end
+	end
+end)
+
+test("closing a menu before its pause command arrives cannot publish a false permanent pause", function()
+	for _, role in ipairs({"host","client"}) do
+		local g=game(role); g.speed=4; g.vars.TF3MP_ORDERING="1"; g.gui(); g.delay_speed=true
+		g.vars.TF3MP_PEER_MENU="open=1"; g.gui()
+		assert(#g.speed_commands==1 and g.speed_commands[1].command.speed==0)
+		g.vars.TF3MP_PEER_MENU="open=0"; g.gui(); g.gui()
+		assert(sync.decode(g.vars.TF3MP_OWN_CLOCKUI).hold==1, "the old 4x is not a confirmed resume")
+		local pause=table.remove(g.speed_commands,1); g.speed=pause.command.speed
+		g.gui(); assert(sync.decode(g.vars.TF3MP_OWN_GUI).speed==4)
+		g.apply_speed_commands(); g.delay_speed=false; g.gui();g.gui()
+		assert(g.speed==4 and sync.decode(g.vars.TF3MP_OWN_GUI).ver==0)
+	end
+end)
+
 test("invalid, fractional, non-finite and unsafe journal amounts are rejected before sending", function()
 	local g = game("client")
 	for _, amount in ipairs({ 0 / 0, math.huge, -math.huge, 0.5, 9007199254740992, -9007199254740992, "5000" }) do

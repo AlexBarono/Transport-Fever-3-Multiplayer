@@ -428,6 +428,7 @@ function Get-TransferRateText([string]$path, $clock) {
 		$stats = $script:LastSaveTransfer
 		if ($stats -and [double]$stats.Seconds -gt 0 -and [int64]$stats.Bytes -gt 0) {
 			$rate += '; Daten {0:N1} MB in {1:N1} s = {2:N1} MB/s über {3} Verbindung(en)' -f ([int64]$stats.Bytes / 1MB), [double]$stats.Seconds, ([int64]$stats.Bytes / 1MB / [double]$stats.Seconds), $stats.Streams
+			$rate += '; Verfahren {0}; SHA-Prüfung {1:N2} s; Messprotokoll: {2}' -f $stats.Method, $stats.VerifySeconds, $stats.LogPath
 		}
 		return $rate
 	} catch { return '' }
