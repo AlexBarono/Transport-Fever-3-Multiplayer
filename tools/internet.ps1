@@ -20,8 +20,9 @@ function Get-InternetIPv6Addresses {
         @(Get-NetIPAddress -AddressFamily IPv6 -ErrorAction Stop | Where-Object {
             $_.AddressState -eq 'Preferred' -and $_.InterfaceAlias -notmatch 'Teredo|VPN|Radmin|Tailscale|ZeroTier|Hamachi|TAP|TUN|Loopback' -and
             (Test-PublicInternetAddress ([Net.IPAddress]::Parse($_.IPAddress)))
-        } | Sort-Object SkipAsSource, InterfaceMetric | ForEach-Object {
-            [pscustomobject]@{ Address=$_.IPAddress; Display="$($_.IPAddress) / $($_.InterfaceAlias)" }
+        } | Sort-Object @{Expression={if($_.SuffixOrigin -eq 'Random'){1}else{0}}}, SkipAsSource, InterfaceMetric | ForEach-Object {
+            $kind=if($_.SuffixOrigin -eq 'Random'){'temporär'}else{'dauerhaft'}
+            [pscustomobject]@{ Address=$_.IPAddress; Display="$($_.IPAddress) / $($_.InterfaceAlias) ($kind)" }
         })
     } catch { @() }
 }
@@ -72,7 +73,13 @@ function Invoke-InternetUpnp([ValidateSet('Add','Remove','Query')][string]$Mode,
             if ($existing -and $existing.Description -eq $owner -and $existing.InternalClient -eq $client -and $existing.InternalPort -eq $port) { $mappings.Remove($port,'TCP') }
             return
         }
-        if ($existing) { throw "TCP-Port $port ist im Router bereits vergeben. Bitte einen anderen Internetport wählen." }
+        if ($existing) {
+            if($existing.InternalClient -eq $client -and $existing.InternalPort -eq $port -and $existing.Enabled){
+                # A matching manual/previous mapping remains owned by its creator.
+                return [pscustomobject]@{ Address=$existing.ExternalIPAddress; Port=$port; Client=$client; Owner=$existing.Description; Existing=$true }
+            }
+            throw "TCP-Port $port ist im Router bereits für ein anderes Ziel vergeben. Bitte einen anderen Internetport wählen."
+        }
         $mapping = $mappings.Add($port,'TCP',$port,$client,$true,$owner)
         [pscustomobject]@{ Address=$mapping.ExternalIPAddress; Port=$port; Client=$client; Owner=$owner }
     }

@@ -630,7 +630,8 @@ function Invoke-Transfer {
         Enter-TransferBusy $others; Update-Fields
         $script:forceNewSession=$true; $script:transferOK=$false
         Write-LauncherLog "Bereite '$(Split-Path -Leaf $savePath)' vor und warte auf den Mitspieler."
-        $tick={param($text,$done,$total) Set-LauncherProgress $text $done $total; [Windows.Forms.Application]::DoEvents(); return $script:transferCancel}
+        $tick={param($text,$done,$total) Set-LauncherProgress $text $done $total; Update-InternetDiagnostics; [Windows.Forms.Application]::DoEvents(); return $script:transferCancel}
+        if($script:internetTunnel){Write-LauncherLog (Get-LauncherInternetSummary)}
         if(-not $script:internetTunnel){[void](Enable-InternetFirewall ([int]$port))}
         $manifest=Get-LauncherManifest $gameBox.Text.Trim() $steam $tick
         $session=New-MultiplayerSession -Manifest $manifest -SavePath $savePath
@@ -886,11 +887,11 @@ $script:lastStatusUpdate=[datetime]::MinValue
 $script:lastVisibleStatus=''
 $script:shownActionIssues=@{}
 $timer.Add_Tick({
+	Update-InternetDiagnostics
 	if($script:liveBusy -or $script:transferBusy -or $script:lobbyPreparing){return}
 	try {Update-LauncherLobby} catch {Write-LauncherLog "Sitzungssteuerung: $($_.Exception.Message)"}
 	if(([DateTime]::UtcNow-$script:lastStatusUpdate).TotalSeconds -lt 2){return}
 	$script:lastStatusUpdate=[DateTime]::UtcNow
-	Update-InternetDiagnostics
 	try {
 		if (-not $Preview -and -not $script:transferBusy -and (Test-GameRunning)) {
 			Update-LauncherActionIssues $steam $gameBox.Text.Trim()

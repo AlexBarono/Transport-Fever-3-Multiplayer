@@ -1,22 +1,22 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v51 / DLL v14**. **Beide PCs brauchen das v51-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v52 / DLL v14**. **Beide PCs brauchen das v52-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
 
-[Neuer Launcher und Testablauf für v51](docs/v51-launcher.md)
+[v52: Verbindung, Übertragung und Subventionen](docs/v52-verbindung-subventionen.md) · [Launcher-Ablauf](docs/v51-launcher.md)
 
-## Ohne VPN starten (v51)
+## Ohne VPN starten (v52)
 
-1. Beide verwenden das [v51-Paket](release/TF3-Multiplayer-v51-Windows.zip), beenden TF3 und öffnen `Start.bat`.
+1. Beide verwenden das [v52-Paket](release/TF3-Multiplayer-v52-Windows.zip), beenden TF3 und öffnen `Start.bat`.
 2. Gastgeber: **Internet ohne VPN** öffnen, die öffentliche IPv6 auswählen und **Direkt starten**. Alternativ **IPv4 / Routerfreigabe** für UPnP wählen. Bei manueller IPv4-Freigabe oben die öffentliche Routeradresse eintragen. Standard ist **TCP 47801**.
 3. Der Start prüft die Windows-Regel automatisch und fordert für IPv6 eine befristete TCP-Freigabe am Router an. Falls Windows nach Administratorrechten fragt, bestätigen. Bei bereits passender Regel erscheint keine Abfrage. Den angezeigten Routerstatus prüfen, dann **Einladung kopieren**. Die Einladung nur dem Mitspieler geben; sie gilt bis zum Schließen dieses Launchers.
 4. Mitspieler: unter **Beitreten** die vollständige Einladung einfügen. Der Launcher wartet automatisch auf den Gastgeber. **Interneteinladung prüfen** kann vor der Übertragung zusätzlich die Erreichbarkeit prüfen. Erst die erfolgreiche Prüfung vom anderen Anschluss bestätigt die Erreichbarkeit. Bei IPv6 brauchen beide Anschlüsse IPv6; die Router-Firewall des Gastgebers kann zusätzlich eine TCP-Freigabe verlangen. UPnP kann im Router deaktiviert sein oder abgelehnt werden. CGNAT/DS-Lite ohne erreichbares IPv6 braucht weiterhin VPN oder einen späteren Relaydienst.
-5. Gastgeber: **Spielstand bereitstellen**. Der Mitspieler lädt ihn automatisch herunter. Nach seiner Bereitschaft wird **Spiel für beide starten** grün. Ein Klick öffnet TF3 auf beiden PCs; beide laden dort den angezeigten Stand pausiert. **Beide Launcher bleiben geöffnet.** Spielaktionen und die vier Spielstand-Datenströme laufen verschlüsselt über denselben Internetport; der gemeinsame Zeitplan bleibt erhalten. Neuabgleich bleibt auf Wunsch.
+5. Gastgeber: **Spielstand bereitstellen**. Der Mitspieler lädt ihn automatisch herunter. Nach seiner Bereitschaft wird **Spiel für beide starten** grün. Ein Klick öffnet TF3 auf beiden PCs; beide laden dort den angezeigten Stand pausiert. **Beide Launcher bleiben geöffnet.** Spielaktionen laufen über TLS; die vier Spielstand-Datenströme laufen seit v52 unverschlüsselt über denselben TCP-Internetport. Beide Verfahren prüfen die Einladung; der gemeinsame Zeitplan bleibt erhalten. Neuabgleich bleibt auf Wunsch.
 
 Der Internetweg benötigt keinen Vermittlungsserver. Er ersetzt jedoch keine fehlende Erreichbarkeit beider Internetanschlüsse. Steam-Relays sind hier nicht integriert; die vorhandene Steam-DLL bestätigt keinen verfügbaren Relayzugang für diese Mod. [v50: Routerfreigabe, Ladebereitschaft und Diagnose](docs/v50-verbindung.md), [Internettransport](docs/v49-internet.md).
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe [v51-Paket](release/TF3-Multiplayer-v51-Windows.zip) auf beide PCs entpacken, mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen.
+1. Dasselbe [v52-Paket](release/TF3-Multiplayer-v52-Windows.zip) auf beide PCs entpacken, mit dem VPN verbinden, TF3 beenden und `Start.bat` öffnen.
 2. Gastgeber: **Gastgeber**, VPN-Adresse auswählen, **Adresse kopieren** und mit dem Mitspieler teilen. **Spielstand bereitstellen** öffnet die Dateiauswahl und wartet auf die automatische Verbindung.
 3. Mitspieler: **Beitreten**, Adresse einfügen (z. B. `100.80.12.4:47800`) und den Launcher offen lassen. Er empfängt und prüft den Stand und richtet die Mod ein. Ein anderer gleichnamiger Stand wird automatisch ersetzt; die alte Datei bleibt als `.bak`. Versionen und zusätzliche installierte Mods müssen übereinstimmen.
 4. Beim Mitspieler steht **Warte auf das Starten des Gastgebers**. Der Gastgeber bekommt den grünen Knopf **Spiel für beide starten**, sobald Empfang und Einrichtung bestätigt sind. Ein Klick öffnet TF3 über Steam auf beiden PCs.

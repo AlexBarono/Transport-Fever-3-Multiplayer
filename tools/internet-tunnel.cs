@@ -29,11 +29,18 @@ namespace TF3MP.Internet {
         private int remotePort, localPort, udpActive;
         private long tcpBytes, udpPackets, rejected, reconnects;
         private long accepted;
+        private long clearConnections, tlsConnections;
+        private bool encryptTcp;
+        public long ClearConnections { get { return Interlocked.Read(ref clearConnections); } }
+        public long TlsConnections { get { return Interlocked.Read(ref tlsConnections); } }
+        public bool SaveEncrypted { get { return encryptTcp; } }
+        public string InvitationId { get { return Hash(Encoding.ASCII.GetBytes(secret)).Substring(0,12); } }
         public long Accepted { get { return Interlocked.Read(ref accepted); } }
         private string lastError = "";
         public bool Running { get { return !stopped && listener != null; } }
         public bool SupportsIPv6 { get { return listener != null && ((IPEndPoint)listener.LocalEndpoint).AddressFamily == AddressFamily.InterNetworkV6; } }
         public int Port { get; private set; }
+        public int PublicPort { get { return remotePort==0 ? Port : remotePort; } }
         public string Fingerprint { get { return pin; } }
         public string Key { get { return secret; } }
         public string LastError { get { lock(gate) return lastError; } }
@@ -92,9 +99,12 @@ namespace TF3MP.Internet {
             } catch { t.Dispose(); throw; }
         }
         public static Tunnel StartClient(string address, int publicPort, string fingerprint, string key, int gamePort) {
+            return StartClient(address,publicPort,fingerprint,key,gamePort,false);
+        }
+        public static Tunnel StartClient(string address, int publicPort, string fingerprint, string key, int gamePort, bool encryptSaves) {
             IPAddress parsed = IPAddress.Parse(address);
             if (fingerprint.Length != 64 || key.Length != 64) throw new ArgumentException("Invalid invitation");
-            Tunnel t = new Tunnel(); t.host = parsed.ToString(); t.remotePort = publicPort; t.pin = fingerprint; t.secret = key; t.localPort = gamePort;
+            Tunnel t = new Tunnel(); t.host = parsed.ToString(); t.remotePort = publicPort; t.pin = fingerprint; t.secret = key; t.localPort = gamePort; t.encryptTcp=encryptSaves;
             try {
                 t.listener = Listen(IPAddress.Loopback, gamePort, false);
                 t.localUdp = new UdpClient(AddressFamily.InterNetwork); t.localUdp.Client.ExclusiveAddressUse=true;
@@ -115,6 +125,51 @@ namespace TF3MP.Internet {
         private static void Line(Stream s, string value) { byte[] b = Encoding.ASCII.GetBytes(value + "\n"); s.Write(b,0,b.Length); }
         private static bool EqualKey(string a, string b) {
             if(a.Length != b.Length) return false; int diff = 0; for(int i=0;i<a.Length;i++) diff |= a[i] ^ b[i]; return diff == 0;
+        }
+        private string Mac(string role, string clientNonce, string hostNonce) {
+            using(HMACSHA256 hmac=new HMACSHA256(Encoding.ASCII.GetBytes(secret)))
+                return BitConverter.ToString(hmac.ComputeHash(Encoding.ASCII.GetBytes("TF3MP-PLAIN/1|TCP|"+role+"|"+clientNonce+"|"+hostNonce+"|"+pin))).Replace("-","").ToLowerInvariant();
+        }
+        private static bool Nonce(string value) {
+            if(value.Length!=64) return false;
+            foreach(char ch in value) if(!((ch>='0' && ch<='9') || (ch>='a' && ch<='f'))) return false;
+            return true;
+        }
+        // Save bytes use raw TCP. Fresh challenges authenticate both ends without
+        // putting the invitation key on the wire or accepting replayed handshakes.
+        private Stream ConnectPlain(out TcpClient c) {
+            IPAddress ip=IPAddress.Parse(host); c=new TcpClient(ip.AddressFamily); Configure(c);
+            if(!Track(c)) throw new IOException("Tunnel closed or full");
+            try {
+                IAsyncResult pending=c.BeginConnect(ip,remotePort,null,null);
+                try { if(!pending.AsyncWaitHandle.WaitOne(6000)) throw new IOException("Internet endpoint unreachable (router/firewall/IPv6)"); c.EndConnect(pending); }
+                finally { pending.AsyncWaitHandle.Close(); }
+                NetworkStream stream=c.GetStream(); stream.ReadTimeout=stream.WriteTimeout=7000;
+                string clientNonce=NewKey(); Line(stream,"TF3MP-PLAIN/1"); Line(stream,clientNonce);
+                string hostNonce=ReadLine(stream), proof=ReadLine(stream);
+                if(!Nonce(hostNonce) || !EqualKey(proof,Mac("host",clientNonce,hostNonce))) throw new AuthenticationException("Invitation refused (host proof)");
+                Line(stream,Mac("client",clientNonce,hostNonce));
+                string response=ReadLine(stream);
+                if(response=="WAIT") throw new HostNotReadyException();
+                if(response!="OK") throw new AuthenticationException("Invitation refused");
+                stream.ReadTimeout=Timeout.Infinite; stream.WriteTimeout=15000;
+                Interlocked.Increment(ref clearConnections); lock(gate) lastError=""; return stream;
+            } catch { Forget(c); throw; }
+        }
+        private void HostPlain(TcpClient c) {
+            NetworkStream stream=c.GetStream(); stream.ReadTimeout=stream.WriteTimeout=7000;
+            if(ReadLine(stream)!="TF3MP-PLAIN/1") throw new AuthenticationException("Invalid save handshake");
+            string clientNonce=ReadLine(stream); if(!Nonce(clientNonce)) throw new AuthenticationException("Invalid save challenge");
+            string hostNonce=NewKey(); Line(stream,hostNonce); Line(stream,Mac("host",clientNonce,hostNonce));
+            if(!EqualKey(ReadLine(stream),Mac("client",clientNonce,hostNonce))) { Interlocked.Increment(ref rejected); throw new AuthenticationException("Invitation key refused"); }
+            using(TcpClient target=new TcpClient()) {
+                Configure(target);
+                try { target.Connect(IPAddress.Loopback,localPort); }
+                catch(SocketException e) { if(e.SocketErrorCode!=SocketError.ConnectionRefused) throw; Line(stream,"WAIT"); return; }
+                if(!Track(target)) return;
+                try { Line(stream,"OK"); Interlocked.Increment(ref clearConnections); lock(gate) lastError=""; PipePlain(target,stream,c.Client); }
+                finally { Forget(target); }
+            }
         }
         private SslStream Connect(string route, out TcpClient c) {
             IPAddress ip = IPAddress.Parse(host); c = new TcpClient(ip.AddressFamily); Configure(c);
@@ -152,7 +207,10 @@ namespace TF3MP.Internet {
             SslStream ssl = null; bool ownsUdp = false;
             string stage="TLS authentication";
             try {
-                Configure(c); ssl = new SslStream(c.GetStream(), false); ssl.ReadTimeout=ssl.WriteTimeout=7000;
+                Configure(c);
+                byte[] first=new byte[1]; if(c.Client.Receive(first,0,1,SocketFlags.Peek)==0) return;
+                if(first[0]==(byte)'T') { stage="plain TCP authentication/transfer"; HostPlain(c); return; }
+                ssl = new SslStream(c.GetStream(), false); ssl.ReadTimeout=ssl.WriteTimeout=7000;
                 ssl.AuthenticateAsServer(certificate, false, SslProtocols.Tls12, false);
                 stage="invitation authentication";
                 if(ReadLine(ssl)!="TF3MP-TLS/1" || !EqualKey(ReadLine(ssl),secret)) { Interlocked.Increment(ref rejected); Error(new IOException("Invitation key refused")); return; }
@@ -169,7 +227,7 @@ namespace TF3MP.Internet {
                         try { target.Connect(IPAddress.Loopback,localPort); }
                         catch(SocketException e) { if(e.SocketErrorCode!=SocketError.ConnectionRefused) throw; Line(ssl,"WAIT"); return; }
                         if(!Track(target)) return;
-                        try { Line(ssl,"OK"); ssl.ReadTimeout=Timeout.Infinite; Pipe(target,ssl); }
+                        try { Line(ssl,"OK"); Interlocked.Increment(ref tlsConnections); ssl.ReadTimeout=Timeout.Infinite; Pipe(target,ssl); }
                         finally { Forget(target); }
                     }
                 } else Interlocked.Increment(ref rejected);
@@ -237,7 +295,11 @@ namespace TF3MP.Internet {
         }
         private void ClientAccept() {
             while(!stopped) try { TcpClient c=listener.AcceptTcpClient(); if(Track(c)) Background(delegate {
-                TcpClient remote=null; try { Configure(c); using(SslStream ssl=Connect("TCP",out remote)) Pipe(c,ssl); }
+                TcpClient remote=null; try {
+                    Configure(c);
+                    if(encryptTcp) { using(SslStream ssl=Connect("TCP",out remote)) { Interlocked.Increment(ref tlsConnections); Pipe(c,ssl); } }
+                    else { using(Stream stream=ConnectPlain(out remote)) PipePlain(c,stream,remote.Client); }
+                }
                 catch(HostNotReadyException) {
                     // The save receiver retains its existing no-host wait/cancel policy.
                     try { BinaryWriter writer=new BinaryWriter(c.GetStream(),Encoding.UTF8); writer.Write("TF3MPWAIT"); writer.Flush(); } catch { }
@@ -248,6 +310,9 @@ namespace TF3MP.Internet {
         // A zero-length frame is a directional EOF. This preserves TCP half-close
         // semantics used when declining or cancelling a save, without losing replies.
         private void Pipe(TcpClient plain, SslStream ssl) {
+            // The control socket is idle while the four data sockets transfer the
+            // save. A handshake timeout here used to close it after seven seconds.
+            plain.ReceiveTimeout=0;
             Stream data=plain.GetStream(); Exception reverseError=null;
             Thread reverse=new Thread(delegate() {
                 try { byte[] b=new byte[65536]; int n; while((n=data.Read(b,0,b.Length))>0) { SendFrame(ssl,b,n); Interlocked.Add(ref tcpBytes,n); } SendFrame(ssl,b,0); }
@@ -259,6 +324,24 @@ namespace TF3MP.Internet {
                 if(!reverse.Join(15000)) throw new IOException("Tunnel half-close timed out");
                 if(reverseError!=null) throw new IOException("Tunnel stream failed",reverseError);
             } finally { plain.Close(); ssl.Dispose(); reverse.Join(2000); }
+        }
+        private void PipePlain(TcpClient plain, Stream remote, Socket remoteSocket) {
+            plain.ReceiveTimeout=0; remote.ReadTimeout=Timeout.Infinite; remote.WriteTimeout=15000;
+            Stream data=plain.GetStream(); Exception reverseError=null;
+            Thread reverse=new Thread(delegate() {
+                try {
+                    byte[] b=new byte[65536]; int n;
+                    while((n=data.Read(b,0,b.Length))>0) { remote.Write(b,0,n); Interlocked.Add(ref tcpBytes,n); }
+                    remoteSocket.Shutdown(SocketShutdown.Send);
+                } catch(Exception e) { reverseError=e; try { remote.Dispose(); } catch {} }
+            }); reverse.IsBackground=true; reverse.Start();
+            try {
+                byte[] b=new byte[65536]; int n;
+                while(!stopped && (n=remote.Read(b,0,b.Length))>0) { data.Write(b,0,n); Interlocked.Add(ref tcpBytes,n); }
+                plain.Client.Shutdown(SocketShutdown.Send);
+                if(!reverse.Join(15000)) throw new IOException("Tunnel half-close timed out");
+                if(reverseError!=null) throw new IOException("Tunnel stream failed",reverseError);
+            } finally { plain.Close(); remote.Dispose(); reverse.Join(2000); }
         }
         public void Dispose() {
             if(stopped) return; stopped=true;

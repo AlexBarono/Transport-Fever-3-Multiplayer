@@ -1,5 +1,7 @@
 # Spielstand übertragen — v48
 
+**Ergänzung v52:** Über VPN bleibt das folgende Verfahren erhalten. Ohne VPN laufen die vier Spielstand-Datenströme standardmäßig ohne Verschlüsselung, mit gegenseitiger Einladungsprüfung und SHA-256, über den öffentlichen TCP-Port 47801. Stille Steuerverbindungen bleiben während der Übertragung offen. [Verbindungs- und Subventionskorrekturen in v52](v52-verbindung-subventionen.md).
+
 Stand: 10. Oktober 2026. Beide PCs verwenden dasselbe portable Paket und sind im gemeinsamen VPN. Der Gastgeber wählt den Spielstand; der Mitspieler holt ihn über die VPN-Adresse des Gastgebers. Der Launcher prüft vor der Übertragung Spielversion, Modpaket und zusätzliche Mods. Nach erfolgreicher Übertragung laden beide denselben Stand. Der manuell gestartete Neuabgleich im laufenden Spiel verwendet dieselbe Übertragung. [Änderungen und Messungen in v48](v48-menu-transfer.md).
 
 Die Übertragung benutzt TCP auf dem eingestellten Port (Standard 47800). Die laufenden Spielaktionen benutzen UDP auf diesem Port. Für die zusätzlichen Verbindungen sind keine weiteren Ports nötig. Die Windows-Firewall muss den Launcher beziehungsweise PowerShell über den VPN-Adapter zulassen.

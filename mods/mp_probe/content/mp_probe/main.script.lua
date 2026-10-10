@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 51
+main.PROBE_VERSION = 52
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -988,6 +988,70 @@ function main.update(_user_params, state, _dt)
 		end
 	end
 	main.timeline_tick(_G, state)
+	local ok_money, err_money = pcall(main.economy_tick, _G, state)
+	if not ok_money then logger.info("subvention money sync failed: " .. main.error_text(err_money):sub(1, 220)) end
+end
+
+-- After both native subsidy decisions, the host's actual balance wins. This is
+-- independent of the slow world comparison and of differences in loan offers.
+local function economy_busy(env, s)
+	if s.action_busy or s.network_work or (s.action_work and #s.action_work > 0) then return true end
+	local getenv = env.os and env.os.getenv; if not getenv then return false end
+	for _, key in ipairs({ "TF3MP_OWN_CLOCK", "TF3MP_PEER_CLOCK" }) do
+		local clock = sync.decode(getenv(key) or "")
+		if clock and (clock.hold == 1 or (clock.phase and clock.phase ~= "idle")) then return true end
+	end
+	return false
+end
+
+function main.economy_tick(env, state)
+	local s = state:get() or {}; local request = s.actions and s.actions.subvention_money
+	if not request then return end
+	local getenv = env.os and env.os.getenv; if not getenv then return end
+	local role = sync.role(getenv); if role ~= "host" and role ~= "client" then return end
+	if economy_busy(env, s) then return end
+	if (request.settle or 0) > 0 then request.settle = request.settle - 1; state:set(s); return end
+	if role == "host" then
+		if (s.updates or 0) % main.SYNC_READ_EVERY ~= 0 then return end
+		local account = env.api.engine.getComponent(env.api.engine.util.getPlayer(), env.api.type.ComponentType.ACCOUNT)
+		local raw = sync.encode({ key = request.key, money = account.balance })
+		if raw ~= request.published then request.published = raw; state:set(s); logger.info(main.STATE_MARKER .. "economy " .. raw) end
+	elseif not request.requested and not request.applied then
+		local peer = sync.decode(getenv("TF3MP_PEER_ECONOMY") or "")
+		if not peer or peer.key ~= request.key or type(peer.money) ~= "number" then return end
+		request.requested = true; state:set(s)
+		if not main.send_replay_event(env, { economy_money = true, money = peer.money, key = request.key }) then
+			main.economy_issue(env, state, "Subvention: Geld an Gastgeber angleichen", "subvention money sync event unavailable")
+		end
+	end
+end
+
+function main.economy_apply(env, state, param)
+	if sync.role(env.os and env.os.getenv) ~= "client" then return end
+	local s = state:get() or {}; local request = s.actions and s.actions.subvention_money
+	if not request or request.key ~= param.key or request.applied then return end
+	if economy_busy(env, s) then request.requested = nil; state:set(s); return end
+	local target = param.money
+	assert(type(target) == "number" and target == math.floor(target) and math.abs(target) <= 9007199254740991, "invalid host subsidy balance")
+	local account = env.api.engine.getComponent(env.api.engine.util.getPlayer(), env.api.type.ComponentType.ACCOUNT)
+	local amount = target - account.balance
+	-- Reserve before sending: a synchronous callback or duplicate event cannot pay twice.
+	request.applied = true
+	if s.sync then
+		-- A checkpoint from before the subsidy must not apply an older delta later.
+		if s.sync.pending_fix then s.sync.pending_fix.money = nil end
+		if s.sync.fixes then s.sync.fixes.money = nil end
+		s.sync.compared_k = math.max(s.sync.compared_k or -1, s.sync.own_k or -1)
+		s.sync.money_rebased_gt = main.game_time(env)
+	end
+	state:set(s)
+	if amount == 0 then logger.info("subvention money: already matches host " .. target); return end
+	local sent, why = sync.book(env, amount, "OTHER", function(_, success)
+		if success == false then main.economy_issue(env, state, "Subvention: Geld an Gastgeber angleichen", "subvention money correction rejected"); return end
+		local live = state:get() or {}; if live.sync then live.sync.adj = (live.sync.adj or 0) + amount end; state:set(live)
+		logger.info("subvention money: corrected by " .. amount .. "; host balance " .. target)
+	end)
+	if not sent then main.economy_issue(env, state, "Subvention: Geld an Gastgeber angleichen", "subvention money correction unavailable: " .. tostring(why)) end
 end
 
 --- The common-tick timeline of this game. A save made by the other game (Neuabgleich) carries its
@@ -1680,6 +1744,10 @@ function main.sync_apply(env, state, fix)
 	local function correct(field, label, send)
 		local amount = tonumber(fix["fix_" .. field])
 		if not amount then return end
+		local live = state:get() or {}; local rebased = live.sync and live.sync.money_rebased_gt
+		if field == "money" and rebased and tonumber(fix.fix_gt) and fix.fix_gt <= rebased then
+			logger.info("sync: skipped money correction captured before subsidy balance alignment"); return
+		end
 		local ok, sent, notes = pcall(send, amount, function(_, success)
 			logger.info("sync: " .. label .. " " .. amount .. ", success=" .. tostring(success) ..
 				(success == false and ("; " .. field .. " is no longer corrected") or ""))
@@ -1986,6 +2054,11 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 		if type(param) == "table" and param.sync_fix then
 			local ok, err = pcall(main.sync_apply, _G, state, param)
 			if not ok then logger.info("sync correction failed: " .. main.error_text(err):sub(1, 240)) end
+			return
+		end
+		if type(param) == "table" and param.economy_money then
+			local ok, err = pcall(main.economy_apply, _G, state, param)
+			if not ok then main.economy_issue(_G, state, "Subvention: Geld an Gastgeber angleichen", main.error_text(err)) end
 			return
 		end
 		if type(param) == "table" and param.action_work then

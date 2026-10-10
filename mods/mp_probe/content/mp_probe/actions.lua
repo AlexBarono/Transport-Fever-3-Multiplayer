@@ -1011,6 +1011,15 @@ function actions.continue(env, state, log)
 	local task = s.action_work and table.remove(s.action_work, 1)
 	state:set(s)
 	if not task then return end
+	if task.command == "accept_spawned_subvention" then
+		if not economy.spawn_ready(env, task) then
+			task.tries = (task.tries or 0) + 1
+			assert(task.tries <= 30, "subvention could not be created by original game script; no payout booked")
+			enqueue(state, { task }); return
+		end
+		log("action missing subvention recreated by original game script; accepting automatically")
+		return actions.replay(env, { op = "subvention_event", value = task.value }, state, "subvention", 0, log)
+	end
 	if task.command == "verify_subvention" then
 		if not economy.verify(env, state, task) then
 			task.tries = (task.tries or 0) + 1
@@ -1018,7 +1027,8 @@ function actions.continue(env, state, log)
 			local live = state:get() or {}; live.action_work = live.action_work or {}
 			table.insert(live.action_work, 1, task); state:set(live); return
 		end
-		log("action subvention " .. task.name .. " verified; expected native upfront payout " .. tostring(economy.payout(task.offer)))
+		log("action subvention " .. task.name .. " verified; native upfront payout " .. tostring(economy.payout(task.local_offer)) ..
+			" (source offer " .. tostring(economy.payout(task.offer)) .. "); host balance takes priority")
 		return
 	end
 	if task.command == "verify_loan" then

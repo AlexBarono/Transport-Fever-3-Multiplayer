@@ -74,6 +74,82 @@ local function matches(list, offer)
 	return candidates[1]
 end
 
+-- Vanilla subsidy rewards, deadlines and spawn times are randomized separately.
+-- Locate the actual target by component and position instead of comparing rewards.
+local function component(env, id, kind)
+	local ok, value = pcall(function() return env.api.engine.getComponent(id, env.api.type.ComponentType[kind]) end)
+	return ok and value or nil
+end
+
+local function target_ref(env, id, kind)
+	assert(component(env, id, kind), "subvention target missing: " .. kind)
+	local bb = assert(component(env, id, "BOUNDING_VOLUME"), "subvention target position missing").bbox
+	local p = {}; for _, axis in ipairs({ "x", "y", "z" }) do
+		p[axis] = (bb.min[axis] + bb.max[axis]) / 2
+		assert(type(p[axis]) == "number" and p[axis] == p[axis] and math.abs(p[axis]) < 1e8, "invalid subvention position")
+	end
+	return { kind = kind, position = p }
+end
+
+function economy.specific(env, offer)
+	local d, kind = offer.data, offer.id:match("/subventions/(deliver_[^/]+)/")
+	if kind == "deliver_workers" then return { target = target_ref(env, d.to.entity, "INDUSTRY") } end
+	if kind == "deliver_passengers" then
+		return { source = target_ref(env, d.from.entity, "TOWN"), target = target_ref(env, d.to.entity, "TOWN") }
+	end
+	if kind == "deliver_cargo_town" then
+		assert(type(d.cargoType) == "string", "subvention cargo type missing")
+		return { target = target_ref(env, d.townEntity.entity, "TOWN"), cargo = d.cargoType }
+	end
+	if kind == "deliver_cargo" then
+		local industry
+		env.api.engine.forEachEntityWithComponent(function(id)
+			local v = component(env, id, "INDUSTRY")
+			if v and v.stockList == d.stockListEntity.entity then assert(not industry, "ambiguous subsidy industry"); industry = id end
+		end, env.api.type.ComponentType.INDUSTRY)
+		return { target = target_ref(env, assert(industry, "subvention industry missing"), "INDUSTRY") }
+	end
+	error("unsupported subvention target", 0)
+end
+
+local function same_target(a, b)
+	if type(a) ~= "table" or type(b) ~= "table" or a.cargo ~= b.cargo then return false end
+	for _, key in ipairs({ "target", "source" }) do
+		local x, y = a[key], b[key]
+		if (x == nil) ~= (y == nil) then return false end
+		if x then
+			if x.kind ~= y.kind then return false end
+			for _, axis in ipairs({ "x", "y", "z" }) do
+				local p, q = x.position[axis], y.position[axis]
+				assert(type(p) == "number" and p == p and math.abs(p) < 1e8 and type(q) == "number" and q == q and math.abs(q) < 1e8, "invalid subvention position")
+				if math.abs(p - q) > 1 then return false end
+			end
+		end
+	end
+	return true
+end
+
+local function target_match(env, list, value)
+	local found
+	for _, v in ipairs(list or {}) do
+		if v.id == value.offer.id then
+			local ok, ref = pcall(economy.specific, env, v)
+			if ok and same_target(ref, value.specific) then assert(not found, "subvention target ambiguous"); found = v end
+		end
+	end
+	return found
+end
+
+local function resolve_target(env, ref)
+	assert(ref and (ref.kind == "INDUSTRY" or ref.kind == "TOWN"), "invalid subvention target kind")
+	local found
+	env.api.engine.forEachEntityWithComponent(function(id)
+		local ok, local_ref = pcall(target_ref, env, id, ref.kind)
+		if ok and same_target({target=local_ref}, {target=ref}) then assert(not found, "subvention target ambiguous"); found = id end
+	end, env.api.type.ComponentType[ref.kind])
+	return assert(found, "subvention target missing on this PC; no payout booked")
+end
+
 function economy.prepare(env, param)
 	assert(type(param) == "table", "economy command missing")
 	if param.kind == "company" then
@@ -82,7 +158,12 @@ function economy.prepare(env, param)
 	assert(param.kind == "subvention" and (param.name == "onAccept" or param.name == "onDecline") and integer(param.uid), "invalid subvention decision")
 	for _, v in ipairs(economy.read(env).proposedSubventions) do
 		-- TF3 also uses the first matching uid, rather than the resource id.
-		if v.uid == param.uid then return { op = "subvention_event", value = { name = param.name, offer = economy.offer(v) } } end
+		if v.uid == param.uid then
+			local value = { name = param.name, offer = economy.offer(v) }
+			local ok, ref = pcall(economy.specific, env, value.offer)
+			if ok then value.specific = ref end
+			return { op = "subvention_event", value = value }
+		end
 	end
 	error("subvention offer not found or already decided", 0)
 end
@@ -110,11 +191,16 @@ function economy.description(action)
 	end
 end
 
+local function balance_key(offer)
+	return (offer.id:match("/subventions/(deliver_[^/]+)/") or "subvention") .. "_" .. tostring(offer.uid) .. "_" .. tostring(offer.spawnTime or 0)
+end
+
 local function receipt(state, offer, decision)
 	local s = state:get() or {}; s.actions = s.actions or { snapshots = {}, queue = {}, errors = {} }
 	local list = s.actions.subventions or {}; s.actions.subventions = list
 	list[#list + 1] = { key = instance(offer), decision = decision }
 	while #list > 128 do table.remove(list, 1) end
+	if decision == "onAccept" then s.actions.subvention_money = { key = balance_key(offer), settle = 3 } end
 	state:set(s)
 end
 
@@ -141,8 +227,33 @@ function economy.command(env, state, value)
 			end
 		end
 	end
-	local proposed = matches(current.proposedSubventions, offer)
+	local proposed = value.specific and target_match(env, current.proposedSubventions, value) or matches(current.proposedSubventions, offer)
 	if not proposed then
+		if value.specific then
+			local active = target_match(env, current.activeSubventions, value)
+			if active then
+				assert(value.name == "onAccept", "subvention already accepted; cannot decline")
+				receipt(state, offer, value.name); return nil
+			end
+			if value.name == "onDecline" then receipt(state, offer, value.name); return nil end
+			local params = { target = resolve_target(env, value.specific.target), expireDurationProposed = -1 }
+			if value.specific.source then params.source = resolve_target(env, value.specific.source) end
+			if value.specific.cargo then
+				params.cargoTypeId = env.api.res.cargoTypeRep.find(value.specific.cargo)
+				assert(integer(params.cargoTypeId) and params.cargoTypeId >= 0, "subvention cargo unavailable")
+			end
+			-- Native onAccept looks up uid across all types. Pick a free uid, and
+			-- respect the original script's history so a used uid cannot block spawn.
+			local uid = offer.uid
+			local used = {}; for _, list in ipairs({ current.proposedSubventions, current.activeSubventions or {}, current.completedSubventions or {}, current.failedSubventions or {} }) do
+				for _, v in ipairs(list) do used[v.uid] = true end
+			end
+			for _, history in pairs(current.usedUids or {}) do for k in pairs(history) do if tonumber(k) then used[tonumber(k)] = true end end end
+			while used[uid] do uid = uid + 1; assert(integer(uid), "subvention uid exhausted") end
+			params.uid = uid
+			return env.api.cmd.makeScriptingSendEventCmd(economy.SOURCE, "Subvention", "subventionSpawn", { name = offer.id, specific = params }),
+				{ command = "accept_spawned_subvention", value = value, uid = uid }
+		end
 		error("subvention offer not found or terms/rewards differ; no payout booked", 0)
 	end
 	for _, v in ipairs(current.proposedSubventions) do
@@ -164,7 +275,15 @@ function economy.verify(env, state, task)
 	end
 	if present or (task.name == "onAccept" and not accepted) then return false end
 	assert(task.name ~= "onDecline" or not accepted, "subvention was accepted instead of declined")
-	receipt(state, task.offer, task.name); return true
+	receipt(state, task.offer, task.name)
+	return true
+end
+
+function economy.spawn_ready(env, task)
+	for _, v in ipairs(economy.read(env).proposedSubventions) do
+		if v.uid == task.uid and v.id == task.value.offer.id then return true end
+	end
+	return false
 end
 
 return economy

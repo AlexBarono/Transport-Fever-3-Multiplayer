@@ -46,8 +46,10 @@ function Write-SaveTransferTrace([string]$Event, $Fields = @{}) {
 	try {
 		$trace = $script:SaveTransferTrace
 		$row = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); elapsed_s = [Math]::Round($trace.Clock.Elapsed.TotalSeconds,3); role = $trace.Role; event = $Event }
+		if($Event -match '(^failed$|_failed$)') { $row.failure_stage = $trace.LastStage }
 		foreach ($key in $Fields.Keys) { $row[$key] = $Fields[$key] }
 		[IO.File]::AppendAllText($trace.Path, (($row | ConvertTo-Json -Depth 5 -Compress) + [Environment]::NewLine), (New-Object Text.UTF8Encoding($false)))
+		if($Event -notmatch '(^sample$|failed$)') { $trace.LastStage = $Event }
 	} catch {}
 }
 function Write-SaveJobTrace($Job, [string]$Event, $Watch) {

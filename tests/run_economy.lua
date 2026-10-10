@@ -30,11 +30,16 @@ local function mock(role, offers)
 	local native=m.env.api.cmd.sendCommand
 	m.env.api.cmd.sendCommand=function(c,cb)
 		if c.name~="makeScriptingSendEventCmd" or c.args[2]~="Subvention" then return native(c,cb) end
-		assert(c.args[1]==economy.SOURCE and (c.args[3]=="onAccept" or c.args[3]=="onDecline"))
+		assert(c.args[1]==economy.SOURCE and (c.args[3]=="onAccept" or c.args[3]=="onDecline" or c.args[3]=="subventionSpawn"))
 		m.sent[#m.sent+1]=c
 		if m.reject then cb({},false);return end
 		if not m.ignore then
 			local st=m.entities[9].GAME_SCRIPT.state
+			if c.args[3]=="subventionSpawn" then
+				local created=copy(m.spawnOffer or offer()); created.id=c.args[4].name
+				created.uid,created.spawnTime=c.args[4].specific.uid,1001
+				st.proposedSubventions[#st.proposedSubventions+1]=created; cb({},true); return
+			end
 			for i,v in ipairs(st.proposedSubventions) do
 				if v.uid==c.args[4].uid then
 					table.remove(st.proposedSubventions,i)
@@ -49,6 +54,17 @@ local function mock(role, offers)
 		cb({},true)
 	end
 	function m.prepare(name,uid) return economy.prepare(m.env,{kind="subvention",name=name or "onAccept",uid=uid or 123}) end
+	return m
+end
+
+local function targets(m)
+	local ct=m.env.api.type.ComponentType
+	ct.INDUSTRY,ct.TOWN,ct.BOUNDING_VOLUME="INDUSTRY","TOWN","BOUNDING_VOLUME"
+	m.entities[200]={INDUSTRY={stockList=201},BOUNDING_VOLUME={bbox={min={x=10,y=20,z=0},max={x=20,y=30,z=10}}}}
+	m.entities[201]={STOCK_LIST={}}
+	m.env.api.engine.forEachEntityWithComponent=function(fn,kind)
+		for id,e in pairs(m.entities) do if e[kind] then fn(id) end end
+	end
 	return m
 end
 
@@ -79,11 +95,124 @@ test("different local uid is resolved by the full offer, never by list position"
 	assert(b.entities[9].GAME_SCRIPT.state.proposedSubventions[1].uid==999)
 end)
 
-test("different terms, missing offers and ambiguous matches cannot book money",function()
+test("without a validated target different terms, missing offers and ambiguous matches cannot book money",function()
 	local a=mock();local action=a.prepare()
 	for _,offers in ipairs({{offer(123,42)},{},{offer(777),offer(888)}}) do
 		local b=mock("client",offers);assert(not pcall(b.replay,action));assert(#b.sent==0 and b.entities[7].ACCOUNT.balance==1000000)
 	end
+end)
+
+test("random reward and deadline differences still accept the same real target",function()
+	local a,b=targets(mock()),targets(mock("client",{offer(777,120000)}))
+	local action=a.prepare(); assert(action.value.specific)
+	b.replay(action)
+	assert(#b.entities[9].GAME_SCRIPT.state.activeSubventions==1 and b.entities[7].ACCOUNT.balance==1120000)
+	assert(b.state:get().actions.subvention_money.key:find("deliver_cargo_123_200",1,true))
+end)
+
+test("a missing offer is spawned through TF3 then accepted once, without booking a second reward",function()
+	local a,b=targets(mock()),targets(mock("client",{}))
+	b.spawnOffer=offer(0,250000)
+	local action=a.prepare(); b.replay(action); b.replay(action)
+	assert(#b.entities[9].GAME_SCRIPT.state.activeSubventions==1 and b.entities[7].ACCOUNT.balance==1250000)
+	assert(b.sent[1].args[3]=="subventionSpawn" and b.sent[2].args[3]=="onAccept" and #b.sent==2)
+end)
+
+test("missing subsidy target, ambiguous target and refused spawn stay explicit failures",function()
+	local a=targets(mock()); local action=a.prepare()
+	local b=targets(mock("client",{})); b.entities[200]=nil
+	assert(not pcall(b.replay,action) and #b.sent==0)
+	local c=targets(mock("client",{offer(777),offer(888)}))
+	assert(not pcall(c.replay,action) and #c.sent==0)
+	local d=targets(mock("client",{})); d.ignore=true
+	assert(not pcall(d.replay,action) and d.entities[7].ACCOUNT.balance==1000000)
+end)
+
+test("a used or colliding native uid is replaced rather than paying a different offer",function()
+	local a=targets(mock()); local b=targets(mock("client",{}))
+	b.entities[9].GAME_SCRIPT.state.usedUids={[offer().id]={["123"]=false}}
+	b.replay(a.prepare()); assert(b.sent[1].args[4].specific.uid==124)
+	assert(b.entities[7].ACCOUNT.balance==1500000)
+end)
+
+test("all four native subsidy types recreate the target using local entity ids",function()
+	for _,kind in ipairs({"deliver_workers","deliver_cargo","deliver_cargo_town","deliver_passengers"}) do
+		local o=offer(); o.id="::/game_mechanics/subventions/"..kind.."/"..kind..".res"
+		o.data.to,o.data.from,o.data.townEntity,o.data.cargoType={entity=200},{entity=400},{entity=400},"::/goods.cargo"
+		if kind=="deliver_passengers" then o.data.to={entity=500} end
+		local a,b=targets(mock("host",{o})),targets(mock("client",{}))
+		local function town(x) return {TOWN={},BOUNDING_VOLUME={bbox={min={x=x,y=0,z=0},max={x=x+10,y=10,z=10}}}} end
+		a.entities[400],a.entities[500]=town(1000),town(2000)
+		b.entities[1400],b.entities[1500]=town(1000),town(2000)
+		b.entities[300],b.entities[200]=b.entities[200],nil
+		b.entities[300].INDUSTRY.stockList=301
+		b.env.api.res.cargoTypeRep={find=function(name) assert(name=="::/goods.cargo"); return 5 end}
+		b.spawnOffer=copy(o); b.spawnOffer.data.stockListEntity={entity=301}
+		b.spawnOffer.data.to,b.spawnOffer.data.from,b.spawnOffer.data.townEntity={entity=300},{entity=1400},{entity=1400}
+		if kind=="deliver_passengers" then b.spawnOffer.data.to={entity=1500} end
+		local action=a.prepare(); assert(action.value.specific)
+		b.replay(action)
+		local params=b.sent[1].args[4].specific
+		assert(params.target==(kind=="deliver_passengers" and 1500 or kind=="deliver_cargo_town" and 1400 or 300))
+		if kind=="deliver_passengers" then assert(params.source==1400) end
+		if kind=="deliver_cargo_town" then assert(params.cargoTypeId==5) end
+		assert(#b.entities[9].GAME_SCRIPT.state.activeSubventions==1 and b.entities[7].ACCOUNT.balance==1500000)
+	end
+end)
+
+test("host balance wins after either player accepts, including duplicate money events",function()
+	for _,role in ipairs({"host","client"}) do
+		local a,b=targets(mock("host")),targets(mock("client",{offer(777,120000)}))
+		local action=(role=="host" and a or b).prepare("onAccept",role=="host" and 123 or 777)
+		a.replay(action); b.replay(action)
+		b.env.os.getenv=function(k)
+			if k=="TF3MP_ROLE" then return "client" elseif k=="TF3MP_PEER_ECONOMY" then
+				local r=a.state:get().actions.subvention_money
+				return "key="..r.key.." money="..a.entities[7].ACCOUNT.balance
+			end
+		end
+		b.env.api.cmd.sendCommand=function(c,cb)
+			assert(c.name=="makeJournalBookAssetCmd" and c.args[2].category.type==9)
+			b.entities[7].ACCOUNT.balance=b.entities[7].ACCOUNT.balance+c.args[2].amount; if cb then cb({},true) end
+		end
+		b.env.api.cmd.makeJournalBookAssetCmd=function(player,entry,pos) return {name="makeJournalBookAssetCmd",args={player,entry,pos}} end
+		for i=1,4 do main.economy_tick(a.env,a.state) end
+		local r=b.state:get().actions.subvention_money
+		local send, param=main.send_replay_event,nil
+		main.send_replay_event=function(_,value) param=value; return true end
+		for i=1,4 do main.economy_tick(b.env,b.state) end
+		main.send_replay_event=send
+		assert(param and param.economy_money and param.key==r.key)
+		local s=b.state:get(); s.sync={own_k=10,compared_k=5,pending_fix={money=123,date=1},fixes={money={amount=123}}}; b.state:set(s)
+		main.economy_apply(b.env,b.state,param); main.economy_apply(b.env,b.state,param)
+		assert(b.entities[7].ACCOUNT.balance==a.entities[7].ACCOUNT.balance)
+		assert(not b.state:get().sync.pending_fix.money and not b.state:get().sync.fixes.money and b.state:get().sync.compared_k==10)
+		main.economy_apply(a.env,a.state,{key=r.key,money=1})
+		assert(a.entities[7].ACCOUNT.balance==1500000)
+	end
+end)
+
+test("a stale subsidy balance cannot pay for a different decision",function()
+	local b=targets(mock("client")); b.replay(b.prepare())
+	local old=b.entities[7].ACCOUNT.balance
+	main.economy_apply(b.env,b.state,{key="older_decision",money=90000000})
+	assert(b.entities[7].ACCOUNT.balance==old and not b.state:get().actions.subvention_money.applied)
+end)
+
+test("balance alignment waits for active common actions and discards queued older deltas",function()
+	local b=targets(mock("client")); b.replay(b.prepare())
+	local s=b.state:get(); local key=s.actions.subvention_money.key
+	s.actions.subvention_money.requested=true; s.action_busy=true; b.state:set(s)
+	main.economy_apply(b.env,b.state,{key=key,money=2000000})
+	assert(b.entities[7].ACCOUNT.balance==1500000 and not b.state:get().actions.subvention_money.requested)
+	s=b.state:get(); s.action_busy=false; s.sync={}; b.state:set(s)
+	b.env.api.engine.util.getWorld=function() return 10 end; b.env.api.type.ComponentType.GAME_TIME="GAME_TIME"
+	b.entities[10]={GAME_TIME={gameTime=10000}}
+	b.env.api.cmd.makeJournalBookAssetCmd=function(player,entry,pos) return {name="makeJournalBookAssetCmd",args={player,entry,pos}} end
+	b.env.api.cmd.sendCommand=function(c,cb) b.entities[7].ACCOUNT.balance=b.entities[7].ACCOUNT.balance+c.args[2].amount; if cb then cb({},true) end end
+	main.economy_apply(b.env,b.state,{key=key,money=2000000})
+	main.sync_apply(b.env,b.state,{fix_money=9000000,fix_gt=9000})
+	assert(b.entities[7].ACCOUNT.balance==2000000)
 end)
 
 test("native uid collisions cannot select a different offer",function()

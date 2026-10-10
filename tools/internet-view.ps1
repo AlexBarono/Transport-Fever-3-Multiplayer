@@ -49,7 +49,7 @@ function Resolve-LauncherEndpoint([string]$Text, [string]$DefaultPort) {
             Initialize-InternetTransport
             $script:internetTunnel=[TF3MP.Internet.Tunnel]::StartClient($invite.Address,$invite.Port,$invite.Fingerprint,$invite.Key,$localPort)
             $script:internetRole='client'; $script:internetInvite=$Text.Trim(); $script:internetLocalPort=$localPort
-            Write-InternetLog 'client_started' @{ family=([Net.IPAddress]::Parse($invite.Address).AddressFamily.ToString()); local_port=$localPort; public_port=$invite.Port }
+            Write-InternetLog 'client_started' @{ family=([Net.IPAddress]::Parse($invite.Address).AddressFamily.ToString()); local_port=$localPort; public_port=$invite.Port; invitation_id=$script:internetTunnel.InvitationId; save_transport='authenticated_plain_tcp' }
         }
         return @{ Address='127.0.0.1'; Port=$localPort; Internet=$true }
     }
@@ -72,7 +72,12 @@ function Assert-LauncherInternetMode([string]$Role, [int]$Port, [string]$Test) {
 function Get-LauncherInternetSummary {
     if(-not $script:internetTunnel) { return '' }
     $t=$script:internetTunnel
-    return "Internet / TLS: $($script:internetRole), Spielkanal=$($t.GameChannelConnected), $($t.UdpPackets) Pakete, $([Math]::Round($t.TcpBytes/1MB,1)) MB, $($t.Reconnects) Wiederverbindungen, $($t.Rejected) abgewiesen.`r`nRouter: $script:internetRouterStatus`r`nLetzte Transportmeldung: $($t.LastError)`r`nProtokoll: $script:internetLogPath`r`n`r`n"
+    return "Internet: $($script:internetRole), Spielkanal=$($t.GameChannelConnected), $($t.UdpPackets) Pakete, $([Math]::Round($t.TcpBytes/1MB,1)) MB, $($t.Reconnects) Wiederverbindungen, $($t.Rejected) abgewiesen.`r`nSpielstände: direktes TCP ohne Verschlüsselung; Einladung wird geprüft. Klartext-Verbindungen=$($t.ClearConnections), TLS-Kompatibilität=$($t.TlsConnections).`r`nRouter: $script:internetRouterStatus`r`nLetzte Transportmeldung: $($t.LastError)`r`nProtokoll: $script:internetLogPath`r`n`r`n"
+}
+
+function Test-ReuseInternetHost([int]$PublicPort,[int]$LocalPort) {
+    return $script:internetTunnel -and $script:internetRole -eq 'host' -and $script:internetTunnel.Running -and
+        $script:internetTunnel.Port -eq $PublicPort -and $script:internetLocalPort -eq $LocalPort -and $script:internetInvite
 }
 
 function Open-LauncherIPv6Pinhole([string]$Address,[int]$Port) {
@@ -104,7 +109,7 @@ function Test-LauncherInternetInvitation {
         throw ('Internetverbindung fehlgeschlagen: ' + $task.Exception.GetBaseException().Message + "`r`nGastgeber: Internetzugang im Launcher offen lassen, Windows-TCP-Regel zulassen und Routerfreigabe prüfen. IPv6 braucht auf beiden PCs Internet-IPv6. Bei IPv4 kann CGNAT eine Freigabe verhindern.")
     }
     Write-InternetLog 'probe_ok'
-    $out.Text="Internetverbindung zum Gastgeber bestätigt. Einladung und TLS-Zertifikat stimmen.`r`nJetzt den gemeinsamen Spielstand holen. Eine Prüfung auf demselben PC beweist keine Erreichbarkeit von außen."
+    $out.Text="Internetverbindung zum Gastgeber bestätigt. Einladung und TLS-Zertifikat stimmen.`r`nDer Spielstand wird automatisch geholt, sobald der Gastgeber ihn bereitstellt; die Datei läuft unverschlüsselt über TCP. Eine Prüfung auf demselben PC beweist keine Erreichbarkeit von außen."
 }
 
 function Show-InternetHostSetup([string]$PreviewPath = '') {
@@ -141,6 +146,18 @@ function Show-InternetHostSetup([string]$PreviewPath = '') {
             if($publicPort.Text -notmatch '^\d{1,5}$' -or [int]$publicPort.Text -lt 1024 -or [int]$publicPort.Text -gt 65535) { throw 'Internetport muss zwischen 1024 und 65535 liegen.' }
             $localPort=[int]$portBox.Text; $port=[int]$publicPort.Text
             if($localPort -lt 1024 -or $localPort -gt 65535 -or $localPort -eq $port) { throw 'Internetport und Spielport müssen verschieden sein.' }
+            # Reopening setup or clicking Start again must not rotate the key and
+            # disconnect a peer already waiting with the copied invitation.
+            if(Test-ReuseInternetHost $port $localPort) {
+                $current=Read-InternetInvitation $script:internetInvite
+                $selected=if($addresses.SelectedItem){$addresses.SelectedItem.Address}else{$addresses.Text.Trim()}
+                if($UseIPv4 -or $selected -eq $current.Address){
+                    $invitation.Text=$script:internetInvite
+                    $message.Text="Internetzugang läuft weiter. Die bisherige Einladung bleibt gültig. TCP $port ist der öffentliche Port."
+                    Write-InternetLog 'host_reused' @{ public_port=$port; local_port=$localPort }
+                    return
+                }
+            }
             Stop-LauncherInternet
             Initialize-InternetTransport
             $script:internetTunnel=[TF3MP.Internet.Tunnel]::StartHost($port,$localPort)
@@ -172,8 +189,8 @@ function Show-InternetHostSetup([string]$PreviewPath = '') {
             $script:internetInvite=New-InternetInvitation $address $port $script:internetTunnel.Fingerprint $script:internetTunnel.Key
             $invitation.Text=$script:internetInvite
             $message.Text="Windows-Regel bestätigt ($firewallResult). $script:internetRouterStatus. Mitspieler prüft die Einladung von seinem PC."
-            $out.Text="Internet ohne VPN vorbereitet. Launcher offen lassen. Der Mitspieler prüft zuerst die Einladung von seinem PC.`r`nDanach den Spielstand wie gewohnt bereitstellen."
-            Write-InternetLog 'host_started' @{ method=$(if($UseIPv4){'upnp_ipv4'}else{'direct'}); public_port=$port; local_port=$localPort }
+            $out.Text="Internet ohne VPN vorbereitet. Öffentlich: TCP $port. Spielstände laufen ohne Verschlüsselung.`r`nLauncher offen lassen. Die aktuelle Einladung beim Mitspieler unter Beitreten einfügen.`r`nDanach den Spielstand bereitstellen. Jede wirklich neu gestartete Internetsitzung braucht ihre neue Einladung."
+            Write-InternetLog 'host_started' @{ method=$(if($UseIPv4){'upnp_ipv4'}else{'direct'}); public_port=$port; local_port=$localPort; save_transport='authenticated_plain_tcp'; invitation_id=$script:internetTunnel.InvitationId }
         } catch { Stop-LauncherInternet; $invitation.Text=''; $message.Text=$_.Exception.Message; Write-InternetLog 'setup_failed' @{ type=$_.Exception.GetType().Name; stage='firewall_or_router_setup' } }
         finally { foreach($button in $buttons) { $button.Enabled=$true }; $dialog.ControlBox=$true }
     }
@@ -192,8 +209,10 @@ function Show-InternetHostSetup([string]$PreviewPath = '') {
 
 function Update-InternetDiagnostics {
     if (-not $script:internetTunnel) { return }
+    if($script:internetDiagnosticAt -and ([DateTime]::UtcNow-$script:internetDiagnosticAt).TotalSeconds -lt 2){return}
+    $script:internetDiagnosticAt=[DateTime]::UtcNow
     $t=$script:internetTunnel
-    $values=@{ tcp_bytes=$t.TcpBytes; udp_packets=$t.UdpPackets; accepted=$t.Accepted; rejected=$t.Rejected; reconnects=$t.Reconnects; game_channel=$t.GameChannelConnected }
+    $values=@{ tcp_bytes=$t.TcpBytes; udp_packets=$t.UdpPackets; accepted=$t.Accepted; rejected=$t.Rejected; reconnects=$t.Reconnects; game_channel=$t.GameChannelConnected; clear_connections=$t.ClearConnections; tls_connections=$t.TlsConnections; public_port=$t.PublicPort; last_error=$t.LastError; invitation_id=$t.InvitationId }
     if($script:internetLease) {
         $values.router_active=$script:internetLease.Active; $values.router_renewals=$script:internetLease.Renewals; $values.router_error=$script:internetLease.LastError
         $script:internetRouterStatus=if(-not $script:internetLease.Active -or $script:internetLease.LastError) { "IPv6-Freigabe: aktiv=$($script:internetLease.Active), Meldung=$($script:internetLease.LastError)" } elseif($script:internetLease.FirewallDisabled) { 'Router meldet keine aktive IPv6-Firewall' } else { "IPv6 TCP $($t.Port) freigegeben; $($script:internetLease.Renewals) Verlängerungen bestätigt" }
@@ -201,6 +220,7 @@ function Update-InternetDiagnostics {
     $snapshot=($values | ConvertTo-Json -Compress)
     if($snapshot -ne $script:internetLastStats) { $script:internetLastStats=$snapshot; Write-InternetLog 'transport' $values }
     $notice="Tunnel verbunden=$($t.GameChannelConnected); $script:internetRouterStatus; $($t.LastError)"
+    if($script:internetRole -eq 'host' -and $t.Accepted -eq 0){$notice+=' Noch keine Verbindung von außen. Aktuelle Einladung und IPv6-Ziel der Routerfreigabe prüfen.'}
     if($notice -ne $script:internetLastNotice) {
         $script:internetLastNotice=$notice
         if(Get-Command Write-LauncherLog -ErrorAction SilentlyContinue) { Write-LauncherLog "Internet: $notice" }

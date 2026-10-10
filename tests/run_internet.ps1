@@ -1,4 +1,4 @@
-﻿param([switch]$SkipSave, [ValidateSet('127.0.0.1','::1')][string]$TunnelAddress = '::1', [switch]$CheckRouter)
+﻿param([switch]$SkipSave, [ValidateSet('127.0.0.1','::1')][string]$TunnelAddress = '::1', [switch]$CheckRouter, [switch]$EncryptedSaves)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 . (Join-Path $root 'tools\internet.ps1')
@@ -50,7 +50,7 @@ try {
     Check ($hostTunnel.Rejected -ge 1) 'Rejected invitation not counted'
     # Begin tunnelling before TF3 exists, then create the game endpoint later.
     $clientPort=Free-Port
-    $clientTunnel=[TF3MP.Internet.Tunnel]::StartClient($TunnelAddress,$hostTunnel.Port,$hostTunnel.Fingerprint,$hostTunnel.Key,$clientPort)
+    $clientTunnel=[TF3MP.Internet.Tunnel]::StartClient($TunnelAddress,$hostTunnel.Port,$hostTunnel.Fingerprint,$hostTunnel.Key,$clientPort,[bool]$EncryptedSaves)
     $gameReservation.Stop()
     Wait-Until { $clientTunnel.GameChannelConnected }
     Start-Sleep -Seconds 16
@@ -73,7 +73,7 @@ try {
     $nativePeerPort=$from.Port
     $clientTunnel.Dispose(); Wait-Until { -not $hostTunnel.GameChannelConnected }
     [TF3MP.Internet.Tunnel]::Probe('127.0.0.1',$hostTunnel.Port,$hostTunnel.Fingerprint,$hostTunnel.Key)
-    $clientTunnel=[TF3MP.Internet.Tunnel]::StartClient($TunnelAddress,$hostTunnel.Port,$hostTunnel.Fingerprint,$hostTunnel.Key,$clientPort)
+    $clientTunnel=[TF3MP.Internet.Tunnel]::StartClient($TunnelAddress,$hostTunnel.Port,$hostTunnel.Fingerprint,$hostTunnel.Key,$clientPort,[bool]$EncryptedSaves)
     Wait-Until { $clientTunnel.GameChannelConnected }
     $bytes=[Text.Encoding]::ASCII.GetBytes('TF3MP/1 HELLO reconnected'); [void]$udp.Send($bytes,$bytes.Length,$target)
     $from=New-Object Net.IPEndPoint([Net.IPAddress]::Any,0); $got=$game.Receive([ref]$from)
@@ -87,7 +87,33 @@ try {
     } finally { $waiting.Close() }
     Add-Type -TypeDefinition @'
 using System; using System.IO; using System.Net; using System.Net.Sockets; using System.Security.Cryptography; using System.Threading.Tasks;
+public static class InternetPlainAuthFixture {
+    static string Read(Stream s) { string result=""; for(int i=0;i<160;i++){int b=s.ReadByte(); if(b<0) throw new EndOfStreamException(); if(b==10) return result; result+=(char)b;} throw new IOException(); }
+    static void Line(Stream s,string value) { byte[] b=System.Text.Encoding.ASCII.GetBytes(value+"\n"); s.Write(b,0,b.Length); }
+    static string Mac(string key,string nonce,string other,string pin) { using(HMACSHA256 h=new HMACSHA256(System.Text.Encoding.ASCII.GetBytes(key))) return BitConverter.ToString(h.ComputeHash(System.Text.Encoding.ASCII.GetBytes("TF3MP-PLAIN/1|TCP|client|"+nonce+"|"+other+"|"+pin))).Replace("-","").ToLowerInvariant(); }
+    public static bool Refuse(int port,string key,string pin,bool replay) {
+        string nonce=new string('a',64), proof=null;
+        if(replay) using(TcpClient c=new TcpClient("127.0.0.1",port)) {
+            c.ReceiveTimeout=7000; Stream s=c.GetStream(); Line(s,"TF3MP-PLAIN/1"); Line(s,nonce);
+            string challenge=Read(s); Read(s); proof=Mac(key,nonce,challenge,pin);
+        }
+        using(TcpClient c=new TcpClient("127.0.0.1",port)) {
+            c.ReceiveTimeout=7000; Stream s=c.GetStream(); Line(s,"TF3MP-PLAIN/1"); Line(s,nonce);
+            string challenge=Read(s); Read(s); Line(s,replay ? proof : Mac(key,nonce,challenge,pin));
+            try { return s.ReadByte()==-1; } catch(IOException) {return true;}
+        }
+    }
+}
 public static class InternetHalfCloseFixture {
+    public static Task IdleReply(int port) {
+        TcpListener listener=new TcpListener(IPAddress.Loopback,port); listener.Start();
+        return Task.Factory.StartNew(delegate {
+            try { using(TcpClient c=listener.AcceptTcpClient()) {
+                Stream s=c.GetStream(); if(s.ReadByte()!=42) throw new IOException("Bad idle request");
+                System.Threading.Thread.Sleep(9500); s.WriteByte(43);
+            }} finally { listener.Stop(); }
+        });
+    }
     public static Task Start(int port) {
         TcpListener listener=new TcpListener(IPAddress.Loopback,port); listener.Start();
         return Task.Factory.StartNew(delegate {
@@ -100,6 +126,20 @@ public static class InternetHalfCloseFixture {
     }
 }
 '@
+    $refusals=$hostTunnel.Rejected
+    Check ([InternetPlainAuthFixture]::Refuse($hostTunnel.Port,('b'*64),$hostTunnel.Fingerprint,$false)) 'Wrong plain TCP invitation key accepted'
+    Check ([InternetPlainAuthFixture]::Refuse($hostTunnel.Port,$hostTunnel.Key,$hostTunnel.Fingerprint,$true)) 'Replayed plain TCP proof accepted'
+    Wait-Until {$hostTunnel.Rejected -ge $refusals+2}
+    Check ($clientTunnel.InvitationId -eq $hostTunnel.InvitationId) 'Invitation identifiers differ'
+    # The control channel is silent while the data sockets transfer the save.
+    $idleReply=[InternetHalfCloseFixture]::IdleReply($hostPort)
+    $socket=New-Object Net.Sockets.TcpClient
+    try {
+        $socket.Connect('127.0.0.1',$clientPort); $socket.ReceiveTimeout=20000
+        $stream=$socket.GetStream(); $stream.WriteByte(42)
+        Check ($stream.ReadByte() -eq 43) 'Idle save control socket closed before the final reply'
+        Check ($idleReply.Wait(12000) -and -not $idleReply.IsFaulted) 'Idle responder failed'
+    } finally {$socket.Close()}
     $halfClose=[InternetHalfCloseFixture]::Start($hostPort)
     $request=[Text.Encoding]::ASCII.GetBytes('decline save; retain the final reply')
     $socket=New-Object Net.Sockets.TcpClient
@@ -115,6 +155,7 @@ public static class InternetHalfCloseFixture {
         $sendDir=Join-Path $testDir 'host'; $receiveDir=Join-Path $testDir 'client'; [IO.Directory]::CreateDirectory($sendDir) | Out-Null; [IO.Directory]::CreateDirectory($receiveDir) | Out-Null
         $save=Join-Path $sendDir 'Internet.sav'; $photo=Join-Path $sendDir 'Internet.jpg'
         $bytes=New-Object byte[] (16MB); (New-Object Random 23).NextBytes($bytes); [IO.File]::WriteAllBytes($save,$bytes); [IO.File]::WriteAllBytes($photo,$bytes[0..9999])
+        [IO.File]::WriteAllText((Join-Path $receiveDir 'Internet.sav'),'older save')
         $manifest=[pscustomobject]@{ Protocol=3; GameHash='a'*64; PackageHash='b'*64; ModsHash='c'*64; Mods=@() }
         $session=New-MultiplayerSession $manifest $save
         $manifestPath=Join-Path $testDir 'manifest.json'; $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
@@ -127,7 +168,7 @@ public static class InternetHalfCloseFixture {
 `$script:SaveTransferLogDirectory='$($testDir.Replace("'","''"))'
 try {
   `$m=Get-Content -LiteralPath '$($manifestPath.Replace("'","''"))' -Raw | ConvertFrom-Json
-  `$result=Receive-Savegame '127.0.0.1' $clientPort '$($receiveDir.Replace("'","''"))' { param(`$t,`$d,`$n) if(`$t -like 'Warte auf den Gastgeber*'){[IO.File]::WriteAllText('$($waitObserved.Replace("'","''"))','yes')}; `$false } { `$true } -LocalManifest `$m -WaitSeconds 15
+  `$result=Receive-Savegame '127.0.0.1' $clientPort '$($receiveDir.Replace("'","''"))' { param(`$t,`$d,`$n) if(`$t -like 'Warte auf den Gastgeber*'){[IO.File]::WriteAllText('$($waitObserved.Replace("'","''"))','yes')}; `$false } { Start-Sleep -Milliseconds 9500; `$true } -LocalManifest `$m -WaitSeconds 15
   `$script:LastSaveTransfer | ConvertTo-Json | Set-Content -LiteralPath '$($output.Replace("'","''"))' -Encoding UTF8
 } catch { `$_ | Out-String | Set-Content -LiteralPath '$($errors.Replace("'","''"))'; exit 1 }
 "@
@@ -136,13 +177,19 @@ try {
         $receiver=Start-Process (Get-Process -Id $PID).Path -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$child`"")
         Wait-Until { (Test-Path -LiteralPath $waitObserved) -or $receiver.HasExited }
         Check (Test-Path -LiteralPath $waitObserved) 'Delayed Internet host did not retain the receiver waiting policy'
-        $result=Send-Savegame $save $hostPort { param($t,$d,$n) $false } -Session $session -waitSeconds 20
+        $result=Send-Savegame $save $hostPort { param($t,$d,$n) $false } -Session $session -waitSeconds 20 -MaxAttempts 1
         Check ($receiver.WaitForExit(20000) -and $receiver.ExitCode -eq 0) ('Internet save receiver failed: '+$(if(Test-Path $errors){Get-Content $errors -Raw}))
         Check ((Get-FileHash $save).Hash -eq (Get-FileHash (Join-Path $receiveDir 'Internet.sav')).Hash) 'Save hash mismatch'
         Check ((Get-FileHash $photo).Hash -eq (Get-FileHash (Join-Path $receiveDir 'Internet.jpg')).Hash) 'Preview hash mismatch'
+        Check ([IO.File]::ReadAllText((Join-Path $receiveDir 'Internet.sav.bak')) -eq 'older save') 'Slow final confirmation lost the backup'
+        $trace=@(Get-Content -LiteralPath $script:SaveTransferTrace.Path | ForEach-Object {$_ | ConvertFrom-Json})
+        Check (@($trace | Where-Object event -eq 'attempt_failed').Count -eq 0) 'Slow final confirmation forced a retransmission'
         $stats=Get-Content $output -Raw | ConvertFrom-Json
-        Check ($stats.Streams -eq 4 -and $stats.Method -eq 'continuous') 'Four TLS streams not used'
-        Check ($hostTunnel.TcpBytes -ge 16MB -and $clientTunnel.TcpBytes -ge 16MB) 'TLS transfer bytes missing'
+        Check ($stats.Streams -eq 4 -and $stats.Method -eq 'continuous') 'Four save streams not used'
+        Check ($hostTunnel.TcpBytes -ge 16MB -and $clientTunnel.TcpBytes -ge 16MB) 'Transfer bytes missing'
+        Check ($clientTunnel.SaveEncrypted -eq [bool]$EncryptedSaves) 'Wrong save encryption mode'
+        if($EncryptedSaves){Check ($hostTunnel.TlsConnections -ge 5) 'TLS compatibility path not exercised'}
+        else {Check ($hostTunnel.ClearConnections -ge 5 -and $hostTunnel.TlsConnections -eq 0) 'Save bytes still use TLS'}
     }
     if($CheckRouter) {
         $lan=Get-InternetLanIPv4; $owner='TF3MP test '+[Guid]::NewGuid().ToString('N')
@@ -154,7 +201,7 @@ try {
         $query=Invoke-InternetUpnp Query $hostTunnel.Port $lan $owner
         Check (-not $query.Occupied) 'Test router mapping was not removed'
     }
-    Write-Host "Internet transport: $passed checks passed ($TunnelAddress TLS, invitation validation, UDP, half-close and save streams)."
+    Write-Host "Internet transport: $passed checks passed ($TunnelAddress, save TLS=$EncryptedSaves; authenticated invitation, idle control, UDP, half-close and four save streams)."
 } catch { Write-Host $_.ScriptStackTrace; Write-Host ('Passed: '+$passed+' Ports: '+$hostPort+'/'+$hostTunnel.Port+'/'+$clientPort+' Accepted: '+$hostTunnel.Accepted+' KeysEqual: '+($hostTunnel.Key -eq $clientTunnel.Key)+' PinsEqual: '+($hostTunnel.Fingerprint -eq $clientTunnel.Fingerprint)+' Rejected: '+$hostTunnel.Rejected+' Host: '+$hostTunnel.GameChannelConnected+' '+$hostTunnel.LastError+' Client: '+$clientTunnel.GameChannelConnected+' '+$clientTunnel.LastError); throw } finally {
     $gameReservation.Stop()
     if($receiver -and -not $receiver.HasExited) { $receiver.Kill(); $receiver.WaitForExit() }

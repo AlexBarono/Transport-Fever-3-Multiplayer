@@ -65,6 +65,9 @@ function Update-ActionIssues($reader, [string]$path, [string]$gamePid='') {
 function Get-ActionReasonText([string]$reason) {
 	$explanation = switch -Regex ($reason) {
 		'subvention.*terms/rewards differ' { 'Die Subvention fehlt oder hat auf diesem PC andere Bedingungen oder Belohnungen. Es wurde keine zusätzliche Auszahlung gebucht.'; break }
+		'subvention money.*rejected|subvention money.*unavailable|host subsidy balance' { 'Die Subvention wurde verarbeitet, aber das Geld konnte nicht an den Gastgeber angeglichen werden. Kontostände prüfen; der Buchungsfehler wird nicht automatisch wiederholt.'; break }
+		'subvention could not be created' { 'TF3 konnte das fehlende Subventionsangebot auf diesem PC nicht erzeugen. Es wurde keine zusätzliche Auszahlung gebucht.'; break }
+		'subvention target missing' { 'Das Ziel der Subvention fehlt auf diesem PC. Die automatische Annahme wurde gestoppt; Zielbauwerk oder Stadt prüfen.'; break }
 		'subvention.*not found|subvention.*unreadable|subvention.*missing' { 'Die Subvention fehlt, ist abgelaufen oder konnte auf diesem PC nicht gelesen werden.'; break }
 		'subvention.*ambiguous|subvention.*collision' { 'Die Subvention konnte nicht eindeutig zugeordnet werden. Es wurde keine zusätzliche Auszahlung gebucht.'; break }
 		'subvention.*already decided|subvention.*already accepted|subvention.*instead of declined' { 'Über diese Subvention wurde bereits anders entschieden. Es wurde keine weitere Auszahlung ausgelöst.'; break }

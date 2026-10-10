@@ -1,5 +1,7 @@
 # v46: Subventionen und Unternehmensname
 
+**Ergänzung v52:** Die strenge Angebotszuordnung und die Grenze für fehlende Angebote unten beschreiben v46. v52 ordnet nach dem tatsächlichen Ziel zu, erzeugt fehlende ursprüngliche Angebotsarten über TF3 und gleicht nach der Annahme das Mitspieler-Konto an den Gastgeber an. [Aktuelles Verhalten und Tests](v52-verbindung-subventionen.md).
+
 ## Verhalten
 
 - Annehmen und Ablehnen im normalen TF3-Auftragsfenster werden vor ihrer Ausführung abgefangen und über den bestehenden gemeinsamen Zeitplan auf beiden PCs ausgeführt.
