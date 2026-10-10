@@ -11,7 +11,7 @@ local function scenario(value, included, metadata_error)
     local completed=false
     local info={mods=included and {{name='mp_probe_1'}} or {{name='other_mod'}}, mission=''}
     env.api={type={SavegameId={new=function() return {} end},mod={ModId={new=function() return {} end}},
-        SaveGameData={SaveGameDetails={new=function(v) return {mods={table.unpack(v.mods)},mission=v.mission} end}}}}
+        SaveGameData={}, SaveGameDetails={new=function(v) return {mods={table.unpack(v.mods)},mission=v.mission} end}}}
     env.app={SaveGameNamespace={getSavegame=function() return 'local' end},
         findAllSavegames=function() return {{saveName='Meine Welt.2 ä',path='correct-path'}} end,
         getSavegameInfo=function(id) return {isCompleted=function() return completed end,get=function() return {info=info,errorMsg=metadata_error or ''} end} end,

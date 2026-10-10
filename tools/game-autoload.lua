@@ -29,7 +29,7 @@ return function(react, app, api, log, setPage)
             log.warning("[mp_probe]autoload failed: save metadata unavailable")
             return
         end
-        local info = api.type.SaveGameData.SaveGameDetails.new(data.info)
+        local info = api.type.SaveGameDetails.new(data.info)
         local enabled = false
         for _, mod in pairs(info.mods) do if mod.name == "mp_probe_1" then enabled = true end end
         if not enabled then

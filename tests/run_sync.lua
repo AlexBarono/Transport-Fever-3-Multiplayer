@@ -1130,5 +1130,70 @@ test("calendar commands also work through the simulation fallback without callba
 	assert(c.ms_per_day == 4000 and not has(c.logs, "Callbacks are currently disallowed"))
 end)
 
+test("loading a shared save clears both copied timelines before the first paused heartbeat", function()
+	local timeline = require("/mp_probe/timeline.lua")
+	for _, first in ipairs({ "update", "heartbeat" }) do
+		local h, c = pair()
+		for i, g in ipairs({h, c}) do
+			g.vars.TF3MP_ORDERING = "1"
+			g.vars.TF3MP_WORLD = tostring(i) .. "-123-4"
+			g.vars.TF3MP_WORLD_ACK = g.vars.TF3MP_WORLD
+			g.gt, g.speed = 8200600, 0
+			-- Both load the host's saved, still PREPARED command (the reported run).
+			g.s.loaded_world = "1-122-3"
+			g.s.timeline = timeline.new("host")
+			g.s.timeline.last = 2
+			g.s.timeline.active = { seq=3, at=8194400, line="A1 stale", origin="host", phase="prepared" }
+			g.s.network_work = { token="old.8", pending=1 }
+			g.s.network_done = { token="old.7", result="OK" }
+			g.s.action_entities = { ["old:line:1"]=999 }
+			g.s.weld_checks = {{due=1}}
+			g.s.bridge_parts = { token="old.8" }
+			g.run(function()
+				if first == "update" then main.update(nil,g.state,0)
+				else main.handleEvent(nil,g.state,"mp_probe","mp_probe_replay","mp_probe_replay",{timeline_tick=true}) end
+			end)
+			assert(g.s.timeline.role == g.role and g.s.timeline.last == 0 and not g.s.timeline.active)
+			assert(not g.s.network_work and not g.s.network_done and not g.s.action_entities and not g.s.weld_checks and not g.s.bridge_parts)
+			assert(sync.decode(g.vars.TF3MP_OWN_CLOCK).hold == 0, "fresh idle clock must be published without an update counter")
+		end
+		for _=1,3 do h.gui(); c.gui() end
+		h.speed=1
+		for _=1,6 do h.gui(); c.gui() end
+		assert(h.speed==1 and c.speed==1, "either copied timeline must allow the shared resume after loading")
+	end
+end)
+
+test("a completed paused action publishes its release without another simulation update", function()
+	local timeline = require("/mp_probe/timeline.lua")
+	local g = game("host"); g.vars.TF3MP_ORDERING="1"; g.vars.TF3MP_PEER_CLOCK="gt=1200"
+	g.gt, g.speed = 1200, 0
+	local m = timeline.new("host"); m.gt=1200
+	m.active={seq=1,at=1200,line="A1 completed",origin="host",phase="executing",executed=true,own_done=true,peer_done=true}
+	m.published=sync.encode(timeline.clock(m)); m.published_phase="executing"
+	g.s.timeline, g.s.updates = m, 7 -- No later multiple of five while paused.
+	g.vars.TF3MP_OWN_CLOCK=m.published
+	g.vars.TF3MP_OWN_CLOCKUI="hold=1 run=1"
+	g.vars.TF3MP_OWN_GUI="speed=1 ver=2 by=host run=1 tg=1 src=gui hb=8"
+	g.run(function() main.timeline_tick(g.env,g.state) end)
+	assert(sync.decode(g.vars.TF3MP_OWN_CLOCK).hold==0 and g.s.updates==7)
+	for _=1,5 do g.gui() end
+	assert(g.speed==1 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).hold==0)
+end)
+
+test("simulation cannot pause ahead of the GUI hold marker and overwrite the user's speed", function()
+	local timeline = require("/mp_probe/timeline.lua")
+	local g=game("host"); g.gt,g.speed=1200,3; g.vars.TF3MP_ORDERING="1"; g.gui()
+	local m=timeline.new("host")
+	m.active={seq=1,at=1200,line="A1 vehicle",origin="host",phase="committed",barrier=true}
+	g.s.timeline=m; g.vars.TF3MP_PEER_CLOCK="gt=1200"
+	g.run(function()main.timeline_tick(g.env,g.state)end)
+	assert(g.speed==3 and not g.s.timeline.active.arrived, "GUI must record the hold before changing the engine speed")
+	g.gui(); assert(g.speed==0 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).run==3)
+	g.run(function()main.timeline_tick(g.env,g.state)end)
+	assert(g.s.timeline.active.arrived)
+	assert(not has(g.logs,"speed changed here: paused"))
+end)
+
 print(string.format("%d sync tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

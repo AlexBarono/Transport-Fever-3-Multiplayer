@@ -35,7 +35,17 @@ function Install-GameAutoload([string]$GameDir) {
     $current=Get-SessionFileHash $manifest
     if(Test-Path -LiteralPath $record){
         $saved=Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
-        if($current -eq $saved.Patched -and (Get-SessionFileHash $backup) -eq $saved.Original -and (Get-SessionFileHash $loose) -eq $saved.Bootstrap -and (Get-SessionFileHash $helper) -eq $saved.Helper){return}
+        if($current -eq $saved.Patched -and (Get-SessionFileHash $backup) -eq $saved.Original -and (Get-SessionFileHash $loose) -eq $saved.Bootstrap -and (Get-SessionFileHash $helper) -eq $saved.Helper){
+            # Upgrade our verified helper as well; an existing v53 bootstrap
+            # otherwise keeps its old load API even with a newer launcher.
+            $helperSource=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'game-autoload.lua'))
+            if([IO.File]::ReadAllText($helper) -cne $helperSource){
+                [IO.File]::WriteAllText($helper,$helperSource,(New-Object Text.UTF8Encoding($false)))
+                $saved.Helper=Get-SessionFileHash $helper
+                $saved | ConvertTo-Json | Set-Content -LiteralPath $record -Encoding ASCII
+            }
+            return
+        }
         throw 'Die TF3-Menüeinrichtung wurde verändert. Mod entfernen oder die Spieldateien in Steam prüfen.'
     }
     if((Test-Path -LiteralPath $loose) -or (Test-Path -LiteralPath $helper)){throw 'Eine andere Erweiterung verändert bereits das TF3-Hauptmenü. Die Datei wird nicht überschrieben.'}

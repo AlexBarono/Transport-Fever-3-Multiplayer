@@ -156,5 +156,62 @@ test("completed requests cannot be executed again through duplicate request mess
 	assert(p.c.pending_requests == 0)
 	assert(timeline.receive(p.h, request, at) and #p.h.queue == 0)
 end)
+test("vehicle barriers finish without advancing paused or widely separated clocks", function()
+	for _, times in ipairs({ { 0, 0 }, { 1402000, 0 }, { 0, 1402000 } }) do
+		for _, origin in ipairs({ "host", "client" }) do
+			local p = pair(); p.ht, p.ct = times[1], times[2]
+			assert(timeline.submit(origin == "host" and p.h or p.c, "A1 vehicle", true, { barrier = true })); pump(p)
+			local count_h, count_c = 0, 0
+			for _ = 1, 20 do
+				local h = timeline.step(p.h, p.ht, p.ct); pump(p)
+				local c = timeline.step(p.c, p.ct, p.ht); pump(p)
+				if h then assert(h.barrier); count_h = count_h + 1; assert(timeline.complete(p.h, h.seq, true)) end
+				if c then assert(c.barrier); count_c = count_c + 1; assert(timeline.complete(p.c, c.seq, true)) end
+				pump(p)
+			end
+			assert(count_h == 1 and count_c == 1 and not p.h.active and not p.c.active)
+			assert(timeline.clock(p.h).hold == 0 and timeline.clock(p.c).hold == 0)
+			assert(not p.h.error and not p.c.error)
+		end
+	end
+end)
+test("paused builds and large time skew use a ready barrier instead of a future clock", function()
+	for _, options in ipairs({ { now = 0, peer = 0, paused = true }, { now = 0, peer = 1402000 } }) do
+		local p = pair(); p.ht, p.ct = options.now, options.peer
+		assert(timeline.submit(p.h, "B5 build", true))
+		timeline.step(p.h, p.ht, p.ct, options); pump(p)
+		assert(p.h.active.barrier and p.c.active.barrier)
+		assert(timeline.clock(p.h).hold == 1 and timeline.clock(p.c).hold == 1)
+		for _ = 1, 10 do
+			local h = timeline.step(p.h, p.ht, p.ct); pump(p)
+			local c = timeline.step(p.c, p.ct, p.ht); pump(p)
+			if h then timeline.complete(p.h, h.seq, true) end
+			if c then timeline.complete(p.c, c.seq, true) end
+			pump(p)
+		end
+		assert(p.h.last == 1 and p.c.last == 1 and not p.h.active and not p.c.active)
+	end
+end)
+test("a plan waits for previously captured purchase and line dependencies", function()
+	local p = pair(); assert(timeline.submit(p.h, "A1 vehicle", true, { barrier = true }))
+	timeline.step(p.h, 0, 0, { dependencies = true }); assert(not p.h.active and not timeline.take(p.h))
+	timeline.step(p.h, 0, 0); pump(p)
+	assert(p.h.active and p.c.active and p.h.active.barrier)
+end)
+test("an unconfirmed engine pause cannot acknowledge arrival at a ready barrier", function()
+	local p = pair(); assert(timeline.submit(p.h,"A1 vehicle",true,{barrier=true}))
+	timeline.step(p.h,0,0,{stopped=false}); pump(p)
+	timeline.step(p.h,0,0,{stopped=false}); timeline.step(p.c,0,0,{stopped=true}); pump(p)
+	assert(not p.h.active.arrived and p.c.active.arrived)
+	assert(not p.h.active.go and not p.c.active.go)
+	timeline.step(p.h,0,0,{stopped=true}); pump(p)
+	assert(p.h.active.arrived and p.c.active.go)
+end)
+test("duplicate plans cannot change an already accepted barrier mode", function()
+	local c = timeline.new("client")
+	local v = { op = "plan", seq = 1, at = 4000, line = "A1 x", origin = "host", barrier = true }
+	assert(timeline.receive(c, packet(v), 0)); assert(timeline.receive(c, packet(v), 0))
+	v.barrier = false; assert(not timeline.receive(c, packet(v), 0))
+end)
 print(string.format("%d timeline tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

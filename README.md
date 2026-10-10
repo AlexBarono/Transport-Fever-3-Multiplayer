@@ -1,12 +1,22 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v53 / DLL v15**. **Beide PCs brauchen das v53-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v54 / DLL v15**. **Beide PCs brauchen das v54-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
 
-[v53: Launcher und automatischer Spielstart](docs/v53-launcher-start.md) · [v52: Verbindung, Übertragung und Subventionen](docs/v52-verbindung-subventionen.md)
+[v54: Pause, Neuabgleich und Fahrzeugbefehle](docs/v54-pause-fahrzeuge.md) · [v53: Launcher und automatischer Spielstart](docs/v53-launcher-start.md) · [v52: Verbindung, Übertragung und Subventionen](docs/v52-verbindung-subventionen.md)
 
-## Ohne VPN starten (v53)
+## Neu in v54
 
-1. Beide verwenden das [v53-Paket](release/TF3-Multiplayer-v53-Windows.zip) und öffnen `Start.bat`.
+- Beim Laden werden alte Aktionspläne, Ausführungsbestätigungen, Fahrzeug-/Linienzuordnungen und Gleisprüfungen vollständig zurückgesetzt, auch beim ersten Netzwerk-Schritt im pausierten Spiel. Eine gespeicherte, unerledigte Aktion darf keine neue Pause erzeugen.
+- Die gemeinsame Aktionspause endet sofort nach der Bestätigung beider Spiele. Ihre Freigabe wartet auf keinen weiteren Simulationsschritt.
+- Fahrzeugbefehle halten beide Spiele kurz an und laufen nach gemeinsamer Bereitschaft an ihrem jeweiligen aktuellen Spielzeitpunkt. Sie warten weder auf den bisherigen Vorlauf von vier Spielsekunden noch auf das Aufholen eines großen Zeitversatzes. Neue Linien und Fahrzeugkäufe werden davor übertragen. Auch andere Aktionen verwenden diese Bereitschaftssperre bei Pause oder mehr als vier Sekunden Zeitversatz; bei laufenden, ausreichend nahen Spielzeiten bleibt der gemeinsame Zeitstempel erhalten.
+- Fehlende Fahrzeugreferenzen warten höchstens 16 Prüfschritte statt 160. Eine abgelehnte Ausführung bleibt im Fehlerprotokoll sichtbar; die nächste Aktion darf weiterlaufen. Echte Protokollfehler erfordern weiterhin einen manuellen Neuabgleich.
+- Der automatische Spielstart verwendet den tatsächlichen TF3-Typ `api.type.SaveGameDetails`; eine verifizierte Ladeergänzung aus v53 wird beim Einrichten aktualisiert.
+
+Nach dem Update einmal den gemeinsamen Stand laden bzw. manuell neu abgleichen. Alte fehlende Bauten werden durch das Update allein nicht wiederhergestellt. [Befund, automatische Prüfungen und Zwei-PC-Test](docs/v54-pause-fahrzeuge.md).
+
+## Ohne VPN starten (v54)
+
+1. Beide verwenden das [v54-Paket](release/TF3-Multiplayer-v54-Windows.zip) und öffnen `Start.bat`.
 2. Gastgeber: Unter **Internet ohne VPN** eine öffentliche IPv6 auswählen und **Verbindung öffnen**. Alternativ öffentliche IPv4 eintragen oder **IPv4 automatisch** für die Routeranfrage wählen. Alles geschieht im Hauptfenster. Der dort angezeigte Internetport ist **TCP 47801**; der interne Spielport wird nicht mehr als freizugebender Internetport angezeigt.
 3. Der Launcher prüft die Windows-Regel und fordert die Routerfreigabe an. Falls Windows Administratorrechte verlangt, bestätigen. **Einladung kopieren** und nur dem Mitspieler geben. Die Einladung gilt für diese laufende Verbindung. Routerfehler stehen im Protokoll. Bei IPv6 müssen beide Anschlüsse IPv6 unterstützen; bei IPv4 kann CGNAT/DS-Lite eine direkte Freigabe verhindern.
 4. Mitspieler: **Beitreten**, die vollständige Einladung einfügen. Der Launcher verbindet sich automatisch. **Löschen** leert das Feld und beendet eine noch wartende Verbindung.
@@ -17,7 +27,7 @@ Der Internetweg benötigt keinen Vermittlungsserver. Er ersetzt jedoch keine feh
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe [v53-Paket](release/TF3-Multiplayer-v53-Windows.zip) auf beiden PCs öffnen und das VPN verbinden.
+1. Dasselbe [v54-Paket](release/TF3-Multiplayer-v54-Windows.zip) auf beiden PCs öffnen und das VPN verbinden.
 2. Gastgeber: **VPN / LAN**, passende Adresse auswählen, **Adresse kopieren**. Der Wartekanal öffnet automatisch. Für VPN/LAN gilt weiter **TCP + UDP 47800**; eine Routerfreigabe ist dafür nicht nötig.
 3. Mitspieler: **Beitreten**, Adresse einfügen (z. B. `100.80.12.4:47800`). Sobald verbunden, wählt und teilt der Gastgeber den Spielstand direkt im Hauptfenster. Beide brauchen dieselbe Paketversion und passende zusätzliche Mods.
 4. Der Gastgeber klickt den grünen Knopf **Spiel für beide starten**. Beide Spiele laden den geteilten Stand automatisch. Sobald beide Karten bereit sind, gemeinsam fortsetzen und bauen.

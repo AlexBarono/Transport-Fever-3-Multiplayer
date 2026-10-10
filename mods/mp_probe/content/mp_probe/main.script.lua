@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 53
+main.PROBE_VERSION = 54
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -852,10 +852,15 @@ function main.log_network_wait(s)
 end
 
 function main.reset_loaded_runtime(s)
-	s.network_work, s.network_followup = nil, nil
+	s.network_work, s.network_followup, s.network_done = nil, nil, nil
 	s.actions, s.action_inbox, s.action_work = nil, nil, nil
 	s.action_busy, s.action_work_requested = false, false
 	s.sync, s.timeline = nil, nil
+	-- The shared save now contains the host's actual entity ids. Mappings, chunks
+	-- and entrance checks from either previous world must never survive its load.
+	s.action_entities, s.weld_checks, s.bridge_parts = nil, nil, nil
+	s.last_line_token, s.quiet_until, s.quiet_segments = nil, nil, nil
+	s.paused_polls = nil
 end
 
 -- WORLD changes on every original engine load, including saves without handleLegacy.
@@ -865,20 +870,30 @@ function main.initialize_loaded_world(env, s)
 	if not getenv then return end
 	local ok, world_id = pcall(getenv, "TF3MP_WORLD")
 	if not ok or type(world_id) ~= "string" or not world_id:match("^%d+%-%d+%-%d+$") then return end
-	if s.loaded_world ~= world_id then
+	local changed = s.loaded_world ~= world_id
+	if changed then
 		main.reset_loaded_runtime(s)
 		s.loaded_world, s.world_ready_retry = world_id, 0
+		logger.info("net runtime reset for world " .. world_id)
 	end
 	local ack_ok, ack = pcall(getenv, "TF3MP_WORLD_ACK")
 	if not ack_ok or ack ~= world_id then
 		s.world_ready_retry = (s.world_ready_retry or 0) + 1
 		if s.world_ready_retry % 10 == 1 then logger.info("net initialized " .. world_id) end
 	end
+	return changed
+end
+
+-- Commit the reset before store() merges the live execution receipt. A normal
+-- update and the first GUI heartbeat while paused must use this same path.
+function main.loaded_state(env, state)
+	local s = state:get() or {}
+	if main.initialize_loaded_world(env, s) then state:set(s) end
+	return s
 end
 
 function main.update(_user_params, state, _dt)
-	local s = state:get() or {}
-	main.initialize_loaded_world(_G, s)
+	local s = main.loaded_state(_G, state)
 	-- Reset observation baseline on upgrade; never send an existing save as new actions.
 	if s.actions_version ~= main.PROBE_VERSION then
 		s.actions = nil
@@ -1069,8 +1084,10 @@ function main.submit_intent(env, state, param)
 	if (role ~= "host" and role ~= "client") or env.os.getenv("TF3MP_ORDERING") ~= "1" then
 		return false, "common timing requires the native ordered session"
 	end
-	local s = state:get() or {}
-	local ok, err = timeline.submit(main.timeline_of(s, role), param and param.line, param and param.held)
+	local s = main.loaded_state(env, state)
+	local action = type(param.line) == "string" and param.line:sub(1, 3) == "A1 " and actions.decode(param.line)
+	local ok, err = timeline.submit(main.timeline_of(s, role), param.line, param.held,
+		{ barrier = action and action.op == "vehicle_command" or false })
 	state:set(s)
 	return ok, err
 end
@@ -1165,7 +1182,7 @@ function main.vehicle_intent(env, state, param)
 	local s = state:get() or {}
 	if poll and not s.action_busy and not (s.action_work and #s.action_work > 0) then
 		-- A bus bought a moment ago must reach the other game before it is sent onto its line there.
-		local ok, err = pcall(actions.poll, env, s, function(text) logger.info(text) end, { "vehicle" })
+		local ok, err = pcall(actions.poll, env, s, function(text) logger.info(text) end, { "line", "vehicle" })
 		if not ok then logger.info("action poll failed: " .. tostring(err):sub(1, 220)) end
 		state:set(s)
 	end
@@ -1263,7 +1280,7 @@ end
 --- v36: a planned vehicle command waits at the barrier until the other game has replayed what came
 -- before it (a bus bought a moment ago) and every target exists here. At most INTENT_WAIT_STEPS
 -- steps (four per second while held); then it runs and reports what is missing.
-main.INTENT_WAIT_STEPS = 160
+main.INTENT_WAIT_STEPS = 16
 function main.intent_ready(env, s, intent, role)
 	if type(intent.line) ~= "string" or intent.line:sub(1, 3) ~= "A1 " then return true end
 	local action = actions.decode(intent.line)
@@ -1316,20 +1333,37 @@ function main.timeline_tick(env, state)
 	local now = main.game_time(env)
 	-- An unreadable clock is skipped, never taken as a timeline failure (that would hold both games).
 	if not now then return end
-	local s = state:get() or {}
+	local s = main.loaded_state(env, state)
 	local m = main.timeline_of(s, role)
 	local peer = sync.decode(getenv("TF3MP_PEER_CLOCK"))
-	local intent = timeline.step(m, now, peer and tonumber(peer.gt))
+	-- Purchases/line edits must enter the reliable FIFO before a command that
+	-- references them. Drain a bounded batch, also while the game is paused.
+	for _ = 1, 8 do
+		local outgoing = actions.next_line(s)
+		if not outgoing then break end
+		transport.send(outgoing, s, logger.info)
+	end
+	local own_gui, peer_gui = sync.decode(getenv("TF3MP_OWN_GUI")), sync.decode(getenv("TF3MP_PEER_GUI"))
+	local speed_ok, speed_now = pcall(sync.read_speed, env)
+	local intent = timeline.step(m, now, peer and tonumber(peer.gt), {
+		paused = (own_gui and own_gui.speed == 0) or (peer_gui and peer_gui.speed == 0),
+		dependencies = actions.next_line_waiting(s),
+		stopped = not own_gui or (speed_ok and speed_now == 0),
+	})
 	local clock = timeline.clock(m)
 	local raw = sync.encode(clock)
-	if (m.active or m.error or (s.updates or 0) % 5 == 0) and m.published ~= raw then
-		m.published = raw; logger.info(main.STATE_MARKER .. "clock " .. raw)
+	if (not m.published or m.published_phase ~= clock.phase or m.active or m.error or (s.updates or 0) % 5 == 0)
+		and m.published ~= raw then
+		-- RELEASE must clear the GUI hold immediately, even if update() is stopped
+		-- and its persisted counter will never reach the next multiple of five.
+		m.published, m.published_phase = raw, clock.phase
+		logger.info(main.STATE_MARKER .. "clock " .. raw)
 	end
 	if m.error and not m.error_logged then
 		m.error_logged = true; logger.info("timeline stopped: " .. m.error)
 		logger.info(main.STATE_MARKER .. "health ck=" .. (s.sync and s.sync.own_k or 0) .. " status=diff fields=clock")
 	end
-	local line = timeline.take(m)
+	local line = not actions.next_line_waiting(s) and timeline.take(m)
 	-- Save before any engine command: its callback can replace the live receipt/timeline.
 	state:set(s)
 	if line then
@@ -1338,7 +1372,10 @@ function main.timeline_tick(env, state)
 		live.transport_seq = math.max(live.transport_seq or 0, s.transport_seq or 0)
 		state:set(live)
 	end
-	if clock.hold == 1 then sync.set_speed(env, 0) end
+	-- Let the GUI mark its automatic hold before sending PAUSE. Pausing here
+	-- first could make the GUI publish that transient 0 as a new user choice
+	-- during the DLL's stdout/clock-echo delay. Keep the old fallback without GUI.
+	if clock.hold == 1 and not own_gui then sync.set_speed(env, 0) end
 	if intent then
 		local live = state:get() or {}
 		-- Another replay is still running: stay held at the barrier and execute on a later step.
@@ -1355,10 +1392,11 @@ function main.timeline_tick(env, state)
 			logger.info("timeline " .. intent.origin .. "." .. intent.seq .. " waited too long, running it anyway")
 		end
 		live.timeline.wait = nil
-		logger.info("timeline execute " .. intent.origin .. "." .. intent.seq .. " at gt=" .. tostring(intent.gt) .. " (stamp " .. intent.at .. ")")
+		logger.info("timeline execute " .. intent.origin .. "." .. intent.seq .. " at gt=" .. tostring(intent.gt) ..
+			" (stamp " .. intent.at .. (intent.barrier and ", ready barrier" or "") .. ")")
 		local token = "scheduled_" .. intent.origin .. "." .. intent.seq
 		if not main.send_replay_event(env, { line = intent.line, number = token, offset = 0, source = "scheduled",
-			schedule_seq = intent.seq, schedule_at = intent.at }) then
+			schedule_seq = intent.seq, schedule_at = intent.barrier and intent.gt or intent.at }) then
 			live = state:get() or live
 			timeline.reject(live.timeline, "common execution event unavailable"); state:set(live)
 		end
@@ -1366,11 +1404,12 @@ function main.timeline_tick(env, state)
 end
 
 -- GUI sends this event while paused, when simulation update() no longer runs.
--- It advances only transport and existing work, never polling/capturing new UI actions.
+-- Also observe purchases/line edits while idle, so they can precede a paused assignment.
 function main.paused_network_tick(env, state)
 	local getenv = env.os and env.os.getenv
 	local role = sync.role(getenv)
 	if (role ~= "host" and role ~= "client") or getenv("TF3MP_ORDERING") ~= "1" then return end
+	main.loaded_state(env, state)
 	local wrapped = transport.env(env, state)
 	-- v37: a failing step fails only this replay, as in handleEvent's network_continue.
 	local ok_run, err_run = pcall(main.network_run, wrapped, state)
@@ -1388,6 +1427,13 @@ function main.paused_network_tick(env, state)
 	end
 	main.check_network(state)
 	s = state:get() or {}
+	s.paused_polls = (s.paused_polls or 0) + 1
+	if (not s.actions or s.paused_polls % 4 == 0) and not s.action_busy and not s.network_work
+		and not (s.action_work and #s.action_work > 0) then
+		local ok, err = pcall(actions.poll, env, s, logger.info, main.ACTION_KINDS)
+		if not ok then logger.info("paused action poll failed: " .. main.error_text(err):sub(1, 220)) end
+	end
+	main.store(state, s)
 	if main.bridge_has_work(env, s) then main.bridge_tick(env, 0, s, state, true) end
 	main.timeline_tick(env, state)
 end
@@ -2007,6 +2053,7 @@ function main.remember_constructions(env, s, param)
 end
 
 function main.handleEvent(_user_params, state, src, id, name, param)
+	main.loaded_state(_G, state)
 	if name == "mp_probe_economy" and id == "mp_probe_economy" then
 		local ok, err = pcall(main.economy_intent, _G, state, param)
 		if not ok then main.economy_issue(_G, state, "Unternehmen/Subvention", main.error_text(err)) end

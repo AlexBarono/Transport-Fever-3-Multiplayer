@@ -58,7 +58,7 @@ $navJoin=New-Button $side 'Beitreten' 16 232 186 46
 $navTest=New-Button $side 'Testlabor' 16 288 186 46
 New-Label $side "VPN ODER INTERNET" 24 650 180 24 9 $Accent | Out-Null
 New-Label $side "Ohne VPN: Internetzugang`r`neinrichten und Einladung`r`nbeim Mitspieler einfügen." 24 684 176 75 10 $Muted | Out-Null
-New-Label $side 'Probe v53  /  Bridge v15' 24 856 185 22 9 $Muted | Out-Null
+New-Label $side 'Probe v54  /  Bridge v15' 24 856 185 22 9 $Muted | Out-Null
 New-Label $form 'Gemeinsam auf derselben Karte.' 250 28 734 44 23 | Out-Null
 New-Label $form 'Ein gemeinsamer Spielstand. Ein Start für beide. Platz für eure Ideen.' 252 77 734 28 11 $Muted | Out-Null
 $statusLabel=New-Label $form 'Bereit zum Einrichten' 252 110 734 40 9 $Accent

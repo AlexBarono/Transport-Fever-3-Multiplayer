@@ -30,6 +30,14 @@ try{
     $patchedHash=Get-SessionFileHash $manifest
     Request-GameAutoload $fixture 'Andere Welt'
     Check ((Get-SessionFileHash $manifest) -eq $patchedHash -and (Get-SessionFileHash ($manifest+'.tf3mp-original')) -eq $original) 'Repeated start replaced the original backup'
+    # Reproduce an already installed v53 helper with its old, invalid API.
+    $helper=Join-Path $content 'gui/menu/tf3mp_autoload.lua'; $record=$manifest+'.tf3mp.json'
+    [IO.File]::WriteAllText($helper,'old verified v53 helper')
+    $saved=Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
+    $saved.Helper=Get-SessionFileHash $helper; $saved | ConvertTo-Json | Set-Content -LiteralPath $record -Encoding ASCII
+    Install-GameAutoload $fixture
+    Check ([IO.File]::ReadAllText($helper).Contains('api.type.SaveGameDetails.new(data.info)')) 'Owned v53 load helper was not upgraded'
+    Check ((Get-SessionFileHash $manifest) -eq $patchedHash -and (Get-SessionFileHash ($manifest+'.tf3mp-original')) -eq $original) 'Helper upgrade changed the resource index or original backup'
     Remove-GameAutoload $fixture
     Check ((Get-SessionFileHash $manifest) -eq $original -and -not (Test-Path -LiteralPath $loose)) 'Uninstall did not restore exact original index'
     Check (-not (Test-Path -LiteralPath (Join-Path $fixture 'alut_proxy.launch'))) 'Uninstall leaves an armed launch request'
