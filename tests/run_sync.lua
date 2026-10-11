@@ -850,13 +850,14 @@ test("moving-world hashes are comparable only at identical actual simulation tic
 	assert(out.world_fields == 0 and not out.world_mismatch)
 end)
 
-test("managed loan differences request resync without journal or compensating money bookings", function()
+test("managed loan differences retain the real schedule but do not block host money alignment", function()
 	local own = { money = 1000000, loan = 2750001, loanmanaged = 1 }
 	local peer = { money = 1083333, loan = 2833334, loanmanaged = 1 }
 	local m, out = {}, nil
 	for k = 1, 3 do
 		out = sync.compare(m, k, own, peer, "client", k)
-		assert(next(out.fix) == nil, "native loan schedules must never be replicated by journal deltas")
+		assert(out.fix.loan == nil, "native loan schedules must never be replicated by journal deltas")
+		if k == 2 then assert(out.fix.money == 83333); own.money = peer.money end
 	end
 	assert(out.loan_mismatch and out.needs_resync)
 	out = sync.compare(m, 4, own, own, "client", 4)
@@ -868,6 +869,19 @@ test("the official game-script system marks its account loan as managed", functi
 	g.api.engine.system.gameScriptSystem = {}
 	local values = sync.values(g.env, g.gt)
 	assert(values.loanmanaged == 1 and values.loan == 0)
+end)
+
+test("real money bookings still execute with different managed loan balances", function()
+	local host, client = pair()
+	host.api.engine.system.gameScriptSystem={}; client.api.engine.system.gameScriptSystem={}
+	run(host,client,299)
+	host.loan,client.loan = 2750001,2833334
+	client.balance = host.balance - 83333
+	run(host,client,600)
+	local books={}
+	for _,c in ipairs(client.sent) do if c.name=="book" then books[#books+1]=c end end
+	assert(#books==1 and books[1].entry.amount==83333 and books[1].entry.category.type~=0)
+	assert(client.balance==host.balance and client.loan==2833334 and host.loan==2750001)
 end)
 
 test("a committed common-tick hold pauses without changing the shared speed version", function()

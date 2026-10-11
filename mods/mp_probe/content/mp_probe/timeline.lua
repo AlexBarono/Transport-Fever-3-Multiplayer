@@ -60,11 +60,34 @@ function timeline.submit(m, line, held, options)
 	emit(m, v); return true
 end
 local function matches(a, v) return a and a.seq == v.seq and a.at == v.at end
+local CONTROL = { ready=true, commit=true, arrived=true, go=true, done=true, release=true }
 function timeline.receive(m, line, now)
 	if m.error then return nil, m.error end
 	if type(line) ~= "string" or line:sub(1, 3) ~= "S1 " then return fail(m, "invalid timeline message") end
 	local v, err = wire.decode(line:sub(4))
 	if type(v) ~= "table" or not integer(now) then return fail(m, err or "invalid timeline message") end
+	if v.op == "batch" then
+		if type(v.lines) ~= "table" or #v.lines < 2 or #v.lines > 8 or #line > timeline.MAX_PAYLOAD then
+			return fail(m, "invalid timeline batch")
+		end
+		local count = 0
+		for k in pairs(v.lines) do
+			if not integer(k) or k < 1 or k > #v.lines then return fail(m, "invalid timeline batch index") end
+			count = count + 1
+		end
+		if count ~= #v.lines then return fail(m, "sparse timeline batch") end
+		for i, inner in ipairs(v.lines) do
+			local item = type(inner) == "string" and inner:sub(1, 3) == "S1 " and wire.decode(inner:sub(4))
+			if type(item) ~= "table" or not CONTROL[item.op] then
+				return fail(m, "invalid timeline batch member " .. i)
+			end
+		end
+		for _, inner in ipairs(v.lines) do
+			local ok, why = timeline.receive(m, inner, now)
+			if not ok then return nil, why end
+		end
+		return true
+	end
 	if v.op == "fail" then return fail(m, "partner timeline failure: " .. tostring(v.reason):sub(1, 120)) end
 	if v.op == "request" then
 		if m.role ~= "host" or v.origin ~= "client" or type(v.id) ~= "string" or not v.id:match("^c%d+$") then return fail(m, "request direction invalid") end
@@ -158,6 +181,21 @@ function timeline.complete(m, seq, success)
 	return true
 end
 function timeline.take(m) return table.remove(m.out, 1) end
+-- Several adjacent confirmations can share one reliable network order. The
+-- READY/COMMIT/ARRIVED/GO/result checks still run separately at the receiver.
+function timeline.take_batch(m)
+	local first = timeline.take(m)
+	if not first then return end
+	local function control(line)
+		local v = wire.decode(line:sub(4))
+		return type(v) == "table" and CONTROL[v.op]
+	end
+	if #m.out == 0 or not control(first) then return first end
+	local lines = { first }
+	while #m.out > 0 and #lines < 8 and control(m.out[1]) do lines[#lines + 1] = timeline.take(m) end
+	if #lines == 1 then return first end
+	return "S1 " .. wire.encode({ op = "batch", lines = lines })
+end
 function timeline.clock(m)
 	local a = m.active
 	return { gt = m.gt or 0, seq = a and a.seq or m.last, at = a and a.at or 0,

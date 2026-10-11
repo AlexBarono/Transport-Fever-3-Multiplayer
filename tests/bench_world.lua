@@ -41,6 +41,11 @@ local function fixture(vehicles, cargos, towns)
 			cargo = { getNumCargoPerTypeInVehicle = function() return { 0, 10 } end },
 			town = { getTownCapacityUsage = function() return { { used = 42, capacity = 100 }, { used = 20, capacity = 50 }, { used = 10, capacity = 25 } } end,
 				getTownStockCargo = function() return {} end } }, system = {} }
+	engine.forEachEntityWithComponent = function(fn,c)
+		for _,id in ipairs(assert(ids[c])) do fn(id) end
+	end
+	engine.system.lineSystem={getLines=function()return {} end}
+	engine.system.streetSystem={getNode2SegmentMap=function()return {} end}
 	return { api = { engine = engine, type = { ComponentType = ct }, res = {
 		modelRep = { getName = function() return "::/train.mdl" end },
 		cargoTypeRep = { getName = function() return "::/coal.cargo" end } } }, os = { clock = os.clock } }

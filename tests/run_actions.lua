@@ -662,5 +662,25 @@ test("the installed mod manifest includes every required action module", functio
 	end
 end)
 
+test("a rejected purchase preserves balance, price and depot in its execution receipt", function()
+	local transport = require("/mp_probe/transport.lua")
+	local source, dest = mock(), mock()
+	source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.poll(); dest.poll(); source.vehicle(30, 10010); source.poll()
+	local action = source.drain()[1]
+	dest.account(); dest.entities[7].ACCOUNT.balance = -1160000; dest.reject = true
+	dest.env.api.engine.util.vehicle = {getPartPrice=function(part) assert(part.part.modelId==77); return 234000 end}
+	transport.begin(dest.state, "peer.purchase")
+	assert(actions.replay(transport.env(dest.env,dest.state), action, dest.state, "sender", 0,
+		transport.action_log(dest.state,function()end)))
+	local err = assert(dest.state:get().network_work.error)
+	for _, text in ipairs({"vehicle_create rejected", "depot=10091", "balance=-1160000", "price=234000", "::/bus.mdl"}) do
+		assert(err:find(text,1,true),err)
+	end
+	assert(not dest.entities[1001])
+	transport.dispatched(dest.state); transport.check(dest.state,function()end,true)
+	assert(dest.state:get().network_done.skipped)
+end)
+
 print(string.format("%d action tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

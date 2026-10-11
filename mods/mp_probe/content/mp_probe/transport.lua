@@ -80,7 +80,7 @@ function transport.env(env, state)
 			if active and active.token == token then
 				active.pending = math.max(0, active.pending - 1)
 				if not ok then active.error = tostring(handled)
-				elseif handled ~= true and (success == false or critical) then active.error = "game command rejected" end
+				elseif handled ~= true and (success == false or critical) and not active.error then active.error = "game command rejected" end
 				state:set(live)
 			end
 		end

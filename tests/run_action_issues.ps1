@@ -51,4 +51,6 @@ try{
  for($i=1;$i -le 45;$i++){Add-ActionIssueLine $r $one.Replace('peer.528',"peer.$i")}
  if($r.Count -ne 45 -or $r.Issues.Count -ne 30 -or $r.Seen.Count -ne 30){throw 'History not bounded'}; $passed++
 }finally{Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue}
+if(-not (Get-ActionReasonText 'action vehicle_create rejected by game (depot=91, balance=-1160000, price=234000, model=bus)').Contains('Kontostand, Kaufpreis und Depot')){throw 'Purchase diagnostic not explained'}; $passed++
+if(-not (Get-ActionReasonText 'line assignment rejected: no specific path diagnosis from TF3').Contains('ohne konkrete Wegdiagnose')){throw 'Unspecified native path failure mislabelled'}; $passed++
 Write-Output "$passed action issue tests passed"

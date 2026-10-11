@@ -105,7 +105,12 @@ function gui.update(env, gui_state)
 	local now = gui.now(env, g)
 	-- A clock that jumped back does not stop the steps.
 	if now < g.next_at and g.next_at - now <= gui.INTERVAL then return end
-	g.next_at = now + gui.INTERVAL
+	local getenv = env.os and env.os.getenv
+	local clock = getenv and sync.decode(getenv("TF3MP_OWN_CLOCK"))
+	-- During a live action only: faster confirmations shorten the common pause.
+	-- Idle games retain the normal polling interval and snapshot frequency.
+	local active = clock and clock.phase and clock.phase ~= "idle" and clock.phase ~= "failed"
+	g.next_at = now + (active and 0.1 or gui.INTERVAL)
 	-- hold.lua: vehicle hooks (v35), held builds (v34) and the 'Allein testen' hold test.
 	local ok_h, err_h = pcall(hold.step, env, gui_state)
 	if not ok_h and g.failures < gui.MAX_FAILURES then

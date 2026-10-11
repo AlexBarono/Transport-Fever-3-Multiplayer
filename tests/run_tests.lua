@@ -745,8 +745,7 @@ local function mock_build_api(opts)
 				end
 				-- Like the game, the error points at the line in build.lua that made the call.
 				if opts.content_error then error("Unknown exception", 2) end
-				-- Run 15: new edge objects must lie in (-500000000, -400000000]; objects_need = "range1"
-				-- additionally refuses -400000000 itself, to test that the second numbering is tried.
+				-- TF3 indexes edgeObjectsToAdd from -400000000, zero based.
 				do
 					local edges = proposal.streetProposal.edgesToAdd
 					for i = 1, #edges do
@@ -754,7 +753,7 @@ local function mock_build_api(opts)
 						for j = 1, #objects do
 							local id = objects[j][1]
 							if id < 0 and not (id <= -400000000 and id > -500000000) then error("Unknown exception", 2) end
-							if opts.objects_need == "range1" and id == -400000000 then error("Unknown exception", 2) end
+							if id < 0 then assert(-400000000 - id < #proposal.streetProposal.edgeObjectsToAdd, "edge object index out of bounds") end
 						end
 					end
 				end
@@ -1838,7 +1837,7 @@ test("world finds nodes and edges when the game refuses to loop over them (run 1
 	assert(not ok and tostring(err):find("cannot list BASE_NODE"), tostring(err))
 end)
 
-local function stop_build(kept)
+local function stop_build(kept, stop_param)
 	local proposal = run5_street()
 	local seg = proposal.addedSegments[1]
 	proposal.addedNodes = {}
@@ -1855,7 +1854,7 @@ local function stop_build(kept)
 		edge_object = function(id, from_proposal)
 			seen[id] = from_proposal or false
 			if id == 8001 then return { param = 0.7, position = { x = -2840, y = -3904, z = 1.5 }, model = "::/station/street/stop.mdl", name = "Alt" } end
-			return { param = 0.25, position = { x = -2870, y = -3928, z = 1.6 }, model = "::/station/street/stop.mdl",
+			return { param = stop_param or 0.25, position = { x = -2870, y = -3928, z = 1.6 }, model = "::/station/street/stop.mdl",
 				name = from_proposal and from_proposal.name, left = from_proposal and from_proposal.left }
 		end,
 	})
@@ -1883,13 +1882,13 @@ test("a new stop on a street travels with position, model and side (v15)", funct
 	}
 	assert(build.resolve(data, finder))
 	assert(data.objects[1].entity == nil and data.objects_to_remove[1] == 7001)
-	local env, sent = mock_build_api({ objects_need = "range1" })
+	local env, sent = mock_build_api()
 	local logs = {}
 	local ok, message = build.replay(env, data, { player = 29125, log = function(l) logs[#logs + 1] = l end })
 	assert(ok, message .. "\n" .. table.concat(logs, "\n"))
-	assert(message:find("numbered range1", 1, true), message)
+	assert(message:find("numbered range0", 1, true), message)
 	local sp = sent[#sent].proposal.streetProposal
-	assert(sp.edgesToAdd[1].comp.objects[1][1] == -400000001 and sp.edgesToAdd[1].comp.objects[1][2] == 1)
+	assert(sp.edgesToAdd[1].comp.objects[1][1] == -400000000 and sp.edgesToAdd[1].comp.objects[1][2] == 1)
 	assert(sp.edgeObjectsToAdd[1].edgeEntity == -1 and sp.edgeObjectsToAdd[1].param == 0.25)
 	assert(sp.edgeObjectsToAdd[1].model == "::/station/street/stop.mdl" and sp.edgeObjectsToAdd[1].left == true)
 	assert(sp.edgeObjectsToAdd[1].playerEntity == 29125 and sp.edgeObjectsToAdd[1].name == "Amselweg")
@@ -3690,6 +3689,46 @@ test("fresh bridge world initializes without legacy and discards saved transient
 	assert(s.actions.kept, "repeated checks must keep current-world actions")
 	world="123-789-2"; main.initialize_loaded_world(env,s)
 	assert(not s.actions and s.loaded_world==world)
+end)
+
+test("a stop close to an intersection keeps its exact native edge fraction", function()
+	local param = 0.00912345678901234
+	local data = assert(build.deserialize(stop_build(false, param)))
+	assert(data.objects[1].param == param)
+end)
+
+test("a rejected two-stop replay never tries indexes beyond edgeObjectsToAdd", function()
+	local f = assert(io.open("tests/fixtures/fliederweg-v54.b5", "r"))
+	local data = assert(build.deserialize(f:read("*l"))); f:close()
+	assert(build.resolve(data, {
+		find_node = function(p) return p.x < 7100 and 11 or 12 end,
+		find_edge = function() return 600 end, find_construction = function() end,
+		edge_objects_of = function() return {} end,
+	}))
+	local env, sent = mock_build_api({ builds = {} })
+	local ok = build.replay(env, data, { player = 29125 })
+	assert(not ok and #sent > 0)
+	for _, cmd in ipairs(sent) do
+		local sp = cmd.proposal.streetProposal
+		assert(#sp.edgeObjectsToAdd == 2)
+		assert(sp.edgesToAdd[1].comp.objects[1][1] == -400000000)
+		assert(sp.edgesToAdd[1].comp.objects[2][1] == -400000001)
+	end
+end)
+
+test("station extension distinguishes a retained open track end from a real network entrance", function()
+	local p = run5_station()
+	local end_node = p.addedNodes[2]
+	table.remove(p.addedNodes, 2)
+	for i, index in ipairs(p.frozenNodes) do if index >= 2 then p.frozenNodes[i] = index - 1 end end
+	for _, degree in ipairs({ 1, 2 }) do
+		local _, info = build.serialize(p, {
+			node_position = function(id) assert(id == end_node.entity); return end_node.comp.position end,
+			node_degree = function(id) assert(id == end_node.entity); return degree end,
+		})
+		assert(info.gates == (degree == 1 and 0 or 1))
+		assert(info.access == info.gates and info.segments == info.gates)
+	end
 end)
 
 print(string.format("%d passed, %d failed", passed, failures))

@@ -64,6 +64,8 @@ function Update-ActionIssues($reader, [string]$path, [string]$gamePid='') {
 
 function Get-ActionReasonText([string]$reason) {
 	$explanation = switch -Regex ($reason) {
+		'vehicle_create rejected.*balance=.*price=' { 'TF3 hat den Fahrzeugkauf abgelehnt. Kontostand, Kaufpreis und Depot im technischen Grund prüfen; die genaue Ablehnungsursache meldet TF3 nicht.'; break }
+		'no specific path diagnosis from TF3' { 'TF3 hat die Linienzuweisung ohne konkrete Wegdiagnose abgelehnt. Depotanschluss, Fahrzeugtyp und erreichbare Haltestellen prüfen.'; break }
 		'subvention.*terms/rewards differ' { 'Die Subvention fehlt oder hat auf diesem PC andere Bedingungen oder Belohnungen. Es wurde keine zusätzliche Auszahlung gebucht.'; break }
 		'subvention money.*rejected|subvention money.*unavailable|host subsidy balance' { 'Die Subvention wurde verarbeitet, aber das Geld konnte nicht an den Gastgeber angeglichen werden. Kontostände prüfen; der Buchungsfehler wird nicht automatisch wiederholt.'; break }
 		'subvention could not be created' { 'TF3 konnte das fehlende Subventionsangebot auf diesem PC nicht erzeugen. Es wurde keine zusätzliche Auszahlung gebucht.'; break }

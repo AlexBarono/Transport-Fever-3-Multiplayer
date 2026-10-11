@@ -213,5 +213,39 @@ test("duplicate plans cannot change an already accepted barrier mode", function(
 	assert(timeline.receive(c, packet(v), 0)); assert(timeline.receive(c, packet(v), 0))
 	v.barrier = false; assert(not timeline.receive(c, packet(v), 0))
 end)
+test("adjacent commit and arrival share one order but cannot execute before both arrive", function()
+	local p = pair()
+	assert(timeline.submit(p.h, "A1 held", true, {barrier=true}))
+	timeline.step(p.h, 0, 0)
+	assert(timeline.receive(p.c, timeline.take_batch(p.h), 0))
+	assert(timeline.receive(p.h, timeline.take_batch(p.c), 0))
+	timeline.step(p.h, 0, 0, {stopped=true})
+	local batch = assert(timeline.take_batch(p.h))
+	assert(wire.decode(batch:sub(4)).op == "batch" and #p.h.out == 0)
+	assert(timeline.receive(p.c, batch, 0))
+	assert(p.c.active.phase == "committed" and p.c.active.peer_arrived and not p.c.active.go)
+	timeline.step(p.c, 0, 0, {stopped=true})
+	assert(timeline.receive(p.h, timeline.take_batch(p.c), 0))
+	assert(timeline.step(p.h, 0, 0, {stopped=true}))
+	assert(timeline.receive(p.c, timeline.take_batch(p.h), 0))
+	assert(timeline.step(p.c, 0, 0, {stopped=true}))
+	complete(p)
+	assert(p.h.last == 1 and p.c.last == 1 and not p.c.active)
+end)
+
+test("malformed, nested and executable timeline batch members cannot bypass the barrier", function()
+	for _, bad in ipairs({ packet(7), packet({op="batch",lines={}}),
+		packet({op="plan",seq=1,at=0,line="A1 x",origin="host"}), packet({op="request",line="A1 x"}), packet({op="unknown"}) }) do
+		local c = timeline.new("client")
+		local ok, err = timeline.receive(c, packet({op="batch",lines={packet({op="arrived",seq=1,at=0}),bad}}), 0)
+		assert(not ok and err and not c.active)
+	end
+	for _,lines in ipairs({{[1]=packet({op="ready"}),[3]=packet({op="go"})},
+		{packet({op="ready"}),packet({op="go"}),extra=packet({op="done"})}}) do
+		local c=timeline.new("client")
+		assert(not timeline.receive(c,packet({op="batch",lines=lines}),0) and not c.active)
+	end
+end)
+
 print(string.format("%d timeline tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

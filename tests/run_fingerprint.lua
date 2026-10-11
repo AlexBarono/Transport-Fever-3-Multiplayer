@@ -534,11 +534,16 @@ end)
 
 test("whole-entity cargo scan stops at the call budget and publishes no partial equality", function()
 	local m = world_mock(); local called = 0
+	local native = m.env.api.engine.forEachEntityWithComponent
+	m.env.api.engine.forEachEntityWithComponent = function(fn, ct)
+		if ct == "SIM_CARGO" then error("Cannot loop over this component type") end
+		return native(fn, ct)
+	end
 	m.env.api.engine.forEachEntity = function(fn)
 		for _ = 1, 100000 do called = called + 1; fn(m.ca) end
 	end
 	local values, missing, stats = finish(m)
-	assert(values.hcargo == nil and values.hedge and values.hline)
+	assert(values.hcargo == nil and values.hedge and values.hline and values.htown)
 	assert(stats.calls <= fingerprint.CAPTURE_MAX_CALLS and called < 100000)
 end)
 
@@ -572,6 +577,59 @@ test("native one-based cargo vectors need neither pairs nor a valid zero index",
 	local actual = finish(m)
 	debug.setmetatable(file,old); file:close()
 	assert(actual.hcargo and actual.hcargo==expected.hcargo)
+end)
+
+test("native stop configuration in a plain stops table remains readable", function()
+	local m = world_mock(); local expected = finish(m)
+	local c = copy(m.entities[m.lineid].LINE)
+	local file = assert(io.tmpfile()); local mt = debug.getmetatable(file)
+	local data = c.stops[1].stopConfig
+	debug.setmetatable(file, {__index=function(_,k) return data[k] end})
+	c.stops[1].stopConfig = file
+	local read = m.env.api.engine.getComponent
+	m.env.api.engine.getComponent = function(id,ct)
+		if id==m.lineid and ct=="LINE" then return c end
+		return read(id,ct)
+	end
+	local values, missing = finish(m)
+	debug.setmetatable(file,mt); file:close()
+	assert(values.hline and values.hline==expected.hline,table.concat(missing,","))
+end)
+
+test("a vehicle in its depot needs no driving position and keeps a semantic depot reference", function()
+	local values = {}
+	for i,m in ipairs({world_mock(),world_mock(10000,true)}) do
+		local depot = m.ca+1000
+		m.entities[m.ca].CONSTRUCTION.depots = {depot}; m.parents[depot]=m.ca
+		local v = m.entities[m.vid].TRANSPORT_VEHICLE
+		v.state,v.depot = "IN_DEPOT",depot; m.positions[m.vid]=nil
+		values[i]=finish(m)
+		assert(values[i].hpos)
+		v.state="EN_ROUTE"; assert(not finish(m).hpos,"missing driving position must stay unreadable")
+	end
+	assert(values[1].hpos==values[2].hpos)
+end)
+
+test("native cargo indexes replace an unsupported iterator and deduplicate freight", function()
+	local baseline
+	for _,repeated in ipairs({false,true}) do
+		local m=world_mock(); local e=m.env.api.engine; local native=e.forEachEntityWithComponent; local probes=0
+		e.forEachEntityWithComponent=function(fn,ct)
+			if ct=="SIM_CARGO" then probes=probes+1; error("Cannot loop over this component type") end
+			return native(fn,ct)
+		end
+		e.forEachEntity=function()error("whole map must not be scanned")end
+		e.system.simEntityAtStockSystem={getStock2SimEntityMap=function()return repeated and {x={m.cargoid,m.cargoid}} or {} end}
+		e.system.simEntityAtVehicleSystem={getVehicle2Cargo2SimEntitesMap=function()return {[m.vid]={[1]={m.cargoid}}} end}
+		local values,missing,stats,lists=finish(m)
+		assert(values.hcargo and values.htown and stats.cargo_scope=="stocks_and_vehicles",table.concat(missing,","))
+		assert(probes==0,"available native indexes must avoid the unsupported cargo iterator")
+		if baseline then assert(values.hcargo==baseline) else baseline=values.hcargo end
+		m.entities[m.cargoid].SIM_CARGO.pickupTime=58000
+		differs(values,finish(m),"hcargo")
+		e.system.simEntityAtStockSystem.getStock2SimEntityMap=function()error("unreadable native stock index")end
+		assert(not finish(m).hcargo,"a failed stock index must not publish vehicle-only equality")
+	end
 end)
 
 print(string.format("%d fingerprint tests passed, %d failed", passed, failed))

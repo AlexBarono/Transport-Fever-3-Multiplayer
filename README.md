@@ -1,8 +1,19 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v54 / DLL v15**. **Beide PCs brauchen das v54-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v55 / DLL v15**. **Beide PCs brauchen das v55-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
 
-[v54: Pause, Neuabgleich und Fahrzeugbefehle](docs/v54-pause-fahrzeuge.md) · [v53: Launcher und automatischer Spielstart](docs/v53-launcher-start.md) · [v52: Verbindung, Übertragung und Subventionen](docs/v52-verbindung-subventionen.md)
+[v55: Baufehler, Geld und Weltvergleich](docs/v55-bau-wirtschaft-vergleich.md) · [v54: Pause, Neuabgleich und Fahrzeugbefehle](docs/v54-pause-fahrzeuge.md) · [v53: Launcher und automatischer Spielstart](docs/v53-launcher-start.md)
+
+## Neu in v55
+
+- Haltestellen und Signale verwenden ausschließlich die bestätigte native Nummerierung. Der Ersatzversuch nach einer Ablehnung, der im letzten Lauf einen internen TF3-Indexfehler ausgelöst hat, entfällt. Die Position entlang des Gleises/der Straße wird ohne die bisherige Rundung übertragen.
+- Offene Gleisenden bleiben auch beim Verlängern eines Bahnhofs offene Enden. Ein beibehaltener Endknoten wird nicht mehr automatisch als fehlgeschlagener Netzanschluss geprüft; echte Anschlüsse bleiben prüfpflichtig.
+- Unterschiedliche native Kreditpläne blockieren die Geldangleichung des Mitspielers an den Gastgeber nicht mehr. Subventionsziele werden nach Möglichkeit über den festen Bauwerksanker erkannt, damit wachsende Industriefelder die Zuordnung nicht verschieben.
+- Abgelehnte Fahrzeugkäufe nennen Depot, Kontostand, Modell und den Kaufpreis, soweit TF3 diese Werte auslesen lässt. Unspezifische Fahrwegfehler werden auch so bezeichnet.
+- Der Weltvergleich verarbeitet native Linienkonfigurationen und Fahrzeuge im Depot. Fracht kann über die nativen Lager-/Fahrzeugverzeichnisse erfasst werden; diese Abdeckung wird ausdrücklich gekennzeichnet. Kategorien haben getrennte Abfragelimits, damit ein aufwendiger Frachtscan nicht alle späteren Prüfungen aufbraucht. Unvollständige Messungen bleiben unbekannt.
+- Benachbarte Bestätigungen des gemeinsamen Fahrzeugzeitplans werden in einer Nachricht übertragen; während einer gemeinsamen Aktion prüft die Oberfläche häufiger. Alle Bereitschafts- und Ergebnisprüfungen bleiben erhalten. Die reale Pausendauer muss beim Zwei-PC-Test gemessen werden.
+
+Auf beiden PCs aktualisieren und einmal denselben Gastgeberstand laden oder bewusst **Neu abgleichen**. Bereits fehlende Bauten werden durch das Update allein nicht nachgebaut. Die ursprüngliche Platzierungsablehnung bei Fliederweg und die Ursache aller später fehlenden Gleisknoten sind noch nicht abschließend geklärt. [Befund, Prüfungen und Gegentest](docs/v55-bau-wirtschaft-vergleich.md).
 
 ## Neu in v54
 
@@ -14,9 +25,9 @@ Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots
 
 Nach dem Update einmal den gemeinsamen Stand laden bzw. manuell neu abgleichen. Alte fehlende Bauten werden durch das Update allein nicht wiederhergestellt. [Befund, automatische Prüfungen und Zwei-PC-Test](docs/v54-pause-fahrzeuge.md).
 
-## Ohne VPN starten (v54)
+## Ohne VPN starten (v55)
 
-1. Beide verwenden das [v54-Paket](release/TF3-Multiplayer-v54-Windows.zip) und öffnen `Start.bat`.
+1. Beide verwenden das [v55-Paket](release/TF3-Multiplayer-v55-Windows.zip) und öffnen `Start.bat`.
 2. Gastgeber: Unter **Internet ohne VPN** eine öffentliche IPv6 auswählen und **Verbindung öffnen**. Alternativ öffentliche IPv4 eintragen oder **IPv4 automatisch** für die Routeranfrage wählen. Alles geschieht im Hauptfenster. Der dort angezeigte Internetport ist **TCP 47801**; der interne Spielport wird nicht mehr als freizugebender Internetport angezeigt.
 3. Der Launcher prüft die Windows-Regel und fordert die Routerfreigabe an. Falls Windows Administratorrechte verlangt, bestätigen. **Einladung kopieren** und nur dem Mitspieler geben. Die Einladung gilt für diese laufende Verbindung. Routerfehler stehen im Protokoll. Bei IPv6 müssen beide Anschlüsse IPv6 unterstützen; bei IPv4 kann CGNAT/DS-Lite eine direkte Freigabe verhindern.
 4. Mitspieler: **Beitreten**, die vollständige Einladung einfügen. Der Launcher verbindet sich automatisch. **Löschen** leert das Feld und beendet eine noch wartende Verbindung.
@@ -27,7 +38,7 @@ Der Internetweg benötigt keinen Vermittlungsserver. Er ersetzt jedoch keine feh
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe [v54-Paket](release/TF3-Multiplayer-v54-Windows.zip) auf beiden PCs öffnen und das VPN verbinden.
+1. Dasselbe [v55-Paket](release/TF3-Multiplayer-v55-Windows.zip) auf beiden PCs öffnen und das VPN verbinden.
 2. Gastgeber: **VPN / LAN**, passende Adresse auswählen, **Adresse kopieren**. Der Wartekanal öffnet automatisch. Für VPN/LAN gilt weiter **TCP + UDP 47800**; eine Routerfreigabe ist dafür nicht nötig.
 3. Mitspieler: **Beitreten**, Adresse einfügen (z. B. `100.80.12.4:47800`). Sobald verbunden, wählt und teilt der Gastgeber den Spielstand direkt im Hauptfenster. Beide brauchen dieselbe Paketversion und passende zusätzliche Mods.
 4. Der Gastgeber klickt den grünen Knopf **Spiel für beide starten**. Beide Spiele laden den geteilten Stand automatisch. Sobald beide Karten bereit sind, gemeinsam fortsetzen und bauen.

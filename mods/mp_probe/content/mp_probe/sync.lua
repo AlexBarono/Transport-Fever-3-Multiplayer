@@ -444,7 +444,10 @@ function sync.compare(mem, k, own, peer, role, latest)
 		for _, field in ipairs(CORRECTED) do
 			-- A loan booking moves the balance too, so money waits for the next comparison.
 			local blocked = (field == "money" and out.fix.loan ~= nil)
-				or (managed_loan and diffs.loan ~= nil and (field == "loan" or field == "money"))
+				-- Native loan schedules can differ with the calendar. Keep those
+				-- diagnostic, but still align spendable money to the host; blocking
+				-- both let the real v54 accounts drift by over twenty million.
+				or (managed_loan and field == "loan")
 			if lasting(field) and not mem.off[field] and not mem.fixes[field] and not blocked then
 				out.fix[field] = diffs[field].d
 				mem.fixes[field] = { amount = diffs[field].d, after = latest or k, k = k }

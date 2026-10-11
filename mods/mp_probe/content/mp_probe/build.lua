@@ -128,6 +128,14 @@ function build.read_transf(t)
 			for i = 0, 15 do m[i + 1] = t[i] end
 			return m
 		end },
+		{ "columns1", function()
+			local m = {}
+			for c = 1, 4 do
+				local col = t[c]
+				m[#m + 1], m[#m + 2], m[#m + 3], m[#m + 4] = col.x, col.y, col.z, col.w
+			end
+			return m
+		end },
 	}
 	local errors = {}
 	for _, attempt in ipairs(attempts) do
@@ -270,6 +278,7 @@ build.edge_objects_of = edge_objects_of
 -- @param proposal userdata param[1].proposal of onPostBuildProposal
 -- @param opts table|nil {
 --   node_position = function(id) -> {x,y,z} of an existing node,
+--   node_degree = function(id) -> number of segments at a surviving existing node, or nil,
 --   to_add = param[1].toAdd (constructions), to_remove = param[1].toRemove (construction ids),
 --   construction = function(id) -> { file, position } of a demolished construction,
 --   read_transf = function(transf) -> 16 numbers, or nil and a message,
@@ -321,9 +330,16 @@ function build.serialize(proposal, opts)
 		local comp = seg.comp
 		local f0, f1 = frozen_ids[comp.node0] == true, frozen_ids[comp.node1] == true
 		local free = (f0 and not f1 and comp.node1) or (f1 and not f0 and comp.node0) or nil
+		local end_stub = free and added_ids[free] and touches[free] == 1
+		-- A station extension can retain its old, unconnected track-end node.
+		-- It is then foreign, but still a native end stub, not a network entrance.
+		if free and not added_ids[free] and opts.node_degree then
+			local ok, degree = pcall(opts.node_degree, free)
+			if ok and degree == 1 then end_stub = true end
+		end
 		if f0 and f1 then
 			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (part of a construction)"
-		elseif free and added_ids[free] and touches[free] == 1 then
+		elseif end_stub then
 			info.dropped[#info.dropped + 1] = "segment " .. tostring(seg.entity) .. " (end stub of a construction)"
 		else
 			segments[#segments + 1] = seg
@@ -444,7 +460,9 @@ function build.serialize(proposal, opts)
 			else
 				local flags = (is_new and "n" or "") .. (o.left and "l" or "") .. (o.oneWay and "w" or "")
 				info.edge_objects = info.edge_objects + 1
-				parts[#parts + 1] = table.concat({ "o", i, tostring(side), num(o.param or 0.5),
+				-- Rounding this fraction moves a stop by up to half a metre on a
+				-- 1 km edge, enough to collide with a nearby junction.
+				parts[#parts + 1] = table.concat({ "o", i, tostring(side), string.format("%.17g", o.param or 0.5),
 					vec_to_string(o.position), build.escape(o.model), build.escape(o.name or ""),
 					flags == "" and "-" or flags }, ";")
 			end
@@ -1246,12 +1264,10 @@ function build.node_entity(data, id)
 	return id
 end
 
---- How new stops/signals are numbered in a proposal; not documented for TF3, so build.replay
--- tries each.
--- Run 15: TF3 asserts "EdgeObjectEntityToIndex: entity.GetId() <= -400000000 && > -500000000", so
--- new edge objects live in their own id range; whether the first is -400000000 or -400000001 is
--- tried.
-build.OBJECT_NUMBERINGS = { "range0", "range1" }
+--- New stops/signals use the native edge-object range with zero-based array indexes.
+-- The Fliederweg replay on 11 Oct proved the array is zero based. Retrying
+-- with range1 after a placement rejection indexed past its end inside TF3.
+build.OBJECT_NUMBERINGS = { "range0" }
 build.OBJECT_ID_BASE = -400000000
 
 --- Gives every sent stop/signal its id in this proposal: the local entity when it already exists
@@ -1263,11 +1279,7 @@ function build.number_objects(data)
 			o.proposal_id = o.entity
 		else
 			added[#added + 1] = o
-			if data.object_numbering == "range1" then
-				o.proposal_id = build.OBJECT_ID_BASE - #added
-			else
-				o.proposal_id = build.OBJECT_ID_BASE - (#added - 1)
-			end
+			o.proposal_id = build.OBJECT_ID_BASE - (#added - 1)
 		end
 	end
 	return added

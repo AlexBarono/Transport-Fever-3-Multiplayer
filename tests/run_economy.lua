@@ -353,5 +353,22 @@ test("subsidy and company failures use paired structured diagnostics including p
 	end
 end)
 
+test("a worker subsidy survives growing industry fields but rejects a moved or different industry",function()
+	local o=offer(); o.id="::/game_mechanics/subventions/deliver_workers/deliver_workers.res"; o.data.to={entity=200}
+	local a=targets(mock("host",{o})); a.construction(300,100,200,"::/industry/farm.con")
+	a.entities[200].INDUSTRY.construction=300
+	local action=assert(actions.decode(actions.encode(a.prepare())))
+	for _,mode in ipairs({"grown","moved","different"}) do
+		local b=targets(mock("client",{}))
+		b.construction(400,mode=="moved" and 110 or 100,200,mode=="different" and "::/industry/mill.con" or "::/industry/farm.con")
+		b.entities[200].INDUSTRY.construction=400
+		b.entities[200].BOUNDING_VOLUME.bbox.max.x=500
+		b.spawnOffer=copy(o)
+		local ok=pcall(b.replay,action)
+		if mode=="grown" then assert(ok and #b.entities[9].GAME_SCRIPT.state.activeSubventions==1)
+		else assert(not ok and #b.sent==0 and b.entities[7].ACCOUNT.balance==1000000) end
+	end
+end)
+
 print(string.format("%d economy tests passed, %d failed",passed,failed))
 if failed>0 then os.exit(1) end

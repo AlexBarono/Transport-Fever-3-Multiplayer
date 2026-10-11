@@ -1,6 +1,7 @@
 --- Read-only comparison of the player-built world. These digests contain no entity ids.
 -- A fresh snapshot is required for every category: a failed read never reuses old evidence.
 local actions = require("/mp_probe/actions.lua")
+local build = require("/mp_probe/build.lua")
 local fingerprint = { VERSION = 1, QUANTUM = 0.001, MAX_RECORDS = 100000,
 	MAX_ITEMS = 65536, MAX_DEPTH = 24,
 	FIELDS = { construction = "hcon", edge = "hedge", line = "hline", vehicle = "hveh",
@@ -232,8 +233,10 @@ function fingerprint.describe(kind, n)
 		return string.format("%s on %s, config %s, stopped %s, auto %s", n.name, n.line and tostring(n.line.name) or "-",
 			part(n.config), tostring(n.userStopped), tostring(n.autoDeparture))
 	elseif kind == "position" then
+		if n.depot then return n.vehicle.name .. " in depot " .. part(n.depot) end
 		return string.format("%s on %s at %s speed %.1f", n.vehicle.name, n.vehicle.line or "-", v3(n.position), n.speed)
 	elseif kind == "cargo" then
+		if n.scope == "coverage" then return "cargo coverage: " .. n.method end
 		if n.scope == "vehicle" then return n.vehicle.name .. " cargo " .. part(n.counts) end
 		return n.cargoType .. " source " .. part(n.source) .. " target " .. part(n.target)
 	elseif kind == "town" then
@@ -305,6 +308,7 @@ end
 fingerprint.CAPTURE_MAX_MS = 80
 fingerprint.CATEGORY_MAX_MS = 30
 fingerprint.CAPTURE_MAX_CALLS = 16000
+fingerprint.CATEGORY_MAX_CALLS = 6000
 fingerprint.STATIC_MAX_RECORDS = 1024
 fingerprint.VEHICLE_MAX_RECORDS = 2048
 fingerprint.CARGO_MAX_RECORDS = 4096
@@ -367,12 +371,13 @@ function fingerprint.begin(env, gt)
 	integer(gt)
 	local engine, ct, util = env.api.engine, env.api.type.ComponentType, env.api.engine.util
 	local clock = clock_for(env)
-	local started, category_started = measured(clock), 0
+	local started, category_started, category_calls = measured(clock), 0, 0
 	local job = { gt = gt, categories = {}, values = { wgt = gt }, failed = {}, lists = {}, category = 1,
 		stats = { capture_ms = 0, calls = 0, records = 0, limited = 0, hash_bytes = 0, steps = 0, clock = clock ~= nil } }
 	local category
 	local function guard()
-		if job.stats.calls >= fingerprint.CAPTURE_MAX_CALLS or measured(clock) - started > fingerprint.CAPTURE_MAX_MS
+		if job.stats.calls >= fingerprint.CAPTURE_MAX_CALLS or job.stats.calls - category_calls >= fingerprint.CATEGORY_MAX_CALLS
+			or measured(clock) - started > fingerprint.CAPTURE_MAX_MS
 			or measured(clock) - category_started > fingerprint.CATEGORY_MAX_MS then error("checkpoint capture budget", 0) end
 	end
 	local function call(fn, ...)
@@ -381,8 +386,17 @@ function fingerprint.begin(env, gt)
 		guard()
 		return v
 	end
+	-- Checkpoints read one immutable engine tick. Shared references (line names,
+	-- station groups, ownership) need only one native read during this capture.
+	local components, absent = {}, {}
+	local function get_component(id, kind)
+		local row = components[id]; if not row then row = {}; components[id] = row end
+		local c = row[kind]
+		if c == nil then c = call(engine.getComponent, id, kind); row[kind] = c or absent end
+		return c ~= absent and c or nil
+	end
 	local function component(id, name, optional)
-		local c = call(engine.getComponent, id, assert(ct[name], "component unavailable: " .. name))
+		local c = get_component(id, assert(ct[name], "component unavailable: " .. name))
 		if not optional then assert(c, "world component unreadable: " .. name) end
 		return c
 	end
@@ -405,12 +419,51 @@ function fingerprint.begin(env, gt)
 			end
 		elseif name == "SIM_CARGO" then
 			source = {}
-			call(engine.forEachEntity, function(id)
-				if component(id, "SIM_CARGO", true) then
-					source[#source + 1] = id
-					assert(#source <= cap, "checkpoint entity limit: SIM_CARGO")
+			local stock, vehicles = engine.system.simEntityAtStockSystem, engine.system.simEntityAtVehicleSystem
+			if stock and stock.getStock2SimEntityMap and vehicles and vehicles.getVehicle2Cargo2SimEntitesMap then
+				-- Prefer TF3's native indexes: its generic cargo iterator is
+				-- unsupported. Include both stocks and vehicles, deduplicate,
+				-- and explicitly label this bounded coverage in the digest.
+				local seen, visited = {}, 0
+				local function add(list)
+					for i = 1, #list do
+						guard(); visited = visited + 1
+						assert(visited <= fingerprint.CATEGORY_MAX_CALLS, "checkpoint cargo index limit")
+						local id = integer(list[i])
+						if not seen[id] then
+							seen[id] = true
+							if component(id, "SIM_CARGO", true) then source[#source + 1] = id end
+							assert(#source <= cap, "checkpoint entity limit: SIM_CARGO")
+						end
+					end
 				end
-			end)
+				for _, list in pairs(call(stock.getStock2SimEntityMap)) do guard(); add(list) end
+				for _, cargos in pairs(call(vehicles.getVehicle2Cargo2SimEntitesMap)) do
+					guard(); for _, list in pairs(cargos) do guard(); add(list) end
+				end
+				job.stats.cargo_scope = "stocks_and_vehicles"
+			else
+				local ok, err = pcall(function()
+					call(engine.forEachEntityWithComponent, function(id)
+						guard(); source[#source + 1] = id
+						assert(#source <= cap, "checkpoint entity limit: SIM_CARGO")
+					end, assert(ct.SIM_CARGO))
+				end)
+				if not ok then
+					if tostring(err):find("budget", 1, true) or tostring(err):find("limit", 1, true) then error(err, 0) end
+					source = {}
+					local visited = 0
+					call(engine.forEachEntity, function(id)
+						visited = visited + 1; guard()
+						assert(visited <= fingerprint.CATEGORY_MAX_CALLS, "checkpoint scan limit: SIM_CARGO")
+						if engine.entityExists and not call(engine.entityExists, id) then return end
+						if component(id, "SIM_CARGO", true) then
+							source[#source + 1] = id
+							assert(#source <= cap, "checkpoint entity limit: SIM_CARGO")
+						end
+					end)
+				end
+			end
 		end
 		if source then
 			assert(#source <= (owned and fingerprint.MAX_RECORDS or cap), "checkpoint entity limit: " .. name)
@@ -461,6 +514,7 @@ function fingerprint.begin(env, gt)
 	end
 	local function capture(kind, fn)
 		category_started = measured(clock)
+		category_calls = job.stats.calls
 		category = { kind = kind, field = fingerprint.FIELDS[kind], records = {}, hashes = {}, cursor = 1 }
 		local ok, err = pcall(function() guard(); fn(); guard() end)
 		if ok then job.categories[#job.categories + 1] = category
@@ -487,7 +541,7 @@ function fingerprint.begin(env, gt)
 			local read_failed = false
 			local audited_engine = setmetatable({ getComponent = function(id, c)
 				local ok, v = pcall(function()
-					local value = call(engine.getComponent, id, c)
+					local value = get_component(id, c)
 					if value ~= nil and c == ct.NAME then assert(type(value.name) == "string", "unreadable name") end
 					if value ~= nil and c == ct.CONSTRUCTION then
 						local params = value.params_native
@@ -501,11 +555,12 @@ function fingerprint.begin(env, gt)
 					if value ~= nil and c == ct.TRANSPORT_VEHICLE then
 						local config = value.transportVehicleConfig
 						assert(#config.vehicles <= 128, "vehicle part limit")
-						if type(config) == "table" then bounded_plain(config) end
 					end
 					if value ~= nil and c == ct.LINE then
 						assert(#value.stops <= 128, "line stop limit")
-						if type(value.stops) == "table" then bounded_plain(value.stops) end
+						-- Native stopConfig and waypoint values may be userdata in a
+						-- plain stops table. actions.read_record converts their documented
+						-- fields; validate that plain result rather than rejecting TF3 data.
 					end
 					return value
 				end)
@@ -526,8 +581,20 @@ function fingerprint.begin(env, gt)
 	end
 	capture("position", function()
 		for _, id in ipairs(ids("TRANSPORT_VEHICLE", fingerprint.VEHICLE_MAX_RECORDS, true)) do
-			append({ vehicle = vehicle_ref(id), position = position(call(util.vehicle.getPosition, id)),
-				speed = finite(call(util.vehicle.getSpeed, id)) })
+			local v = component(id, "TRANSPORT_VEHICLE")
+			local states = env.api.type.enum and env.api.type.enum.TransportVehicleState
+			if v.state == "IN_DEPOT" or (states and states.IN_DEPOT ~= nil and v.state == states.IN_DEPOT) then
+				local parent = call(engine.system.streetConnectorSystem.getConstructionEntityForDepot, integer(v.depot))
+				local con = component(integer(parent), "CONSTRUCTION")
+				local t = assert(build.read_transf(con.transf), "depot transformation unreadable")
+				local slot
+				for i = 1, #con.depots do if con.depots[i] == v.depot then assert(not slot, "ambiguous depot"); slot = i end end
+				append({ vehicle = vehicle_ref(id), depot = { fileName = con.fileName,
+					position = position({ x = t[13], y = t[14], z = t[15] }), index = assert(slot, "depot slot unreadable") }, speed = 0 })
+			else
+				append({ vehicle = vehicle_ref(id), position = position(call(util.vehicle.getPosition, id)),
+					speed = finite(call(util.vehicle.getSpeed, id)) })
+			end
 		end
 	end)
 	capture("cargo", function()
@@ -557,6 +624,7 @@ function fingerprint.begin(env, gt)
 			if on_vehicle then r.vehicle = vehicle_ref(on_vehicle.vehicle) end
 			append(r)
 		end
+		if job.stats.cargo_scope then append({ scope = "coverage", method = job.stats.cargo_scope }) end
 	end)
 	capture("town", function()
 		for _, id in ipairs(ids("TOWN", fingerprint.TOWN_MAX_RECORDS, false)) do

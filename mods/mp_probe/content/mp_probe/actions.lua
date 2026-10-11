@@ -31,31 +31,34 @@ end
 actions.STRUCT_FIELDS = { "x", "y", "z", "w", "loadConfigIndex", "cargoTypeId", "cargoEntry", "toHide",
 	"cargoType", "amount", "loadConfigs", "loadConfig" }
 
-local function to_plain(value, depth)
+local function to_plain(value, depth, budget)
 	depth = depth or 0
+	budget = budget or { items = 0 }; budget.items = budget.items + 1
+	assert(budget.items <= 65536, "engine value item limit")
 	if depth > 12 then error("value nested too deep", 0) end
 	local t = type(value)
 	if t ~= "userdata" and t ~= "table" then return value end
 	if t == "userdata" then
 		local ok, as = pcall(function() return value:asTable() end)
-		if ok and type(as) == "table" then return to_plain(as, depth + 1) end
+		if ok and type(as) == "table" then return to_plain(as, depth + 1, budget) end
 		local ok_n, n = pcall(function() return #value end)
 		if ok_n and type(n) == "number" then
 			local out = {}
-			for i = 1, n do out[i] = to_plain(value[i], depth + 1) end
+			assert(n <= 65536, "engine vector item limit")
+			for i = 1, n do out[i] = to_plain(value[i], depth + 1, budget) end
 			return out
 		end
 		local out, any = {}, false
 		-- Vectors and the structs vehicles carry (run 15: LoadConfig).
 		for _, key in ipairs(actions.STRUCT_FIELDS) do
 			local ok_k, v = pcall(function() return value[key] end)
-			if ok_k and v ~= nil and type(v) ~= "function" then out[key], any = to_plain(v, depth + 1), true end
+			if ok_k and v ~= nil and type(v) ~= "function" then out[key], any = to_plain(v, depth + 1, budget), true end
 		end
 		if any then return out end
 		error("unreadable engine value " .. tostring(value):gsub("0x%x+", ""), 0)
 	end
 	local out = {}
-	for k, v in pairs(value) do out[k] = to_plain(v, depth + 1) end
+	for k, v in pairs(value) do out[k] = to_plain(v, depth + 1, budget) end
 	return out
 end
 
@@ -1105,13 +1108,13 @@ function actions.replay(env, action, state, peer, offset, log)
 	local s = state:get() or {}
 	local cmd, value, op = env.api.cmd, action.value, action.op
 	local function updated(kind, id, ref, remove) refresh(env, state, peer, kind, id, ref, remove) end
-	local function send(command, done)
+	local function send(command, done, rejection_context)
 		busy(state, true)
 		local sent, send_error = pcall(cmd.sendCommand, command, function(result, success)
 			busy(state, false)
 			local errors = field(field(result, "resultProposalData"), "errorState")
 			if success == false or (errors and field(errors, "critical") == true) then
-				log("action " .. op .. " rejected by game")
+				log("action " .. op .. " rejected by game" .. (rejection_context and (" (" .. rejection_context .. ")") or ""))
 				return
 			end
 			local ok, err = pcall(function() if done then done(result) end end)
@@ -1206,11 +1209,21 @@ function actions.replay(env, action, state, peer, offset, log)
 		local depot = resolve(env, assert(value.depot, "buy needs depot"), s, peer, offset)
 		-- Validate line dependencies before purchasing, avoiding a half-applied action.
 		if value.line then resolve(env, value.line, s, peer, offset) end
-		send(cmd.makeVehicleBuyCmd(env.api.engine.util.getPlayer(), depot, make_vehicle(env, value.config)), function(result)
+		local config, diagnostic = make_vehicle(env, value.config), { "depot=" .. depot }
+		pcall(function()
+			diagnostic[#diagnostic + 1] = "balance=" .. tostring(component(env, env.api.engine.util.getPlayer(), "ACCOUNT").balance)
+		end)
+		pcall(function()
+			local price = 0
+			for i = 1, #config.vehicles do price = price + env.api.engine.util.vehicle.getPartPrice(config.vehicles[i]) end
+			diagnostic[#diagnostic + 1] = "price=" .. tostring(price)
+		end)
+		diagnostic[#diagnostic + 1] = "model=" .. tostring(value.config.vehicles[1] and value.config.vehicles[1].model)
+		send(cmd.makeVehicleBuyCmd(env.api.engine.util.getPlayer(), depot, config), function(result)
 			local id = assert(result_id(result, "resultVehicleEntity"), "vehicle result id missing")
 			updated("vehicle", id, value.ref)
 			vehicle_settings(id, value)
-		end)
+		end, table.concat(diagnostic, ", "))
 	elseif op == "vehicle_update" then
 		local id = resolve(env, action.target, s, peer, offset)
 		if value.line then resolve(env, value.line, s, peer, offset) end

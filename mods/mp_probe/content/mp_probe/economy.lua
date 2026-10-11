@@ -1,5 +1,6 @@
 --- Shared company names and subsidy decisions. The original TF3 script owns rewards.
 local wire = require("/mp_probe/wire.lua")
+local build = require("/mp_probe/build.lua")
 local economy = { SCRIPT = "::/game_mechanics/subventions/subventions.gs", SOURCE = "mp_probe_economy" }
 
 local function integer(v)
@@ -88,7 +89,20 @@ local function target_ref(env, id, kind)
 		p[axis] = (bb.min[axis] + bb.max[axis]) / 2
 		assert(type(p[axis]) == "number" and p[axis] == p[axis] and math.abs(p[axis]) < 1e8, "invalid subvention position")
 	end
-	return { kind = kind, position = p }
+	local out = { kind = kind, position = p }
+	-- Industry bounds change with fields and upgrades; their centre is not an
+	-- identity. Keep the construction's fixed anchor and resource as well.
+	if kind == "INDUSTRY" then
+		local industry = component(env, id, kind)
+		local c = component(env, industry.construction or id, "CONSTRUCTION")
+		if c then
+			local m = build.read_transf(c.transf)
+			if m and type(c.fileName) == "string" then
+				out.anchor = { x = m[13], y = m[14], z = m[15] }; out.fileName = c.fileName
+			end
+		end
+	end
+	return out
 end
 
 function economy.specific(env, offer)
@@ -119,8 +133,13 @@ local function same_target(a, b)
 		if (x == nil) ~= (y == nil) then return false end
 		if x then
 			if x.kind ~= y.kind then return false end
+			local xp, yp = x.position, y.position
+			if x.anchor and y.anchor then
+				if x.fileName ~= y.fileName then return false end
+				xp, yp = x.anchor, y.anchor
+			end
 			for _, axis in ipairs({ "x", "y", "z" }) do
-				local p, q = x.position[axis], y.position[axis]
+				local p, q = xp[axis], yp[axis]
 				assert(type(p) == "number" and p == p and math.abs(p) < 1e8 and type(q) == "number" and q == q and math.abs(q) < 1e8, "invalid subvention position")
 				if math.abs(p - q) > 1 then return false end
 			end

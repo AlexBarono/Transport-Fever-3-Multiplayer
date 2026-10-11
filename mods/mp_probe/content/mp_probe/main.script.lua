@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 54
+main.PROBE_VERSION = 55
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -1209,7 +1209,8 @@ function main.vehicle_line_failure(env, id, line, stop)
 	-- in a simulation context; diagnostic failure must preserve the rejection.
 	local ok, reason = pcall(function()
 		local failure = env.api.engine.util.line.getFailedPathReason(id, line, true)
-		local descriptions = { NoPath = "no path", NoElectric = "missing electrification", NoRail = "missing rail",
+		local descriptions = { Unkown = "no specific path diagnosis from TF3", Unknown = "no specific path diagnosis from TF3",
+			NoPath = "no path", NoElectric = "missing electrification", NoRail = "missing rail",
 			NoRoad = "missing road", NoTram = "missing tram", NoTramButTramTrack = "incompatible tram track",
 			NoTramTrackButRail = "incompatible rail", NoSmallAircraft = "aircraft incompatible with airport",
 			NoSmallShip = "ship incompatible with port" }
@@ -1363,7 +1364,7 @@ function main.timeline_tick(env, state)
 		m.error_logged = true; logger.info("timeline stopped: " .. m.error)
 		logger.info(main.STATE_MARKER .. "health ck=" .. (s.sync and s.sync.own_k or 0) .. " status=diff fields=clock")
 	end
-	local line = not actions.next_line_waiting(s) and timeline.take(m)
+	local line = not actions.next_line_waiting(s) and timeline.take_batch(m)
 	-- Save before any engine command: its callback can replace the live receipt/timeline.
 	state:set(s)
 	if line then
@@ -1945,6 +1946,11 @@ function main.capture_build(state, s, param, label)
 	local cons = s.constructions or {}
 	local opts = {
 		node_position = function(id) return world.node_position(env, id) end,
+		node_degree = function(id)
+			if not world.node_position(env, id) then return nil end
+			local list = env.api.engine.system.streetSystem.getNodeSegments(id)
+			return list and #list or nil
+		end,
 		segment_ends = function(id) return world.edge_ends(env, id) end,
 		to_add = param[1].toAdd,
 		to_remove = param[1].toRemove,
