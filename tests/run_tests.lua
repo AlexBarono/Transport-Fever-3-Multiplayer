@@ -1448,7 +1448,42 @@ test("a build line too long for the network is reported instead of sent (v26)", 
 		assert(state:get().last_build, "kept for the local replay")
 		assert(contains(logged, "capture line TOO LONG for the network ("), all)
 		assert(contains(logged, "characters, at most 100): the other game does not get this build"), all)
-		for _, l in ipairs(logged) do assert(not l:find("net send ", 1, true), l) end
+		for _, l in ipairs(logged) do assert(not l:find("net send B5 ", 1, true), l) end
+		assert(contains(logged, "action issue local I1 capture_"), "oversized native builds must be visible in the launcher")
+	end)
+end)
+
+test("a dropped native build reports a paired partial result without completing a different replay", function()
+	with_engine_api({}, function()
+		local main, state = fresh_main(), mock_state()
+		local active = { token = "still-running.1", pending = 1, dispatched = true }
+		state:set({ network_work = active, last_build = "previous capture" })
+		local saved_os = os
+		os = setmetatable({ getenv = function(key)
+			if key == "TF3MP_ROLE" then return "client" end
+			if key == "TF3MP_ORDERING" then return "1" end
+		end }, { __index = saved_os })
+		local ok, err = pcall(function()
+			local bad = player_build_param()
+			bad[1].proposal.addedSegments[1].comp.type = 99
+			logged = {}
+			main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", bad)
+			local s = state:get()
+			assert(s.capture_issue_seq == 1 and s.last_build == "previous capture")
+			assert(s.network_work == active and not s.network_done, "the active receipt must remain untouched")
+			assert(contains(logged, "action issue local I1 capture_client.1 partial "))
+			assert(contains(logged, "net send I1 capture_client.1 partial "), "the other launcher also needs the diagnostic")
+			for _, text in ipairs(logged) do
+				assert(not text:find("net result ", 1, true) and not text:find("net send B5 ", 1, true), text)
+			end
+			-- Future valid builds still travel; reporting a capture failure never stops the queue.
+			main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", player_build_param())
+			assert(contains(logged, "net send B5 ") and state:get().last_build ~= "previous capture")
+			main.handleEvent(nil, state, "", "apply_command", "onPostBuildProposal", bad)
+			assert(state:get().capture_issue_seq == 2 and contains(logged, "net send I1 capture_client.2 partial "))
+		end)
+		os = saved_os
+		assert(ok, err)
 	end)
 end)
 
@@ -2872,6 +2907,39 @@ test("an unreadable delayed station connection check rejects the execution recei
 		assert(state:get().network_done.result == "FAIL", "an unreadable connection must never acknowledge the replacement")
 		assert(contains(logged, "net result replacement-read-failure.1 FAIL construction entrance check unreadable: mock engine read failure"))
 		assert(not contains(logged, "net result replacement-read-failure.1 OK"))
+	end)
+end)
+
+test("delayed replacement checks preserve the source connection requirement and the explicit confirmation", function()
+	with_engine_api({}, function(t)
+		local main, state = fresh_main(), mock_state()
+		local world, weld = require("/mp_probe/world.lua"), require("/mp_probe/weld.lua")
+		local saved_find, saved_status = world.find_construction, weld.status
+		local data = { constructions = { { file = "station.con", transf = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 100,200,3,1 } } } }
+		local failures = {}
+		local ok, err = pcall(function()
+			world.find_construction = function() return 500 end
+			weld.status = function(_, id, _, required)
+				assert(id == 500 and required == false)
+				return { confirmed = true, welded = false, text = "existing unconnected station" }
+			end
+			main.check_replacement_later(t.env, data, state)
+			assert(state:get().weld_checks[1].require_connection == false)
+			t.advance(main.WELD_RECHECK_MS)
+			main.recheck_welds(t.env, state:get(), function(reason) failures[#failures + 1] = reason end)
+			assert(#failures == 0, "a station without captured access must not get a false failure")
+			data.gate_positions = { { x = 100, y = 200, z = 3 } }
+			weld.status = function(_, _, _, required)
+				assert(required == true)
+				return { confirmed = false, welded = true, text = "required gate not confirmed" }
+			end
+			main.check_replacement_later(t.env, data, state)
+			t.advance(main.WELD_RECHECK_MS)
+			main.recheck_welds(t.env, state:get(), function(reason) failures[#failures + 1] = reason end)
+			assert(#failures == 1 and failures[1]:find("required gate not confirmed", 1, true))
+		end)
+		world.find_construction, weld.status = saved_find, saved_status
+		assert(ok, err)
 	end)
 end)
 

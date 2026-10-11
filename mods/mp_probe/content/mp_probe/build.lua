@@ -8,6 +8,26 @@ local build = {}
 --- Wire format version, part of every line so an old client can reject a new line.
 build.VERSION = 5
 
+-- TF3 exposes these constants under api.type.enum (recorded API dumps, run 39).
+-- The direct api.type namespace remains supported for compatibility. Component readback can
+-- return the native integer: transformator.d.tl documents 0 normal, 1 bridge, 2 tunnel.
+local EDGE_KINDS = { [0] = "NORMAL", [1] = "BRIDGE", [2] = "TUNNEL" }
+function build.base_edge_type(api, name)
+	local api_type = api and api.type
+	local types = api_type and (api_type.enum and api_type.enum.BaseEdgeType or api_type.BaseEdgeType)
+	return types and types[name]
+end
+
+function build.edge_kind(api, value)
+	if value == nil then return nil end
+	if type(value) == "number" then return EDGE_KINDS[value] end
+	for _, name in pairs(EDGE_KINDS) do
+		local enum = build.base_edge_type(api, name)
+		if enum ~= nil and value == enum then return name end
+	end
+	return nil
+end
+
 local function round(x)
 	return math.floor(x * 1000 + 0.5) / 1000
 end
@@ -1343,7 +1363,7 @@ function build.make_segment(api, data, seg, positions, player, errors)
 	if seg.structure then
 		local s = seg.structure
 		assert(s.kind == "BRIDGE" or s.kind == "TUNNEL", "invalid bridge/tunnel kind")
-		edge_kind = assert(api.type.BaseEdgeType[s.kind], "bridge/tunnel enum unavailable")
+		edge_kind = assert(build.base_edge_type(api, s.kind), "bridge/tunnel enum unavailable")
 		local rep = s.kind == "BRIDGE" and api.res.bridgeTypeRep or api.res.tunnelTypeRep
 		resource_index = rep.find(s.resource)
 		assert(type(resource_index) == "number" and resource_index >= 0, "bridge/tunnel resource missing: " .. s.resource)
@@ -1360,7 +1380,8 @@ function build.make_segment(api, data, seg, positions, player, errors)
 		if positions[seg.node1] then set_vec(api, comp, "position1", positions[seg.node1], errors, "edge.comp.position1") end
 		if edge_kind ~= nil then
 			comp.type, comp.typeIndex = edge_kind, resource_index
-			assert(comp.type == edge_kind and comp.typeIndex == resource_index, "bridge/tunnel fields did not read back")
+			assert(build.edge_kind(api, comp.type) == seg.structure.kind and comp.typeIndex == resource_index,
+				"bridge/tunnel fields did not read back")
 		elseif seg.typeIndex then try_set(comp, "typeIndex", seg.typeIndex, errors, "edge.comp.typeIndex") end
 		local objects = {}
 		for _, o in ipairs(data.objects or {}) do
@@ -1389,7 +1410,8 @@ function build.make_segment(api, data, seg, positions, player, errors)
 		end
 	end, errors, "edge.comp")
 	if edge_kind ~= nil then
-		assert(entry.comp.type == edge_kind and entry.comp.typeIndex == resource_index, "proposal lost bridge/tunnel fields")
+		assert(build.edge_kind(api, entry.comp.type) == seg.structure.kind and entry.comp.typeIndex == resource_index,
+			"proposal lost bridge/tunnel fields")
 	end
 	if seg.params then set_precedence(api, entry, "params", seg.params, errors, "edge.params") end
 	if seg.streetEdge then set_precedence(api, entry, "streetEdge", seg.streetEdge, errors, "edge.streetEdge") end
@@ -1566,7 +1588,7 @@ function build.make_proposal(env, data, layout, player, list_kind)
 			local ok, matches = pcall(function()
 				local rep = seg.structure.kind == "BRIDGE" and api.res.bridgeTypeRep or api.res.tunnelTypeRep
 				local comp = checked_edges[i].comp
-				return comp.type == api.type.BaseEdgeType[seg.structure.kind] and comp.typeIndex == rep.find(seg.structure.resource)
+				return build.edge_kind(api, comp.type) == seg.structure.kind and comp.typeIndex == rep.find(seg.structure.resource)
 			end)
 			if not ok or not matches then check.complete = false; check.text = check.text .. ", bridge/tunnel fields lost on edge " .. i end
 		end

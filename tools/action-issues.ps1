@@ -64,7 +64,9 @@ function Update-ActionIssues($reader, [string]$path, [string]$gamePid='') {
 
 function Get-ActionReasonText([string]$reason) {
 	$explanation = switch -Regex ($reason) {
+		'build capture failed|build capture too long' { 'Der ursprüngliche Bau wurde ausgeführt, konnte aber nicht an den Mitspieler übertragen werden. Fehlenden Abschnitt prüfen; Neuabgleich übernimmt bei Bedarf den Gastgeberstand.'; break }
 		'vehicle_create rejected.*balance=.*price=' { 'TF3 hat den Fahrzeugkauf abgelehnt. Kontostand, Kaufpreis und Depot im technischen Grund prüfen; die genaue Ablehnungsursache meldet TF3 nicht.'; break }
+		'no path' { 'TF3 findet keinen befahrbaren Weg zur Linie. Depotanschluss, Gleisrichtung und Haltestellen prüfen.'; break }
 		'no specific path diagnosis from TF3' { 'TF3 hat die Linienzuweisung ohne konkrete Wegdiagnose abgelehnt. Depotanschluss, Fahrzeugtyp und erreichbare Haltestellen prüfen.'; break }
 		'subvention.*terms/rewards differ' { 'Die Subvention fehlt oder hat auf diesem PC andere Bedingungen oder Belohnungen. Es wurde keine zusätzliche Auszahlung gebucht.'; break }
 		'subvention money.*rejected|subvention money.*unavailable|host subsidy balance' { 'Die Subvention wurde verarbeitet, aber das Geld konnte nicht an den Gastgeber angeglichen werden. Kontostände prüfen; der Buchungsfehler wird nicht automatisch wiederholt.'; break }
@@ -78,10 +80,11 @@ function Get-ActionReasonText([string]$reason) {
 		'economy scheduling failed' { 'Die Änderung konnte nicht in den gemeinsamen Zeitplan aufgenommen werden. Verbindung prüfen und erneut versuchen.'; break }
 		'loan limit' { 'Auf diesem PC ist die Höchstzahl an Krediten erreicht.'; break }
 		'loan to repay.*not found|loan to repay.*ambiguous' { 'Der zurückzuzahlende Kredit fehlt auf diesem PC oder ist nicht eindeutig zugeordnet.'; break }
-		'no path' { 'TF3 findet keinen befahrbaren Weg zur Linie. Depotanschluss, Gleisrichtung und Haltestellen prüfen.'; break }
 		'missing electrification' { 'Auf dem Fahrweg fehlt die benötigte Elektrifizierung.'; break }
 		'missing rail|missing road|missing tram|incompatible rail|incompatible tram' { 'Der Fahrweg passt nicht zum Fahrzeugtyp.'; break }
 		'construction-owned' { 'Eine zum Gebäude gehörende Zufahrt konnte nicht sicher geändert werden.'; break }
+		'construction entrance not confirmed' { 'Der Bahnhof oder das Depot wurde gebaut, aber der benötigte Anschluss konnte nicht bestätigt werden. Gleise oder Zufahrt prüfen; das Bauwerk kann bereits vorhanden sein.'; break }
+		'joins a road or track that does not exist here' { 'Der Anschluss an einen vorhandenen Straßen- oder Gleisabschnitt fehlt auf diesem PC. Ein vorheriger Bau wurde möglicherweise nicht übertragen; fehlende Abschnitte prüfen.'; break }
 		'node configurations|existing node|node.*not found|node.*resolved' { 'Ein benötigter Gleis-/Straßenanschluss wurde nicht gefunden.'; break }
 		'bridge|tunnel|resource' { 'Eine benötigte Bauressource fehlt oder ist nicht zuordenbar.'; break }
 		'vehicle.*not found|vehicle.*missing' { 'Das zugehörige Fahrzeug fehlt auf diesem PC.'; break }

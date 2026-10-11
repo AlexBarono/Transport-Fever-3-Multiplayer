@@ -288,12 +288,11 @@ end
 --- Bridge/tunnel resource names travel instead of per-process repository indexes.
 function world.edge_structure(env, comp)
 	local kind = comp.type
-	if kind == nil or kind == 0 then return nil end
-	local types = env.api.type.BaseEdgeType
-	if types and kind == types.NORMAL then return nil end
-	local name, rep
-	if types and kind == types.BRIDGE then name, rep = "BRIDGE", env.api.res.bridgeTypeRep
-	elseif types and kind == types.TUNNEL then name, rep = "TUNNEL", env.api.res.tunnelTypeRep
+	local name = build.edge_kind(env.api, kind)
+	if kind == nil or name == "NORMAL" then return nil end
+	local rep
+	if name == "BRIDGE" then rep = env.api.res.bridgeTypeRep
+	elseif name == "TUNNEL" then rep = env.api.res.tunnelTypeRep
 	else error("unknown bridge/tunnel edge type " .. tostring(kind), 0) end
 	local resource = rep.getName(comp.typeIndex)
 	assert(type(resource) == "string" and resource ~= "", "bridge/tunnel resource name unavailable")

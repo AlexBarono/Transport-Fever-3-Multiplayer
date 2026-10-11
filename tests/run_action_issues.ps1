@@ -53,4 +53,12 @@ try{
 }finally{Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue}
 if(-not (Get-ActionReasonText 'action vehicle_create rejected by game (depot=91, balance=-1160000, price=234000, model=bus)').Contains('Kontostand, Kaufpreis und Depot')){throw 'Purchase diagnostic not explained'}; $passed++
 if(-not (Get-ActionReasonText 'line assignment rejected: no specific path diagnosis from TF3').Contains('ohne konkrete Wegdiagnose')){throw 'Unspecified native path failure mislabelled'}; $passed++
+foreach($case in @(
+ @('line assignment rejected: no specific path diagnosis from TF3; line problems: segment 0 point 0: no path, segment 1 point 0: no path','keinen befahrbaren Weg'),
+ @('build capture failed: unknown bridge/tunnel edge type 99','nicht an den Mitspieler übertragen'),
+ @('build capture too long: 300000 characters, limit 262144','nicht an den Mitspieler übertragen'),
+ @('joins a road or track that does not exist here: node -1907.6, 880.7','Ein vorheriger Bau'),
+ @('construction entrance not confirmed: gate 183238, no road reached','Anschluss konnte nicht bestätigt'))){
+ if(-not (Get-ActionReasonText $case[0]).Contains($case[1])){throw "Missing build/path diagnosis: $($case[0])"}; $passed++
+}
 Write-Output "$passed action issue tests passed"

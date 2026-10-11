@@ -71,9 +71,11 @@ weld.WALK_LIMIT = 64
 -- has, or nil.
 local function road_from(env, gate, frozen_edges)
 	local seen, queue, head = { [gate] = true }, { gate }, 1
-	while head <= #queue and #queue <= weld.WALK_LIMIT do
+	local examined = 0
+	while head <= #queue and examined < weld.WALK_LIMIT do
 		local n = queue[head]
 		head = head + 1
+		examined = examined + 1
 		local road = 0
 		for _, e in ipairs(weld.segments_at(env, n)) do
 			if frozen_edges[e] then
@@ -87,9 +89,20 @@ local function road_from(env, gate, frozen_edges)
 				road = road + 1
 			end
 		end
-		if road > 0 then return n, road, queue end
+		if road > 0 then return n, road, queue, false end
 	end
-	return nil, nil, queue
+	-- A bounded search that stopped early did not prove a disconnected entrance. In particular,
+	-- a long modular station may have more frozen track nodes than this diagnostic walks.
+	return nil, nil, queue, head <= #queue
+end
+
+--- Whether the captured proposal actually requires an entrance to meet the outside network.
+-- Frozen nodes alone are not evidence: modular stations also freeze ordinary track midpoints
+-- and open track ends. B5 explicitly marks access segments/gates when the player's proposal
+-- makes an outside connection. A native replacement with only c/k records may legitimately
+-- have none; the native command result and node-configuration checks still verify that build.
+function weld.connection_required(data)
+	return #(data.gate_positions or {}) > 0 or next(data.gates or {}) ~= nil or next(data.access or {}) ~= nil
 end
 
 --- Whether the construction's gates reach the street network. Run 20b: TF3 hands the entrance
@@ -98,12 +111,17 @@ end
 -- construction's own edges from each gate; it is welded when a node on that way also has a segment
 -- that is not the construction's (the road the entrance joins).
 -- @param gate_positions list of {x, y, z} where the line puts the gates (may be empty)
--- @return table { welded = true, false or nil (no gate found), gates = {{id, position, outside,
+-- @param require_connection boolean|nil false if the captured proposal names no external access;
+--   nil keeps the legacy strict entrance check for saved checks and older callers.
+-- @return table { welded = true, false or nil (no gate found / bounded search), confirmed,
+--   connection_required, gates = {{id, position, outside,
 --   inner, road, road_segments}}, loose = {{id, position, segments}} (other nodes on a gate spot),
 --   text }
-function weld.status(env, construction, gate_positions)
+function weld.status(env, construction, gate_positions, require_connection)
 	local nodes, frozen_edges = weld.frozen_of(env, construction)
 	local st = { welded = nil, gates = {}, loose = {} }
+	st.exists = component(env, construction, "CONSTRUCTION") ~= nil
+	local incomplete = false
 	local is_gate = {}
 	for _, id in ipairs(nodes) do
 		is_gate[id] = true
@@ -111,7 +129,8 @@ function weld.status(env, construction, gate_positions)
 		for _, e in ipairs(weld.segments_at(env, id)) do
 			if frozen_edges[e] then inner = inner + 1 else outside = outside + 1 end
 		end
-		local road, road_segments, walked = road_from(env, id, frozen_edges)
+		local road, road_segments, walked, limited = road_from(env, id, frozen_edges)
+		incomplete = incomplete or limited
 		if road then st.welded = true elseif st.welded == nil then st.welded = false end
 		-- Where the construction's own entrance ends when it reaches no road (a dead end).
 		local tip = nil
@@ -121,8 +140,13 @@ function weld.status(env, construction, gate_positions)
 			end
 		end
 		st.gates[#st.gates + 1] = { id = id, position = world.node_position(env, id), outside = outside, inner = inner,
-			road = road, road_segments = road_segments, tip = tip, tip_position = tip and world.node_position(env, tip) }
+			road = road, road_segments = road_segments, tip = tip, tip_position = tip and world.node_position(env, tip),
+			limited = limited }
 	end
+	if incomplete and st.welded ~= true then st.welded = nil end
+	st.connection_required = require_connection ~= false
+	st.confirmed = st.exists and (not st.connection_required or st.welded == true)
+	st.limited = incomplete
 	-- Other nodes on the spot where an entrance ends: a road node there that the entrance did not
 	-- join is the copy's own street.
 	local spots = {}
@@ -148,19 +172,31 @@ function weld.status(env, construction, gate_positions)
 		end
 	end
 	local parts = {}
-	for _, g in ipairs(st.gates) do
+	for i, g in ipairs(st.gates) do
+		if i > weld.LIST_LIMIT then
+			parts[#parts + 1] = tostring(#st.gates - weld.LIST_LIMIT) .. " further frozen nodes"
+			break
+		end
 		local reach = g.road and string.format("road at node %s with %d segments", tostring(g.road), g.road_segments)
+			or g.limited and "outside connection unknown (frozen-node search limit)"
 			or g.tip and string.format("no road reached, entrance ends at node %s at %s", tostring(g.tip), fmt(g.tip_position))
 			or "no road reached"
 		parts[#parts + 1] = string.format("gate %s at %s (%d outside, %d inner, %s)", tostring(g.id), fmt(g.position),
 			g.outside, g.inner, reach)
 	end
 	if #parts == 0 then parts[1] = "no gate node found" end
-	for _, n in ipairs(st.loose) do
+	for i, n in ipairs(st.loose) do
+		if i > weld.LIST_LIMIT then
+			parts[#parts + 1] = tostring(#st.loose - weld.LIST_LIMIT) .. " further coincident nodes"
+			break
+		end
 		parts[#parts + 1] = string.format("other node %s at %s (%d segments)", tostring(n.id), fmt(n.position), n.segments)
 	end
 	local verdict = st.welded == true and "WELDED" or st.welded == false and "NOT WELDED" or "UNKNOWN"
 	st.text = "construction " .. tostring(construction) .. ": " .. table.concat(parts, "; ") .. " -> " .. verdict
+	if not st.connection_required then
+		st.text = st.text .. "; external network connection not required by captured proposal"
+	end
 	return st
 end
 
@@ -364,7 +400,8 @@ function weld.repair(env, data, opts)
 			end
 			local verdict = st.welded == true and "WELDED" or st.welded == false and "NOT WELDED" or "UNKNOWN"
 			opts.log("weld result " .. short(c.file) .. ": " .. verdict .. " (after " .. last .. ")")
-			checked[#checked + 1] = { file = c.file, position = pos, gates = gates, verdict = verdict }
+			checked[#checked + 1] = { file = c.file, position = pos, gates = gates, verdict = verdict,
+				require_connection = true }
 		end
 	end
 	return checked

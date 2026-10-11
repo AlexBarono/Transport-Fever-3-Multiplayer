@@ -479,6 +479,53 @@ test("a slow native enumeration invalidates that category after returning", func
 	assert(values.hcon == nil and stats.limited >= 1 and stats.capture_ms >= 5 and values.hpos)
 end)
 
+test("large scans share the capture budget so complete later categories stay readable", function()
+	local m = world_mock(); local expected = finish(world_mock()); local elapsed, cargo_visits = 0, 0
+	m.env.os.clock = function() return elapsed / 1000 end
+	for i = 1, 100 do
+		m.entities[200000 + i] = copy(m.entities[m.ca])
+		m.entities[300000 + i] = { BASE_EDGE = copy(m.entities[m.edgeid].BASE_EDGE) }
+	end
+	local read = m.env.api.engine.getComponent
+	m.env.api.engine.getComponent = function(id, ct)
+		if ct == "CONSTRUCTION" or ct == "TOWN" or (ct == "PLAYER_OWNED" and id >= 300000) then elapsed = elapsed + 1 end
+		return read(id, ct)
+	end
+	local enumerate = m.env.api.engine.forEachEntityWithComponent
+	m.env.api.engine.forEachEntityWithComponent = function(fn, ct)
+		if ct == "SIM_CARGO" then error("Cannot loop over this component type") end
+		return enumerate(fn, ct)
+	end
+	m.env.api.engine.forEachEntity = function(fn)
+		for _ = 1, 100000 do
+			elapsed, cargo_visits = elapsed + 1, cargo_visits + 1
+			fn(m.ca)
+		end
+	end
+	local values, _, stats = finish(m)
+	for _, field in ipairs({ "hcon", "hedge", "hcargo" }) do
+		assert(not values[field] and stats[field]:find("budget", 1, true), tostring(stats[field]))
+	end
+	for _, field in ipairs({ "hline", "hveh", "hpos", "htown" }) do assert(values[field] == expected[field], field) end
+	assert(cargo_visits > 0 and cargo_visits < 100000)
+	assert(stats.capture_ms <= fingerprint.CAPTURE_MAX_MS and stats.calls <= fingerprint.CAPTURE_MAX_CALLS)
+end)
+
+test("one uninterruptible native call exceeding the total budget publishes no partial equality", function()
+	local m = world_mock(); local elapsed = 0
+	m.env.os.clock = function() return elapsed / 1000 end
+	local enumerate = m.env.api.engine.getEntitiesWithComponent
+	m.env.api.engine.getEntitiesWithComponent = function(ct, filters)
+		local ids = enumerate(ct, filters)
+		if ct == "CONSTRUCTION" then elapsed = elapsed + fingerprint.CAPTURE_MAX_MS + 1 end
+		return ids
+	end
+	local values, missing, stats = finish(m)
+	for _, field in ipairs(sync.HASH_FIELDS) do assert(values[field] == nil, field) end
+	assert(#missing == #sync.HASH_FIELDS and stats.calls == 1)
+	assert(stats.capture_ms == fingerprint.CAPTURE_MAX_MS + 1)
+end)
+
 test("capture and hashing obey hard native-call and byte-work budgets", function()
 	local m = world_mock(); local budget = fingerprint.CAPTURE_MAX_CALLS
 	fingerprint.CAPTURE_MAX_CALLS = 4

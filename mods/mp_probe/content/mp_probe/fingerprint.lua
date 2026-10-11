@@ -384,13 +384,16 @@ function fingerprint.begin(env, gt)
 	local engine, ct, util = env.api.engine, env.api.type.ComponentType, env.api.engine.util
 	local clock = clock_for(env)
 	local started, category_started, category_calls = measured(clock), 0, 0
+	local capture_kinds = { "construction", "line", "vehicle", "edge", "position", "cargo", "town" }
+	local captures_remaining, category_max_ms = #capture_kinds, fingerprint.CATEGORY_MAX_MS
 	local job = { gt = gt, categories = {}, values = { wgt = gt }, failed = {}, lists = {}, category = 1,
 		stats = { capture_ms = 0, calls = 0, records = 0, limited = 0, hash_bytes = 0, steps = 0, clock = clock ~= nil } }
 	local category
 	local function guard()
+		local now = measured(clock)
 		if job.stats.calls >= fingerprint.CAPTURE_MAX_CALLS or job.stats.calls - category_calls >= fingerprint.CATEGORY_MAX_CALLS
-			or measured(clock) - started > fingerprint.CAPTURE_MAX_MS
-			or measured(clock) - category_started > fingerprint.CATEGORY_MAX_MS then error("checkpoint capture budget", 0) end
+			or now - started > fingerprint.CAPTURE_MAX_MS
+			or now - category_started > category_max_ms then error("checkpoint capture budget", 0) end
 	end
 	local function call(fn, ...)
 		guard(); job.stats.calls = job.stats.calls + 1
@@ -553,6 +556,13 @@ function fingerprint.begin(env, gt)
 	end
 	local function capture(kind, fn)
 		category_started = measured(clock)
+		-- Reserve an equal share of the remaining tick budget for every category
+		-- still to come. Small completed reads donate unused time to later ones;
+		-- a large road/cargo scan cannot consume the entire allowance before towns.
+		-- Native calls remain uninterruptible, so guard also checks after each call.
+		category_max_ms = math.min(fingerprint.CATEGORY_MAX_MS,
+			math.max(0, fingerprint.CAPTURE_MAX_MS - (category_started - started)) / captures_remaining)
+		captures_remaining = captures_remaining - 1
 		category_calls = job.stats.calls
 		category = { kind = kind, field = fingerprint.FIELDS[kind], records = {}, hashes = {}, cursor = 1 }
 		local ok, err = pcall(function() guard(); fn(); guard() end)
@@ -568,7 +578,7 @@ function fingerprint.begin(env, gt)
 	end
 	local time_ok, before = pcall(read_time)
 	if not time_ok or before ~= gt then
-		for _, kind in ipairs({ "construction", "line", "vehicle", "edge", "position", "cargo", "town" }) do
+		for _, kind in ipairs(capture_kinds) do
 			job.failed[#job.failed + 1] = fingerprint.FIELDS[kind]
 		end
 		job.stats.time_unreadable = true

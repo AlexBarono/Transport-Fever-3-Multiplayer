@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 57
+main.PROBE_VERSION = 58
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -701,7 +701,8 @@ function main.check_replacement_later(env, data, state)
 	for _, c in ipairs(data.constructions or {}) do
 		live.weld_checks[#live.weld_checks + 1] = {
 			file = c.file, position = { x = c.transf[13], y = c.transf[14], z = c.transf[15] },
-			gates = data.gate_positions or {}, due = now + main.WELD_RECHECK_MS,
+			gates = data.gate_positions or {}, require_connection = weld.connection_required(data),
+			due = now + main.WELD_RECHECK_MS,
 		}
 	end
 	state:set(live)
@@ -806,9 +807,11 @@ function main.recheck_welds(env, s, fail)
 		if now >= (c.due or 0) or c.updates >= main.WELD_RECHECK_UPDATES then
 			local id = world.find_construction(env, c.file, c.position)
 			if id then
-				local status = weld.status(env, id, c.gates or {})
+				local status = weld.status(env, id, c.gates or {}, c.require_connection)
 				logger.info("weld check later: " .. status.text)
-				if status.welded ~= true then fail("construction entrance not confirmed: " .. status.text) end
+				local confirmed = status.confirmed
+				if confirmed == nil then confirmed = status.welded == true end
+				if not confirmed then fail("construction entrance not confirmed: " .. status.text) end
 			else
 				logger.info("weld check later: the copied construction is gone")
 				fail("copied construction missing after build")
@@ -2003,6 +2006,34 @@ function main.dump_new_entities(env, new_ids, label)
 	end
 end
 
+--- A successful native build can still fail capture before it ever reaches the partner.
+-- Report that separately from live execution receipts: no fake ACK may advance their queue.
+-- Use the caller's state copy so the post-build bookkeeping cannot overwrite this diagnostic.
+function main.capture_issue(env, s, param, reason)
+	s.capture_issue_seq = (s.capture_issue_seq or 0) + 1
+	local token = "capture_" .. tostring(sync.role(env.os and env.os.getenv)) .. "." .. s.capture_issue_seq
+	local label = "Bau nicht übertragen"
+	pcall(function()
+		local con = (param[1].toAdd or {})[1]
+		if con and type(con.name) == "string" and con.name ~= "" then label = label .. ": " .. con.name end
+		local node = (param[1].proposal.addedNodes or {})[1]
+		local p = node and node.comp.position
+		if p then label = label .. string.format(" bei %.1f, %.1f", p.x, p.y) end
+	end)
+	local temporary = {}; local receipt = { get = function() return temporary end, set = function(_, v) temporary = v end }
+	transport.begin(receipt, token); transport.describe(receipt, label); transport.fail(receipt, reason)
+	-- The original build already happened on the sending PC, so this is a partial result.
+	temporary.network_work.sent = 1
+	transport.dispatched(receipt)
+	transport.check(receipt, function(text)
+		local issue = text:match("^action issue local (I1 .+)$")
+		if issue then
+			logger.info(text)
+			if main.skip_failures(env) then transport.send(issue, s, logger.info) end
+		end
+	end, true)
+end
+
 --- Serialises a player build and logs the line. The line is what a second game would receive;
 -- it is kept in the savegame state so a replay test can rebuild it later.
 function main.capture_build(state, s, param, label)
@@ -2041,6 +2072,8 @@ function main.capture_build(state, s, param, label)
 	local ok, line, info = pcall(build.serialize, param[1].proposal, opts)
 	if not ok then
 		logger.info("capture failed (" .. label .. "): " .. tostring(line))
+		main.capture_issue(env, s, param, "build capture failed: " .. main.error_text(line))
+		state:set(s)
 		return
 	end
 	logger.info("capture " .. label .. " nodes=" .. info.nodes .. " segments=" .. info.segments ..
@@ -2060,6 +2093,8 @@ function main.capture_build(state, s, param, label)
 			-- v26: the DLL drops such a line with a note in its own log only.
 			logger.info(string.format("capture line TOO LONG for the network (%d characters, at most %d): " ..
 				"the other game does not get this build", #line, main.MAX_LINE))
+			main.capture_issue(env, s, param, string.format("build capture too long: %d characters, limit %d", #line, main.MAX_LINE))
+			state:set(s)
 		else
 			transport.send(line, s, logger.info)
 			state:set(s)

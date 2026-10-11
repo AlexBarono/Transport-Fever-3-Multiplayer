@@ -1,4 +1,4 @@
--- Focused graph lookup regressions. No game commands are executed.
+-- Focused capture, graph lookup and proposal regressions. No game commands are executed.
 local MOD_ROOT = "mods/mp_probe/content"
 local real_require, loaded = require, {}
 function require(name)
@@ -195,5 +195,100 @@ test("actual Rees payload after native split remains rejected instead of deletin
 	assert(not ok and err:find("does not exist here", 1, true))
 end)
 
-print(string.format("Build graph regressions: %d passed, %d failed", passed, failures))
+-- The real API dump has api.type.enum.BaseEdgeType, not api.type.BaseEdgeType. Distinct
+-- enum values and integer component readback also exercise the native binding boundary.
+local function structure_api(wrapped)
+	local types = wrapped and { NORMAL = {}, BRIDGE = {}, TUNNEL = {} } or { NORMAL = 0, BRIDGE = 1, TUNNEL = 2 }
+	local codes = { [types.NORMAL] = 0, [types.BRIDGE] = 1, [types.TUNNEL] = 2 }
+	local api = { type = { enum = { BaseEdgeType = types } }, res = {} }
+	api.type.Vec3f = { new = function(x, y, z) return { x = x, y = y, z = z } end }
+	api.type.NodeAndEntity = { new = function() return { comp = { position = point(0) } } end }
+	api.type.SegmentAndEntity = { new = function()
+		local values = { type = 0, tangent0 = point(0), tangent1 = point(0), laneConfigs = {} }
+		local comp = setmetatable({}, { __index = values, __newindex = function(_, key, value)
+			if key == "type" then assert(codes[value] ~= nil, "native setter requires a known enum"); value = codes[value] end
+			values[key] = value
+		end })
+		return { comp = comp }
+	end }
+	api.type.SimpleProposal = { new = function() return { streetProposal = {} } end }
+	for _, kind in ipairs({ "BRIDGE", "TUNNEL" }) do
+		api.res[kind == "BRIDGE" and "bridgeTypeRep" or "tunnelTypeRep"] = {
+			getName = function(index) assert(index == 7); return kind:lower() .. ".lua" end,
+			find = function(resource) assert(resource == kind:lower() .. ".lua"); return 23 end,
+		}
+	end
+	return api
+end
+
+local function structure_proposal(code)
+	return { addedNodes = {
+		{ entity = 100, comp = { position = point(0, 10) } },
+		{ entity = 101, comp = { position = point(100, 20) } },
+	}, addedSegments = { { entity = 102, type = 1, comp = {
+		type = code, typeIndex = 7, node0 = 100, node1 = 101, tangent0 = point(100, 10), tangent1 = point(100, 10),
+		roadTemplate = "rail.template", roadStyle = "rail.style", roadType = 0, laneConfigs = {}, distance = 100,
+	} } } }
+end
+
+local function capture_structure(api, code)
+	return build.serialize(structure_proposal(code), { edge_structure = function(comp)
+		return world.edge_structure({ api = api }, comp)
+	end })
+end
+
+test("native enum namespace captures bridge and tunnel predecessors instead of dropping their builds", function()
+	local api = structure_api(false)
+	assert(api.type.BaseEdgeType == nil)
+	for code, kind in ipairs({ "BRIDGE", "TUNNEL" }) do
+		local line, info = capture_structure(api, code)
+		local data = assert(build.deserialize(line))
+		assert(info.nodes == 2 and info.segments == 1)
+		assert(data.segments[1].structure.kind == kind and data.segments[1].structure.resource == kind:lower() .. ".lua")
+		local proposal, check, errors = build.make_proposal({ api = api }, data, build.LAYOUTS[1])
+		assert(check.complete and #errors == 0, check.text)
+		local comp = proposal.streetProposal.edgesToAdd[1].comp
+		assert(comp.type == code and comp.typeIndex == 23, "receiver resolves its own resource index")
+		assert(comp.position0.z == 10 and comp.position1.z == 20, "bridge/tunnel height must survive")
+	end
+end)
+
+test("wrapper enum constants accept numeric native capture and component readback", function()
+	local api = structure_api(true)
+	for code, kind in ipairs({ "BRIDGE", "TUNNEL" }) do
+		local data = assert(build.deserialize(capture_structure(api, code)))
+		local proposal, check, errors = build.make_proposal({ api = api }, data, build.LAYOUTS[1])
+		assert(check.complete and #errors == 0, check.text)
+		assert(build.edge_kind(api, proposal.streetProposal.edgesToAdd[1].comp.type) == kind)
+		assert(world.edge_structure({ api = api }, { type = api.type.enum.BaseEdgeType[kind], typeIndex = 7 }).kind == kind)
+	end
+	assert(not world.edge_structure({ api = api }, { type = 0 }))
+	assert(not world.edge_structure({ api = api }, { type = api.type.enum.BaseEdgeType.NORMAL }))
+end)
+
+test("unknown native structure type is rejected rather than becoming ground track", function()
+	local ok, err = pcall(capture_structure, structure_api(true), 3)
+	assert(not ok and tostring(err):find("unknown bridge/tunnel edge type 3", 1, true), tostring(err))
+end)
+
+test("missing local bridge resource still prevents a proposal", function()
+	local api = structure_api(true)
+	local data = assert(build.deserialize(capture_structure(api, 1)))
+	api.res.bridgeTypeRep.find = function() return -1 end
+	local ok, err = pcall(build.make_proposal, { api = api }, data, build.LAYOUTS[1])
+	assert(not ok and tostring(err):find("bridge/tunnel resource missing", 1, true), tostring(err))
+end)
+
+test("losing a tunnel type in the finished proposal remains an incomplete proposal", function()
+	local api = structure_api(true)
+	local data = assert(build.deserialize(capture_structure(api, 2)))
+	local layout = { new = build.LAYOUTS[1].new, read = build.LAYOUTS[1].read, fill = function(proposal, nodes, edges, errors, extra)
+		build.LAYOUTS[1].fill(proposal, nodes, edges, errors, extra)
+		proposal.streetProposal.edgesToAdd[1].comp.type = api.type.enum.BaseEdgeType.NORMAL
+	end }
+	local _, check = build.make_proposal({ api = api }, data, layout)
+	assert(not check.complete and check.text:find("bridge/tunnel fields lost on edge 1", 1, true), check.text)
+end)
+
+print(string.format("Build regressions: %d passed, %d failed", passed, failures))
 if failures > 0 then os.exit(1) end
