@@ -135,10 +135,11 @@ test("in a session vehicle commands of one frame travel as one script event (v36
 	cmd.sendCommand(cmd.makeVehicleSellCmd({ 7, 8 }), cb)
 	cmd.sendCommand(cmd.makeVehicleSetStoppedByUserCmd(9, true))
 	assert(#e.sent == 0, "nothing runs before the common tick")
-	assert(#answers == 4 and answers[1].ok == true and answers[1].r.vehicleEntity == 117350,
-		"the window's callbacks receive command data as if done")
+	assert(#answers == 0, "native callbacks wait for the event handover")
 	assert(has("vehicle line for 5 clicked; both games run it at a common tick"))
 	hold.step(e)
+	assert(#answers == 4 and answers[1].ok == true and answers[1].r.vehicleEntity == 117350,
+		"the window's callbacks receive command data after the handover")
 	assert(#e.sent == 1 and e.sent[1].c.kind == "event" and e.sent[1].c.name == "mp_probe_vehicle")
 	local list = assert(wire.decode(e.sent[1].c.param.batch))
 	assert(#list == 5 and list[1].command == "reverse" and list[1].vehicle == 117350)
@@ -152,12 +153,13 @@ test("in a session vehicle commands of one frame travel as one script event (v36
 	-- Other commands pass through untouched.
 	cmd.sendCommand({ kind = "build" })
 	assert(#e.sent == 2 and e.sent[2].c.kind == "build")
-	-- A failed timeline: commands run as usual.
+	-- A failed timeline must not bypass shared command handling.
 	e.os.getenv = (function(get) return function(k)
 		if k == "TF3MP_OWN_CLOCK" then return "at=0 gt=1 hold=0 phase=failed seq=0" end
 		return get(k) end end)(e.os.getenv)
 	cmd.sendCommand(cmd.makeVehicleSetStoppedByUserCmd(7, true))
-	assert(#e.sent == 3 and e.sent[3].c.kind == "stopped")
+	assert(#e.sent == 2); hold.step(e)
+	assert(#e.sent == 3 and e.sent[3].c.name == "mp_probe_vehicle")
 end)
 
 test("without a partner a reverse runs at once and is told to the simulation; alone nothing travels (v35)", function()
@@ -187,17 +189,29 @@ test("a read-only command table or missing commands are reported, not fatal", fu
 	assert(has("vehicle hooks: 1 of 6 installed") and has("makeVehicleReverseCmd missing"))
 end)
 
-test("a failing script event runs TF3's own commands here at once", function()
+test("a failing script event rejects vehicle commands and reports the failed handover", function()
 	local e = vehicle_env("client", SESSION)
 	function e.api.cmd.makeScriptingSendEventCmd() error("no events here") end
 	hold.step(e)
 	local cmd = e.api.cmd
-	cmd.sendCommand(cmd.makeVehicleReverseCmd(8))
-	cmd.sendCommand(cmd.makeVehicleSetLineCmd(9, 40, 1))
+	local callbacks=0
+	local function rejected(_,ok)assert(ok==false);callbacks=callbacks+1 end
+	cmd.sendCommand(cmd.makeVehicleReverseCmd(8),rejected)
+	cmd.sendCommand(cmd.makeVehicleSetLineCmd(9, 40, 1),rejected)
 	assert(#e.sent == 0)
 	hold.step(e)
-	assert(has("vehicle commands: no script event"))
-	assert(#e.sent == 2 and e.sent[1].c.kind == "reverse" and e.sent[2].c.kind == "line")
+	assert(has("vehicle scheduling failed: GUI handover unavailable"))
+	assert(#e.sent == 0 and callbacks==2)
+	assert(has("action issue local I1 script_vehicle_client.1 none"))
+	assert(has("net send I1 script_vehicle_client.1 none"))
+end)
+
+test("a prepared session with a missing peer clock still holds vehicle assignments",function()
+	local e=vehicle_env("host",{TF3MP_ORDERING="1",TF3MP_PEER_CLOCK=""})
+	hold.step(e)
+	e.api.cmd.sendCommand(e.api.cmd.makeVehicleSetLineCmd(7,40,0))
+	assert(#e.sent==0);hold.step(e)
+	assert(#e.sent==1 and e.sent[1].c.name=="mp_probe_vehicle")
 end)
 
 test("GUI callbacks work when require no longer resolves the mod namespace", function()

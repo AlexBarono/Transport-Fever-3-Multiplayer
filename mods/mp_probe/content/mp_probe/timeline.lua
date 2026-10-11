@@ -107,7 +107,13 @@ function timeline.receive(m, line, now)
 		else
 			a = { seq = v.seq, at = v.at, line = v.line, origin = v.origin, barrier = v.barrier, phase = "prepared" }; m.active = a
 		end
-		emit(m, { op = "ready", seq = a.seq, at = a.at }); return true
+		-- A ready barrier already asks both engines to stop immediately. Confirm
+		-- preparation and arrival together on the next step, after the caller has
+		-- observed the native pause. Sending READY here would require a separate
+		-- COMMIT trip before the very same paused client can send ARRIVED.
+		-- Keep ordinary future-stamp plans (and their lead time) unchanged.
+		if not a.barrier then emit(m, { op = "ready", seq = a.seq, at = a.at }) end
+		return true
 	end
 	if not matches(a, v) then return fail(m, "unexpected common sequence or stamp") end
 	if v.op == "ready" and m.role == "host" then
@@ -153,7 +159,14 @@ function timeline.step(m, now, peer_now, options)
 	local a = m.active
 	if not a then return end
 	if not a.executed and (a.barrier or now >= a.at) then
-		if not a.arrived and a.phase == "committed" and options.stopped ~= false then
+		if not a.arrived and a.barrier and m.role == "client" and a.phase == "prepared" and options.stopped ~= false then
+			-- Ordered READY then ARRIVED remains compatible with older hosts. The
+			-- client stays PREPARED: only the host's COMMIT can allow GO/execution.
+			-- take_batch sends both existing controls in one reliable order.
+			a.arrived = true
+			emit(m, { op = "ready", seq = a.seq, at = a.at })
+			emit(m, { op = "arrived", seq = a.seq, at = a.at })
+		elseif not a.arrived and a.phase == "committed" and options.stopped ~= false then
 			a.arrived = true; emit(m, { op = "arrived", seq = a.seq, at = a.at })
 		end
 		if m.role == "host" and a.arrived and a.peer_arrived and a.phase == "committed" and not a.go then

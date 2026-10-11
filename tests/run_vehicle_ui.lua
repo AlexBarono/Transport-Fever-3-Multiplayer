@@ -15,7 +15,13 @@ local function gui(role, connected, logging)
 	for maker, kind in pairs(hooks.VEHICLE_COMMANDS) do
 		cmd[maker] = function(a,b,c) return {kind=kind,a=a,b=b,c=c} end
 	end
-	cmd.sendCommand=function(c,cb) g.sent[#g.sent+1]=c; if cb then cb(c,true,{}) end end
+	cmd.sendCommand=function(c,cb)
+		g.sent[#g.sent+1]=c
+		if cb then
+			if c.kind=="event" and g.defer_events then g.pending_callback=cb
+			else cb(c,c.kind~="event" or g.event_success~=false,{}) end
+		end
+	end
 	cmd.makeScriptingSendEventCmd=function(src,id,name,p) return {kind="event",name=name,param=p} end
 	cmd.makeEntitySetNameCmd=function(id,name) return {kind="name",entity=id,name=name} end
 	local react={ RegisterPluginRecipe=function(ep,name,fn)
@@ -25,7 +31,7 @@ local function gui(role, connected, logging)
 	local env=setmetatable({api={cmd=cmd,gui={game=game},engine={util={getPlayer=function()return 7 end}}},os={clock=function()return g.now end,getenv=function(k)
 		if k=="TF3MP_ROLE" then return g.role end
 		if k=="TF3MP_ORDERING" then return g.connected and "1" or "0" end
-		if k=="TF3MP_PEER_CLOCK" then return g.connected and "gt=1000" or "" end
+		if k=="TF3MP_PEER_CLOCK" then return g.peer_clock or (g.connected and "gt=1000" or "") end
 		if k=="TF3MP_OWN_CLOCK" then return "phase="..(g.failed and "failed" or "idle") end
 	end},log={}, -- TF3's main GUI log has no info(), unlike the old test double.
 	debugPrint=function(s)
@@ -72,9 +78,9 @@ test("missing or failing diagnostic output cannot abort entry or lose held comma
 		if logging=="no-debug-print" then assert(#g.logs==4, "use print when debugPrint is unavailable") end
 		local cb=0
 		g.cmd.sendCommand(g.cmd.makeVehicleSetStoppedByUserCmd(7,true),function(_,ok)assert(ok); cb=cb+1 end)
-		assert(#g.sent==0 and cb==1)
+		assert(#g.sent==0 and cb==0)
 		g.step()
-		assert(#g.sent==1 and g.sent[1].name=="mp_probe_vehicle")
+		assert(#g.sent==1 and g.sent[1].name=="mp_probe_vehicle" and cb==1)
 		local batch=assert(wire.decode(g.sent[1].param.batch))
 		assert(#batch==1 and batch[1].command=="stopped" and batch[1].value==true)
 		g.step(); assert(#g.sent==1)
@@ -98,8 +104,8 @@ test("main GUI captures all five window command types before execution and flush
 		local list={g.cmd.makeVehicleReverseCmd(7),g.cmd.makeVehicleSetStoppedByUserCmd(7,true),
 			g.cmd.makeVehicleSendToDepotCmd(7,true),g.cmd.makeVehicleSetLineCmd(7,9,2),g.cmd.makeVehicleSellCmd({7,8})}
 		for _, c in ipairs(list) do g.cmd.sendCommand(c,function(_,ok)assert(ok); cb=cb+1 end) end
-		assert(#g.sent==0 and cb==5, "the original vehicle commands must not execute early")
-		g.step(); assert(#g.sent==1 and g.sent[1].name=="mp_probe_vehicle")
+		assert(#g.sent==0 and cb==0, "the original vehicle commands must not execute early")
+		g.step(); assert(#g.sent==1 and g.sent[1].name=="mp_probe_vehicle" and cb==5)
 		local batch=assert(wire.decode(g.sent[1].param.batch)); assert(#batch==5 and batch[4].stop==2)
 		g.step(); assert(#g.sent==1, "no repeated dispatch")
 	end
@@ -128,13 +134,14 @@ test("native manager callbacks receive command data and reachable-stop sentinel 
 	send(g.cmd.makeVehicleSetStoppedByUserCmd(7,true),{vehicleEntity=7,userStopped=true})
 	send(g.cmd.makeVehicleSendToDepotCmd(7,true),{vehicleEntity=7,sellOnArrival=true})
 	local sold={7,8}; send(g.cmd.makeVehicleSellCmd(sold),{vehicleEntities=sold})
-	assert(callbacks==5, "native callbacks must complete without missing entity fields")
-	g.step(); local batch=assert(wire.decode(g.sent[1].param.batch))
+	assert(callbacks==0, "callbacks wait until the script event is handed over")
+	g.step(); assert(callbacks==5, "native callbacks must complete without missing entity fields")
+	local batch=assert(wire.decode(g.sent[1].param.batch))
 	assert(batch[1].stop==-1, "-1 asks TF3 for the next reachable stop; never force stop zero")
 	for _,line in ipairs(g.logs) do assert(not line:find("callback failed",1,true),line) end
 end)
 
-test("single-player and a failed timeline pass through, remounts do not stack interception",function()
+test("single-player passes through and a failed session cannot bypass interception",function()
 	local solo=gui("off",false)
 	solo.cmd.sendCommand(solo.cmd.makeVehicleReverseCmd(7)); solo.step()
 	assert(#solo.sent==1 and solo.sent[1].kind=="reverse")
@@ -142,7 +149,86 @@ test("single-player and a failed timeline pass through, remounts do not stack in
 	g.cmd.sendCommand(g.cmd.makeVehicleReverseCmd(8)); g.step()
 	assert(#g.sent==1 and g.sent[1].kind=="event")
 	g.failed=true; g.cmd.sendCommand(g.cmd.makeVehicleSetLineCmd(7,9,0))
-	assert(#g.sent==2 and g.sent[2].kind=="line")
+	assert(#g.sent==1); g.step()
+	assert(#g.sent==2 and g.sent[2].name=="mp_probe_vehicle")
+end)
+
+test("a temporarily missing peer clock cannot execute an unshared assignment",function()
+	local g=gui("client",true); g.peer_clock=""
+	g.cmd.sendCommand(g.cmd.makeVehicleSetLineCmd(7,9,-1))
+	assert(#g.sent==0); g.step()
+	assert(#g.sent==1 and g.sent[1].name=="mp_probe_vehicle")
+end)
+
+test("native callbacks wait for actual scripting acceptance and remain single-shot",function()
+	local g=gui("client",true); g.defer_events=true
+	local answers={}
+	g.cmd.sendCommand(g.cmd.makeVehicleSetLineCmd(7,9,-1),function(data,ok)
+		assert(data.vehicleEntity==7 and data.lineEntity==9); answers[#answers+1]=ok
+	end)
+	g.step(); assert(#answers==0 and g.pending_callback)
+	g.pending_callback({},true,{})
+	g.pending_callback({},false,{})
+	assert(#answers==1 and answers[1]==true)
+end)
+
+test("failed or rejected GUI handovers report failure on both PCs without local execution",function()
+	for _, mode in ipairs({"maker","send","reject"}) do
+		local g=gui("client",true); local answers={}
+		if mode=="maker" then g.cmd.makeScriptingSendEventCmd=function()error("no script events")end
+		elseif mode=="reject" then g.event_success=false
+		else
+			-- Interception saved the real sender during installation; replace it in
+			-- a fresh direct hook environment to model a native submission error.
+			local m={}; local env={api={cmd={}}}
+			local cmd=env.api.cmd
+			for maker in pairs(hooks.VEHICLE_COMMANDS) do cmd[maker]=function()return {}end end
+			cmd.sendCommand=function()error("native send unavailable")end
+			cmd.makeScriptingSendEventCmd=function()return {}end
+			local issues={}
+			hooks.watch_vehicles(env,m,{timed=function()return true end,log=function()end,
+				encode=wire.encode,issue=function(args,why)issues[#issues+1]={args=args,why=why}end})
+			cmd.sendCommand(cmd.makeVehicleSetLineCmd(7,9,-1),function(_,ok)answers[#answers+1]=ok end)
+			hooks.flush_vehicles(env,m)
+			assert(#answers==1 and answers[1]==false and #issues==1)
+		end
+		if mode~="send" then
+			g.cmd.sendCommand(g.cmd.makeVehicleSetLineCmd(7,9,-1),function(data,ok)
+				assert(data.vehicleEntity==7); answers[#answers+1]=ok
+			end)
+			g.step(); assert(#answers==1 and answers[1]==false)
+			for _,c in ipairs(g.sent) do assert(c.kind=="event", "no local fallback") end
+			local local_issue,peer_issue
+			for _,l in ipairs(g.logs) do
+				local_issue=local_issue or l:match("^%[mp_probe%]action issue local (I1 gui_vehicle_client%.1 none %x+ %x+)$")
+				peer_issue=peer_issue or l:match("^%[mp_probe%]net send (I1 .+)$")
+			end
+			assert(local_issue and local_issue==peer_issue)
+		end
+	end
+end)
+
+test("a manager callback may enqueue another assignment without losing or repeating it",function()
+	local g=gui("host",true); local callbacks=0
+	g.cmd.sendCommand(g.cmd.makeVehicleSetLineCmd(7,9,-1),function(_,ok)
+		assert(ok); callbacks=callbacks+1
+		g.cmd.sendCommand(g.cmd.makeVehicleSetLineCmd(8,9,-1),function(_,success)assert(success);callbacks=callbacks+1 end)
+	end)
+	g.step(); assert(#g.sent==1 and callbacks==1)
+	g.step(); assert(#g.sent==2 and callbacks==2)
+	assert(wire.decode(g.sent[1].param.batch)[1].vehicle==7)
+	assert(wire.decode(g.sent[2].param.batch)[1].vehicle==8)
+	g.step(); assert(#g.sent==2)
+end)
+
+test("selected teleport depot survives capture alongside the native callback data",function()
+	local g=gui("host",true); local done=false
+	g.cmd.sendCommand(g.cmd.makeVehicleSendToDepotCmd(7,false,123),function(data,ok)
+		assert(ok and data.jumpToDepotEntity==123 and data.sellOnArrival==false); done=true
+	end)
+	g.step(); local batch=assert(wire.decode(g.sent[1].param.batch))
+	assert(done and batch[1].jumpDepot==123 and batch[1].value==false)
+	assert(hooks.vehicle_args("depot",7,false).jumpDepot==nil)
 end)
 
 test("GUI resource registers the actual recipe in the game's main extension point",function()

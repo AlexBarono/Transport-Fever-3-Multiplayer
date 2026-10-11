@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 55
+main.PROBE_VERSION = 56
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -399,14 +399,7 @@ function main.replay_line(env, line, number, state, distance)
 				": " .. tostring(record.obtained and record.obtained.amount or "?")
 		end
 		if action.op == "vehicle_command" then
-			local labels = {}
-			local commands = { reverse = "umkehren", stopped = "Start/Stopp", depot = "ins Depot",
-				line = "Linie zuweisen", sell = "verkaufen" }
-			for _, e in ipairs(main.vehicle_entries(action)) do
-				labels[#labels + 1] = (commands[e.command] or tostring(e.command)) .. " " ..
-					tostring(e.target and e.target.name or (#(e.targets or {}) .. " Fahrzeug(e)"))
-			end
-			label = "Fahrzeug: " .. table.concat(labels, ", ")
+			label = main.vehicle_label(action)
 		end
 		transport.describe(state, label)
 		if action.op == "vehicle_command" then return main.run_vehicle_command(env, state, action) end
@@ -1144,7 +1137,12 @@ function main.vehicle_entry(env, p)
 		assert(type(p.value) == "number" and p.value % 1 == 0, "invalid line id")
 		if p.value >= 0 then e.line = actions.line_ref(env, p.value) end
 		e.stop = type(p.stop) == "number" and p.stop >= -1 and p.stop % 1 == 0 and p.stop or 0
-	else e.value = p.value == true end
+	else
+		e.value = p.value == true
+		if p.command == "depot" and p.jumpDepot ~= nil then
+			e.jumpDepot = actions.depot_ref(env, id(p.jumpDepot))
+		end
+	end
 	return e
 end
 
@@ -1157,12 +1155,24 @@ function main.vehicle_ids(env, s, e, own)
 	end
 	local vehicle = actions.timed_target(env, s, e.target, own)
 	local line = e.line and actions.timed_target(env, s, e.line, own) or -1
-	return { vehicle }, line
+	local jump_depot = e.jumpDepot and actions.resolve(env, e.jumpDepot, s, "timed", 0) or nil
+	return { vehicle }, line, jump_depot
 end
 
 function main.entry_name(e)
 	if e.command == "sell" then return "sell of " .. #e.targets .. " vehicle(s)" end
 	return e.command .. " for " .. tostring(e.target.name)
+end
+
+function main.vehicle_label(action)
+	local labels = {}
+	local commands = { reverse = "umkehren", stopped = "Start/Stopp", depot = "ins Depot",
+		line = "Linie zuweisen", sell = "verkaufen" }
+	for _, e in ipairs(main.vehicle_entries(action)) do
+		labels[#labels + 1] = (commands[e.command] or tostring(e.command)) .. " " ..
+			tostring(e.target and e.target.name or (#(e.targets or {}) .. " Fahrzeug(e)"))
+	end
+	return "Fahrzeug: " .. table.concat(labels, ", ")
 end
 
 function main.vehicle_intent(env, state, param)
@@ -1192,15 +1202,22 @@ function main.vehicle_intent(env, state, param)
 	for i, e in ipairs(entries) do names[i] = main.entry_name(e) end
 	if ok then
 		logger.info("vehicle " .. table.concat(names, ", ") .. " planned for a common tick")
-		return
+		return true
+	end
+	if (role == "host" or role == "client") and env.os.getenv("TF3MP_ORDERING") == "1" then
+		-- The original UI command was held. Executing only here would send a bus
+		-- out before its peer knows about it, or lose a second reverse entirely.
+		main.economy_issue(env, state, main.vehicle_label(action), "vehicle scheduling failed: " .. tostring(err))
+		return false
 	end
 	logger.info("vehicle " .. table.concat(names, ", ") .. " not timed (" .. tostring(err) .. "); running it here now")
 	s = state:get() or {}
 	for _, e in ipairs(entries) do
-		local ids, line = main.vehicle_ids(env, s, e, true)
+		local ids, line, jump_depot = main.vehicle_ids(env, s, e, true)
 		if e.command == "reverse" then actions.note_reverse(s, ids[1]); state:set(s) end
-		main.send_vehicle_command(env, e, ids, line)
+		main.send_vehicle_command(env, e, ids, line, nil, nil, jump_depot)
 	end
+	return true
 end
 
 function main.vehicle_line_failure(env, id, line, stop)
@@ -1222,15 +1239,42 @@ function main.vehicle_line_failure(env, id, line, stop)
 		if failure.pos then text = text .. string.format(" at %.1f, %.1f", failure.pos.x, failure.pos.y) end
 		return text
 	end)
-	return detail .. (ok and (": " .. reason) or ": path diagnosis unavailable")
+	detail = detail .. (ok and (": " .. reason) or ": path diagnosis unavailable")
+	-- TF3's generic reason 0 does not explain whether a copied line has lost a
+	-- stop or path. Read native stop problems only after a rejection, bounded in
+	-- Lua and independently protected so diagnosis cannot replace the failure.
+	pcall(function()
+		local groups = env.api.engine.util.line.getDetailedLineProblems(line)
+		local notes = {}
+		for i = 1, math.min(#groups, 64) do
+			for j = 1, math.min(#groups[i], 64) do
+				local problem, why = groups[i][j], nil
+				if problem.noPath then why = "no path"
+				elseif problem.noPathFromAlternative and #problem.noPathFromAlternative > 0 then why = "no path from alternative"
+				elseif problem.noPathToAlternative and #problem.noPathToAlternative > 0 then why = "no path to alternative"
+				elseif problem.incompatibleStop then why = "incompatible stop"
+				elseif problem.duplicateStop then why = "duplicate stop"
+				elseif problem.empty then why = "less than two stops and no vehicles" end
+				-- Native GUI calls this segment -> waypoint -> problem, not a flat
+				-- list of station stops. Waypoints must not acquire wrong stop labels.
+				if why then notes[#notes + 1] = "segment " .. (i - 1) .. " point " .. (j - 1) .. ": " .. why end
+				if #notes == 2 then break end
+			end
+			if #notes == 2 then break end
+		end
+		if #notes > 0 then detail = detail .. "; line problems: " .. table.concat(notes, ", ") end
+	end)
+	return detail
 end
 
-function main.send_vehicle_command(env, e, ids, line, state, confirmed)
+function main.send_vehicle_command(env, e, ids, line, state, confirmed, jump_depot)
 	local cmd = env.api.cmd
 	local c, id = nil, ids[1]
 	if e.command == "reverse" then c = cmd.makeVehicleReverseCmd(id)
 	elseif e.command == "stopped" then c = cmd.makeVehicleSetStoppedByUserCmd(id, e.value == true)
-	elseif e.command == "depot" then c = cmd.makeVehicleSendToDepotCmd(id, e.value == true)
+	elseif e.command == "depot" then
+		if jump_depot ~= nil then c = cmd.makeVehicleSendToDepotCmd(id, e.value == true, jump_depot)
+		else c = cmd.makeVehicleSendToDepotCmd(id, e.value == true) end
 	elseif e.command == "line" then c = cmd.makeVehicleSetLineCmd(id, line, e.stop or 0)
 	elseif e.command == "sell" then c = cmd.makeVehicleSellCmd(ids)
 	else error("unknown vehicle command " .. tostring(e.command)) end
@@ -1260,8 +1304,8 @@ function main.run_vehicle_command(env, state, action)
 	local entries, found = main.vehicle_entries(action), {}
 	for i, e in ipairs(entries) do
 		assert(actions.VEHICLE_COMMANDS[e.command], "unknown vehicle command")
-		local ids, line = main.vehicle_ids(env, s, e, own)
-		found[i] = { ids = ids, line = line }
+		local ids, line, jump_depot = main.vehicle_ids(env, s, e, own)
+		found[i] = { ids = ids, line = line, jump_depot = jump_depot }
 	end
 	for i, e in ipairs(entries) do
 		local f = found[i]
@@ -1273,15 +1317,33 @@ function main.run_vehicle_command(env, state, action)
 			local live = state:get() or {}
 			for _, id in ipairs(f.ids) do actions.vehicle_command_done(live, id, e.command, e.value, line_ref, e.stop) end
 			state:set(live)
-		end)
+		end, f.jump_depot)
 	end
 	return true
 end
 
---- v36: a planned vehicle command waits at the barrier until the other game has replayed what came
--- before it (a bus bought a moment ago) and every target exists here. At most INTENT_WAIT_STEPS
--- steps (four per second while held); then it runs and reports what is missing.
+--- Wait for earlier replay targets by elapsed time, independent of GUI heartbeat
+-- frequency or overlapping simulation updates. Without a readable timer retain
+-- the old bounded step fallback. A known-missing target still ends in a report.
 main.INTENT_WAIT_STEPS = 16
+main.INTENT_WAIT_SECONDS = 4
+function main.intent_wait_pending(env, wait)
+	wait.n = (wait.n or 0) + 1
+	local now, source
+	for _, key in ipairs({ "time", "clock" }) do
+		local ok, value = pcall(function() return env.os[key]() end)
+		if ok and type(value) == "number" and value == value and math.abs(value) < math.huge then
+			now, source = value, key; break
+		end
+	end
+	if now and wait.since == nil then wait.since, wait.timer = now, source end
+	if now and source == wait.timer and now >= wait.since then
+		-- Even a broken/stationary clock cannot leave this hold without a bound.
+		return now - wait.since < main.INTENT_WAIT_SECONDS and wait.n <= 400
+	end
+	return wait.n <= main.INTENT_WAIT_STEPS
+end
+
 function main.intent_ready(env, s, intent, role)
 	if type(intent.line) ~= "string" or intent.line:sub(1, 3) ~= "A1 " then return true end
 	local action = actions.decode(intent.line)
@@ -1388,8 +1450,7 @@ function main.timeline_tick(env, state)
 				wait = { seq = intent.seq, n = 0 }; live.timeline.wait = wait
 				logger.info("timeline " .. intent.origin .. "." .. intent.seq .. " waits: " .. tostring(why):sub(1, 160))
 			end
-			wait.n = wait.n + 1
-			if wait.n <= main.INTENT_WAIT_STEPS then timeline.retry(live.timeline); state:set(live); return end
+			if main.intent_wait_pending(env, wait) then timeline.retry(live.timeline); state:set(live); return end
 			logger.info("timeline " .. intent.origin .. "." .. intent.seq .. " waited too long, running it anyway")
 		end
 		live.timeline.wait = nil
@@ -2067,7 +2128,9 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 	end
 	if name == "mp_probe_vehicle" then
 		local ok, err = pcall(main.vehicle_intent, _G, state, param)
-		if not ok then logger.info("vehicle command failed: " .. main.error_text(err):sub(1, 200)) end
+		if not ok then
+			main.economy_issue(_G, state, "Fahrzeugbefehl vorbereiten", main.error_text(err):sub(1, 240))
+		end
 		return
 	end
 	if name == "mp_probe_reverse" then

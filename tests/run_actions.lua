@@ -682,5 +682,91 @@ test("a rejected purchase preserves balance, price and depot in its execution re
 	assert(dest.state:get().network_done.skipped)
 end)
 
+test("confirmed purchases skip unchanged defaults but preserve actual engine differences", function()
+	local source, dest = mock(), mock()
+	source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.poll(); dest.poll(); source.vehicle(30, 10010); source.poll()
+	local action = source.drain()[1]
+	-- Native defaults match: only the differing generated name needs a follow-up.
+	dest.replay(action)
+	assert(#dest.sent == 2 and dest.sent[1].name == "makeVehicleBuyCmd" and dest.sent[2].name == "makeEntitySetNameCmd")
+	dest.poll(); assert(#dest.drain() == 0, "purchase settings echoed")
+	-- Do not assume defaults: an engine/mod returning other settings must be corrected.
+	local other = mock(); other.construction(91, 12, 25); other.poll()
+	local send = other.env.api.cmd.sendCommand
+	other.env.api.cmd.sendCommand = function(command, callback)
+		return send(command, function(result, success)
+			if command.name == "makeVehicleBuyCmd" and success then
+				local v = other.entities[result.resultVehicleEntity].TRANSPORT_VEHICLE
+				v.userStopped, v.autoDeparture = true, false
+			end
+			callback(result, success)
+		end)
+	end
+	other.replay(action)
+	local v = other.entities[1001].TRANSPORT_VEHICLE
+	assert(not v.userStopped and v.autoDeparture and #other.sent == 4)
+	other.poll(); assert(#other.drain() == 0)
+end)
+
+test("purchased snapshot vehicles preserve native next-reachable stop -1", function()
+	local source, dest = mock(), mock()
+	source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.line(20, "A"); dest.line(92, "A"); source.poll(); dest.poll()
+	source.vehicle(30, 10010, 20).TRANSPORT_VEHICLE.stopIndex = -1
+	source.poll(); dest.required_stop = -1
+	dest.replay(source.drain()[1])
+	local v = dest.entities[1001].TRANSPORT_VEHICLE
+	assert(v.line == 92 and v.stopIndex == -1)
+	dest.poll(); assert(#dest.drain() == 0)
+end)
+
+test("a new purchase uses the receiving world's native acquisition time", function()
+	local source, dest = mock(), mock()
+	source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.poll(); dest.poll(); source.vehicle(30, 10010); source.poll()
+	dest.env.api.type.ComponentType.GAME_TIME = "GAME_TIME"
+	dest.env.api.engine.util.getWorld = function() return 1 end
+	local get = dest.env.api.engine.getComponent
+	dest.env.api.engine.getComponent = function(id, ct)
+		if id == 1 and ct == "GAME_TIME" then return {gameTime=8200600} end
+		return get(id, ct)
+	end
+	dest.replay(source.drain()[1])
+	assert(dest.sent[1].args[3].vehicles[1].purchaseTime == 8200600)
+end)
+
+test("purchase diagnostics use native available funds and new model prices", function()
+	local source, dest = mock(), mock()
+	source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	source.poll(); dest.poll(); source.vehicle(30, 10010); source.poll()
+	dest.reject = true; dest.account(); dest.entities[7].ACCOUNT.balance = -100
+	dest.env.api.engine.util.finance = {getPlayersBalance=function(id) assert(id==7); return nil end}
+	dest.env.api.res.modelRep.get = function(id) assert(id==77); return {metadata={cost={price=234000}}} end
+	dest.env.api.engine.util.vehicle = {getPartPrice=function() error("new model price must take priority") end}
+	dest.replay(source.drain()[1])
+	local diagnostic = dest.logs[#dest.logs]
+	for _, expected in ipairs({"balance=-100", "funds=unlimited", "price=234000", "price_source=new_model"}) do
+		assert(diagnostic:find(expected,1,true),diagnostic)
+	end
+end)
+
+test("informational purchase resource names cannot turn success into a failed receipt", function()
+	local transport = require("/mp_probe/transport.lua")
+	local source, dest = mock(), mock()
+	source.construction(10, 12, 25); dest.construction(91, 12, 25)
+	for _, m in ipairs({source,dest}) do
+		m.env.api.res.modelRep.getName = function() return "::/failed_project.mdl" end
+		m.env.api.res.modelRep.find = function(name) assert(name=="::/failed_project.mdl"); return 77 end
+	end
+	source.poll(); dest.poll(); source.vehicle(30, 10010); source.poll()
+	assert(transport.begin(dest.state,"peer.buy"))
+	local env, log = transport.env(dest.env,dest.state), transport.action_log(dest.state,function()end)
+	assert(actions.replay(env,source.drain()[1],dest.state,"sender",0,log))
+	while actions.has_work(dest.state:get()) do actions.tick(env,dest.state,log) end
+	transport.dispatched(dest.state); transport.check(dest.state,function()end,true)
+	assert(dest.state:get().network_done.result=="OK" and not dest.state:get().network_done.skipped)
+end)
+
 print(string.format("%d action tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

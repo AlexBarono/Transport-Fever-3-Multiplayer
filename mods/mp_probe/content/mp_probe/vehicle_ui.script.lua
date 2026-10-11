@@ -27,19 +27,29 @@ local function economy_issue(label, reason)
 	output("[mp_probe]action issue local " .. issue)
 	output("[mp_probe]net send " .. issue)
 end
+local function vehicle_issue(args, reason)
+	memory.issue_seq = (memory.issue_seq or 0) + 1
+	local labels = { line = "Linie zuweisen", stopped = "Anhalten/Fortsetzen", reverse = "Umkehren", depot = "Ins Depot schicken", sell = "Verkaufen" }
+	local label = "Fahrzeug: " .. (labels[args.command] or tostring(args.command)) .. " (" ..
+		(args.vehicles and table.concat(args.vehicles, ", ") or tostring(args.vehicle)) .. ")"
+	local function hex(s) return tostring(s):gsub(".", function(c) return string.format("%02x", c:byte()) end) end
+	local issue = "I1 gui_vehicle_" .. get("TF3MP_ROLE") .. "." .. memory.issue_seq .. " none " .. hex(label:sub(1, 320)) .. " " .. hex(reason:sub(1, 240))
+	output("[mp_probe]action issue local " .. issue)
+	output("[mp_probe]net send " .. issue)
+end
 local function step()
 	menu_hooks.watch(env, menu_memory, { log = note, enabled = function()
 		local role = get("TF3MP_ROLE")
 		return (role == "host" or role == "client") and get("TF3MP_ORDERING") == "1"
 	end, publish = function(text) output("[mp_probe]net state menu " .. text) end })
 	hooks.watch_vehicles(env, memory, {
-		log = note, encode = wire.encode,
+		log = note, encode = wire.encode, issue = vehicle_issue,
 		clock = function() return os.clock() end,
 		timed = function()
 			local role = get("TF3MP_ROLE")
-			return (role == "host" or role == "client") and get("TF3MP_ORDERING") == "1" and
-				get("TF3MP_PEER_CLOCK"):find("gt=", 1, true) ~= nil and
-				get("TF3MP_OWN_CLOCK"):find("phase=failed", 1, true) == nil
+			-- Startup, a reconnect or a failed timeline cannot authorize an
+			-- unshared assignment. The simulation reports unavailable planning.
+			return (role == "host" or role == "client") and get("TF3MP_ORDERING") == "1"
 		end,
 		reverse = function(id)
 			if get("TF3MP_ROLE") ~= "host" and get("TF3MP_ROLE") ~= "client" then return end

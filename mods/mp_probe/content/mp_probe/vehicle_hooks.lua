@@ -29,7 +29,11 @@ function hooks.vehicle_args(command, a, b, c)
 		local stop = type(c) == "number" and c % 1 == 0 and c >= -1 and c or 0
 		return { command = command, vehicle = a, value = b, stop = stop }
 	end
-	return { command = command, vehicle = a, value = b == true }
+	local args = { command = command, vehicle = a, value = b == true }
+	-- This optional native argument teleports a vehicle to a selected depot.
+	-- Omitting it silently changes the command into an ordinary return journey.
+	if command == "depot" and id(c) then args.jumpDepot = c end
+	return args
 end
 
 local function describe(t)
@@ -80,13 +84,10 @@ function hooks.watch_vehicles(env, m, options)
 			if args and m.options.timed() then
 				-- A large manager selection must not let command 41 bypass the timeline.
 				if #m.batch >= hooks.MAX_BATCH then hooks.flush_vehicles(env, m) end
-				m.batch[#m.batch + 1] = { args = args, command = c, callback = callback, at = m.options.clock() }
+				m.batch[#m.batch + 1] = { args = args, data = marked.data, callback = callback }
 				m.options.log("vehicle " .. describe(args) .. " clicked; both games run it at a common tick")
-				if callback then
-					-- As if it had run: TF3's windows count their open commands down in the callback.
-					local ok_cb, why = pcall(callback, marked.data, true, {})
-					if not ok_cb then m.options.log("vehicle " .. args.command .. ": the window's callback failed (" .. tostring(why):sub(1, 120) .. ")") end
-				end
+				-- Complete the native window's counter after the handover is accepted,
+				-- rather than promising success before a scripting event can be made.
 				return
 			end
 			local result = send(c, callback, ...)
@@ -105,30 +106,44 @@ function hooks.watch_vehicles(env, m, options)
 end
 
 --- Every GUI step: hands the collected vehicle commands to the simulation as one script event.
--- If that is impossible, TF3's own commands run here at once and travel as before.
+-- A failed handover must not run a different, unshared command on the clicking PC.
 function hooks.flush_vehicles(env, m)
 	local batch = m.batch
 	if not batch or #batch == 0 then return end
 	m.batch = {}
 	local list = {}
 	for i, entry in ipairs(batch) do list[i] = entry.args end
+	local completed = false
+	local function finish(success, reason)
+		if completed then return end
+		completed = true
+		if not success then
+			m.options.log(reason)
+			for _, entry in ipairs(batch) do
+				if m.options.issue then pcall(m.options.issue, entry.args, reason) end
+			end
+		end
+		for _, entry in ipairs(batch) do
+			if entry.callback then
+				local ok_cb, why = pcall(entry.callback, entry.data, success, {})
+				if not ok_cb then m.options.log("vehicle " .. entry.args.command .. ": the window's callback failed (" .. tostring(why):sub(1, 120) .. ")") end
+			end
+		end
+	end
 	local ok, err = pcall(function()
 		local cmd = env.api.cmd
 		local event = cmd.makeScriptingSendEventCmd("mp_probe", "mp_probe_vehicle", "mp_probe_vehicle",
 			{ batch = m.options.encode(list) })
 		assert(event ~= nil, "no script event")
-		;(m.send or cmd.sendCommand)(event)
+		;(m.send or cmd.sendCommand)(event, function(_, success)
+			finish(success ~= false, "vehicle scheduling failed: TF3 rejected the GUI handover; no local vehicle command was executed")
+		end)
 	end)
 	if ok then
 		m.options.log("vehicle commands handed over: " .. #list)
 		return
 	end
-	m.options.log("vehicle commands: no script event (" .. tostring(err):sub(1, 120) .. "); running them here now")
-	for _, entry in ipairs(batch) do
-		local sent, why = pcall(m.send or env.api.cmd.sendCommand, entry.command)
-		if not sent then m.options.log("vehicle " .. entry.args.command .. " failed: " .. tostring(why):sub(1, 120)) end
-		if sent and entry.args.command == "reverse" then pcall(m.options.reverse, entry.args.vehicle) end
-	end
+	finish(false, "vehicle scheduling failed: GUI handover unavailable (" .. tostring(err):sub(1, 120) .. "); no local vehicle command was executed")
 end
 
 

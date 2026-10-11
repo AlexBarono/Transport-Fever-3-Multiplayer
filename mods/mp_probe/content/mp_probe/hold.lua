@@ -275,8 +275,8 @@ end
 -- v36 (run 38): five buses sent onto their line left the depot one replay after the other in the
 -- other game. Sending to a line and selling are timed too, and the hooks no longer hand the GUI a
 -- different command: each maker returns TF3's own command and marks it; api.cmd.sendCommand (also
--- wrapped) holds a marked command in a session, tells the GUI it succeeded (TF3's own callbacks,
--- e.g. engine_react_util's command counter, must run) and collects it. Commands of one frame (all
+-- wrapped) holds and collects a marked command in a session. TF3's own callbacks (including
+-- engine_react_util's command counter) receive the handover's result. Commands of one frame (all
 -- buses sent to a line at once) go to the simulation as one batch, one common tick for all
 -- (main.handleEvent "mp_probe_vehicle"). Outside a session everything passes through.
 -- TF3's bindings are callable tables whose metatable cannot be read (run 36/37), so the originals
@@ -288,9 +288,10 @@ hold.MAX_BATCH = vehicle_hooks.MAX_BATCH
 hold.vehicle_args = vehicle_hooks.vehicle_args
 
 function hold.timed(env, m)
-	if not session(env) then return false end
-	if shared(m.gui_state or m.fallback).hold_off then return false end
-	return own_clock(env).phase ~= "failed"
+	-- The build hook may give up refusing native proposals, but vehicle makers
+	-- are held directly and must not bypass their queue during a reconnect.
+	local role = getenv(env, "TF3MP_ROLE")
+	return (role == "host" or role == "client") and getenv(env, "TF3MP_ORDERING") == "1"
 end
 
 function hold.watch_vehicles(env, m)
@@ -298,6 +299,17 @@ function hold.watch_vehicles(env, m)
 		timed = function() return hold.timed(env, m) end,
 		clock = function() return hold.clock(env, m) end,
 		log = logger.info, encode = wire.encode,
+		issue = function(args, reason)
+			m.vehicle_issue_seq = (m.vehicle_issue_seq or 0) + 1
+			local function hex(s) return tostring(s):gsub(".", function(c) return string.format("%02x", c:byte()) end) end
+			local labels = { line = "Linie zuweisen", stopped = "Anhalten/Fortsetzen", reverse = "Umkehren", depot = "Ins Depot schicken", sell = "Verkaufen" }
+			local label = "Fahrzeug: " .. (labels[args.command] or tostring(args.command)) .. " (" ..
+				(args.vehicles and table.concat(args.vehicles, ", ") or tostring(args.vehicle)) .. ")"
+			local issue = "I1 script_vehicle_" .. tostring(getenv(env, "TF3MP_ROLE")) .. "." .. m.vehicle_issue_seq ..
+				" none " .. hex(label:sub(1, 320)) .. " " .. hex(reason:sub(1, 240))
+			logger.info("action issue local " .. issue)
+			logger.info("net send " .. issue)
+		end,
 		reverse = function(id) return hold.reverse_clicked(env, id) end,
 	})
 end

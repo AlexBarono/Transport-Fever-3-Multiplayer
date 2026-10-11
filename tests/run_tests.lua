@@ -3151,6 +3151,42 @@ test("a clicked vehicle command is planned on the timeline in a session, else ru
 	assert(not pcall(main.vehicle_intent, solo, st, { command = "sell", vehicle = 30 }))
 end)
 
+test("a failed ordered timeline reports a vehicle click without running it only here", function()
+	local main = fresh_main()
+	local env, sent = vehicle_world("host", { TF3MP_ORDERING = "1" })
+	local state = mock_state()
+	assert(main.vehicle_intent(env, state, { command = "reverse", vehicle = 30 }))
+	local s = state:get(); s.timeline.error = "test failure"; state:set(s)
+	logged = {}
+	assert(main.vehicle_intent(env, state, { command = "reverse", vehicle = 30 }) == false)
+	assert(#sent == 0, "failed shared scheduling executed a local vehicle command")
+	assert(contains(logged, "action issue local I1") and contains(logged, "net send I1"), table.concat(logged, "\n"))
+	assert(#state:get().timeline.queue == 1, "failed click was queued despite rejection")
+end)
+
+test("depot jumps resolve a different local depot before sending the native command", function()
+	local main = fresh_main()
+	local actions = require("/mp_probe/actions.lua")
+	local fixture = assert(loadfile("tests/fixtures/actions_env.lua"))({actions=actions,wire=require("/mp_probe/wire.lua")})
+	local source, dest = fixture.mock(), fixture.mock()
+	source.construction(10, 12, 25); source.vehicle(30, 10010)
+	dest.construction(91, 12, 25); dest.vehicle(90, 10091); dest.entities[90].NAME.name = "Bus 30"
+	local entry = main.vehicle_entry(source.env, {command="depot",vehicle=30,value=false,jumpDepot=10010})
+	assert(entry.jumpDepot.kind == "depot" and entry.jumpDepot.parent.key == "10")
+	dest.env.os = {getenv=function(k) if k == "TF3MP_ROLE" then return "client" end end}
+	local sent
+	dest.env.api.cmd.makeVehicleSendToDepotCmd = function(id, sell, depot)
+		assert(id == 90 and sell == false and depot == 10091)
+		return {id=id,depot=depot}
+	end
+	dest.env.api.cmd.sendCommand = function(command, callback) sent=command; callback({},true) end
+	assert(main.run_vehicle_command(dest.env, dest.state, {origin="host",commands={entry}}))
+	assert(sent and sent.depot == 10091)
+	-- Missing jump target rejects the whole batch before any command can run.
+	sent = nil; dest.entities[91] = nil
+	assert(not pcall(main.run_vehicle_command,dest.env,dest.state,{origin="host",commands={entry}}) and not sent)
+end)
+
 test("at the common tick both games run the vehicle command on their own vehicle (v35)", function()
 	local main = fresh_main()
 	local actions = require("/mp_probe/actions.lua")
@@ -3229,6 +3265,12 @@ test("rejected timed line assignment retains the old snapshot and reports TF3's 
 	assert(s.network_work.pending == 0 and s.network_work.error:find("no path at 123.5, -50.0", 1, true))
 	env.api.engine.util.line.getFailedPathReason = function() error("not available") end
 	assert(main.vehicle_line_failure(env, 30, 40, -1):find("diagnosis unavailable", 1, true))
+	env.api.engine.util.line.getDetailedLineProblems = function(line)
+		assert(line == 40)
+		return { { {noPath=true} }, { {incompatibleStop=true} } }
+	end
+	local detail = main.vehicle_line_failure(env, 30, 40, -1)
+	assert(detail:find("segment 0 point 0: no path",1,true) and detail:find("segment 1 point 0: incompatible stop",1,true), detail)
 end)
 
 test("v36: at the common tick the other game finds the bus and the line it bound earlier", function()
@@ -3273,6 +3315,18 @@ test("v36: a planned vehicle command waits for earlier replays and for its targe
 	assert(not ok and why:find("not found"), why)
 	assert(main.intent_ready(env, { action_entities = { ["13620:vehicle:900"] = 31 } }, intent, "client"))
 	assert(main.intent_ready(env, {}, { line = "B5 x", origin = "host", seq = 4 }, "client"), "builds do not wait")
+end)
+
+test("vehicle reference waits use elapsed time instead of heartbeat count", function()
+	local main = fresh_main()
+	local now, wait = 100, {}
+	local env = {os={time=function() return now end, clock=function() return 900 end}}
+	for _ = 1, 40 do assert(main.intent_wait_pending(env,wait)) end
+	now=103; assert(main.intent_wait_pending(env,wait), "fast events consumed the four-second grace period")
+	now=104; assert(not main.intent_wait_pending(env,wait))
+	wait={}; env={os={}}
+	for _=1,main.INTENT_WAIT_STEPS do assert(main.intent_wait_pending(env,wait)) end
+	assert(not main.intent_wait_pending(env,wait), "missing timer must remain bounded")
 end)
 
 test("v37: a replay that fails in a session is skipped; the common timeline carries on", function()

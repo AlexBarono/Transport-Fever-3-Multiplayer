@@ -134,8 +134,10 @@ function transport.check(state, log, skip)
 end
 
 function transport.action_log(state, log)
-	return function(text)
-		if text:find("failed", 1, true) or text:find("rejected", 1, true) or text:find("not copied yet", 1, true) then
+	return function(text, informational)
+		-- Purchase audit data may contain arbitrary resource names. A model named
+		-- "failed_project.mdl" does not make a successful purchase a failed action.
+		if not informational and (text:find("failed", 1, true) or text:find("rejected", 1, true) or text:find("not copied yet", 1, true)) then
 			transport.fail(state, text)
 		end
 		log(text)

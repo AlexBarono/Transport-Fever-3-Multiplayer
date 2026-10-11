@@ -580,6 +580,7 @@ function actions.vehicle_target(env, s, ref, own) return actions.timed_target(en
 
 function actions.vehicle_ref(env, id) return named_ref(env, id, "vehicle") end
 function actions.line_ref(env, id) return named_ref(env, id, "line") end
+function actions.depot_ref(env, id) return child_ref(env, id, "depot") end
 
 --- After a timed command: what the next poll would otherwise see as this game's own action and
 -- send back (the other game ran the same command at the same tick). line: the local line id
@@ -910,9 +911,18 @@ local function make_line(env, value, s, peer, offset, current)
 	return line
 end
 
-local function make_vehicle(env, value)
+local function make_vehicle(env, value, purchase)
 	local config = env.api.type.TransportVehicleConfig.new()
 	local vehicles = {}
+	local purchase_time
+	if purchase then
+		-- TF3's native store stamps new parts with this world's current game time.
+		-- Zero is a new-part marker, not the acquisition time of a later replay.
+		local ok, gt = pcall(function()
+			return component(env, env.api.engine.util.getWorld(), "GAME_TIME").gameTime
+		end)
+		if ok and type(gt) == "number" and gt >= 0 and gt % 1 == 0 then purchase_time = gt end
+	end
 	for i, v in ipairs(value.vehicles) do
 		local model_id = env.api.res.modelRep.find(v.model)
 		assert(model_id and model_id >= 0, "vehicle model missing: " .. v.model)
@@ -932,6 +942,7 @@ local function make_vehicle(env, value)
 		part.color = env.api.type.Vec3f.new(v.color.x, v.color.y, v.color.z)
 		local tv = env.api.type.TransportVehiclePart.new()
 		tv.part, tv.autoLoadConfig = part, v.autoLoadConfig
+		if purchase_time ~= nil then tv.purchaseTime = purchase_time end
 		vehicles[i] = tv
 	end
 	config.vehicles, config.vehicleGroups, config.muFileNames = vehicles, value.vehicleGroups, value.muFileNames
@@ -1144,7 +1155,7 @@ function actions.replay(env, action, state, peer, offset, log)
 				-- reachable station from its depot). Preserve that choice without treating
 				-- ordinary stop progression as a new action. Pre-v28 records default to 0.
 				local stop_index = r.stopIndex == nil and 0 or r.stopIndex
-				assert(type(stop_index) == "number" and stop_index >= 0 and stop_index % 1 == 0,
+				assert(type(stop_index) == "number" and stop_index >= -1 and stop_index % 1 == 0,
 					"invalid vehicle line stop index")
 				add("line", line, stop_index)
 			elseif old and old.line and ev.depot == nil and r.state ~= "GOING_TO_DEPOT" and r.state ~= "IN_DEPOT" then
@@ -1209,20 +1220,40 @@ function actions.replay(env, action, state, peer, offset, log)
 		local depot = resolve(env, assert(value.depot, "buy needs depot"), s, peer, offset)
 		-- Validate line dependencies before purchasing, avoiding a half-applied action.
 		if value.line then resolve(env, value.line, s, peer, offset) end
-		local config, diagnostic = make_vehicle(env, value.config), { "depot=" .. depot }
+		local config, diagnostic = make_vehicle(env, value.config, true), { "depot=" .. depot }
 		pcall(function()
 			diagnostic[#diagnostic + 1] = "balance=" .. tostring(component(env, env.api.engine.util.getPlayer(), "ACCOUNT").balance)
 		end)
 		pcall(function()
-			local price = 0
-			for i = 1, #config.vehicles do price = price + env.api.engine.util.vehicle.getPartPrice(config.vehicles[i]) end
-			diagnostic[#diagnostic + 1] = "price=" .. tostring(price)
+			-- This is the availability check used by TF3's store. nil means unlimited
+			-- funds; ACCOUNT.balance alone does not describe that mode.
+			local funds = env.api.engine.util.finance.getPlayersBalance(env.api.engine.util.getPlayer())
+			diagnostic[#diagnostic + 1] = "funds=" .. (funds == nil and "unlimited" or tostring(funds))
+		end)
+		pcall(function()
+			local price, fallback = 0, false
+			for i = 1, #config.vehicles do
+				-- These are new purchased parts, so use the store's new-model cost.
+				local ok, amount = pcall(function()
+					return env.api.res.modelRep.get(config.vehicles[i].part.modelId).metadata.cost.price
+				end)
+				if not ok or type(amount) ~= "number" then
+					amount = env.api.engine.util.vehicle.getPartPrice(config.vehicles[i]); fallback = true
+				end
+				price = price + amount
+			end
+			diagnostic[#diagnostic + 1] = "price=" .. tostring(price) .. (fallback and "; price_source=part_fallback" or "; price_source=new_model")
 		end)
 		diagnostic[#diagnostic + 1] = "model=" .. tostring(value.config.vehicles[1] and value.config.vehicles[1].model)
+		log("action vehicle_create purchase: " .. table.concat(diagnostic, ", "), true)
 		send(cmd.makeVehicleBuyCmd(env.api.engine.util.getPlayer(), depot, config), function(result)
 			local id = assert(result_id(result, "resultVehicleEntity"), "vehicle result id missing")
 			updated("vehicle", id, value.ref)
-			vehicle_settings(id, value)
+			-- Read the confirmed purchase, never assume the engine's defaults. Re-sending
+			-- unchanged name/start/manual settings adds a paused event per bus. Missing
+			-- data retains the existing follow-ups; real differences still travel.
+			local readable, current = pcall(record, env, id, "vehicle")
+			vehicle_settings(id, value, readable and current or nil)
 		end, table.concat(diagnostic, ", "))
 	elseif op == "vehicle_update" then
 		local id = resolve(env, action.target, s, peer, offset)
