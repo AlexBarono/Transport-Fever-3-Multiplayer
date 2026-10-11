@@ -64,7 +64,7 @@ end
 -- actually resumed. sendCommand returning does not mean the GUI sees its result.
 -- The DLL echo also protects a GUI Lua state that loses its memory between calls.
 function gui.release_hold(env, g, clock_ui, speed, now, getenv)
-	local run = tonumber(clock_ui.run) or 0
+	local run = math.min(tonumber(clock_ui.run) or 0, sync.maximum_speed(env))
 	local releasing = tonumber(clock_ui.release) == 1
 	-- Seeing the old positive speed is not proof of a resume: a quick menu
 	-- close may leave its earlier pause command queued. Wait for our resume
@@ -198,6 +198,7 @@ function gui.step(env, g, now)
 	end
 	local out = sync.speed_step(g.speed, {
 		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
+		max_speed = sync.maximum_speed(env),
 		-- World/time differences are diagnostic in a two-PC session. Catch up
 		-- without stopping the game ahead; only a live action barrier may pause it.
 		hold = getenv("TF3MP_ORDERING") ~= "1", src = "gui", restore = restore,

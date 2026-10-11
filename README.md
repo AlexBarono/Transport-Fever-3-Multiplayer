@@ -1,8 +1,17 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v56 / DLL v15**. **Beide PCs brauchen das v56-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v57 / DLL v15**. **Beide PCs brauchen das v57-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
 
-[v56: Fahrzeugkäufe und Linienzuweisung](docs/v56-fahrzeuge.md) · [v55: Baufehler, Geld und Weltvergleich](docs/v55-bau-wirtschaft-vergleich.md) · [v54: Pause, Neuabgleich und Fahrzeugbefehle](docs/v54-pause-fahrzeuge.md) · [v53: Launcher und automatischer Spielstart](docs/v53-launcher-start.md)
+[v57: Auswertung und Korrekturen](docs/v57-sitzung-fehler.md) · [v56: Fahrzeugkäufe und Linienzuweisung](docs/v56-fahrzeuge.md) · [v55: Baufehler, Geld und Weltvergleich](docs/v55-bau-wirtschaft-vergleich.md) · [v54: Pause, Neuabgleich und Fahrzeugbefehle](docs/v54-pause-fahrzeuge.md) · [v53: Launcher und automatischer Spielstart](docs/v53-launcher-start.md)
+
+## Neu in v57
+
+- Auswertung des echten v56-Laufs: TF3 führte einen zurückgehaltenen Depotbau bereits aus, bevor dessen verspätete GUI-Bestätigung ankam. Der zusätzliche gemeinsame Nachbau scheiterte am schon entfernten alten Abschnitt. Normale Bauten werden jetzt ausschließlich nach ihrem erfolgreichen nativen Bau einmal übertragen. Die gemeinsame Fahrzeugzuweisung bleibt erhalten; ein exakt gleichzeitiger nativer Bau ist damit nicht zugesichert.
+- Der Geldabgleich verwechselt neue Einnahmen/Ausgaben zwischen Messpunkten nicht mehr mit einer fehlgeschlagenen Buchung. Direkte native Antworten und Kontowerte prüfen die Buchung; der Mitspieler folgt weiterhin dem Gastgeberkonto. Tatsächlich abgelehnte Buchungen bleiben Fehler.
+- TF3s eigene Leistungsgrenze für die Spielgeschwindigkeit wird berücksichtigt. Ein erlaubtes 3× statt angeforderter 4× schaltet die Geschwindigkeitsübernahme nicht mehr ab. Pausen werden passend freigegeben.
+- Gleich benannte Fahrzeuge können bei gewöhnlichen Änderungen über die vorherige Linie und unveränderte Konfiguration unterschieden werden. Überlappende Depot-/Kreuzungsknoten erhalten eine zusätzliche Suche nach dem tatsächlich verbundenen Abschnitt. Mehrdeutige Ziele bleiben Fehler.
+- Längere Linien erhalten ein Prüflimit pro Halt bei gleicher Gesamtgrößengrenze; Frachtdiagnosen verwenden wiederholte Referenzen nur einmal je Messpunkt und benennen ungültige Felder genauer.
+- **Schiffe und die schnellere Fahrzeugzuweisung wurden laut Rückmeldung mit zwei PCs erfolgreich getestet.** Die Korrekturen aus v57 sind automatisch geprüft und brauchen noch den echten Gegentest. Bereits fehlende Bauten/Fahrzeuge einmal bewusst über den Gastgeber **Neu abgleichen**. [Befund, Grenzen und Prüfplan](docs/v57-sitzung-fehler.md).
 
 ## Neu in v56
 
@@ -33,9 +42,9 @@ Auf beiden PCs aktualisieren und einmal denselben Gastgeberstand laden oder bewu
 
 Nach dem Update einmal den gemeinsamen Stand laden bzw. manuell neu abgleichen. Alte fehlende Bauten werden durch das Update allein nicht wiederhergestellt. [Befund, automatische Prüfungen und Zwei-PC-Test](docs/v54-pause-fahrzeuge.md).
 
-## Ohne VPN starten (v56)
+## Ohne VPN starten (v57)
 
-1. Beide verwenden das [v56-Paket](release/TF3-Multiplayer-v56-Windows.zip) und öffnen `Start.bat`.
+1. Beide verwenden das [v57-Paket](release/TF3-Multiplayer-v57-Windows.zip) und öffnen `Start.bat`.
 2. Gastgeber: Unter **Internet ohne VPN** eine öffentliche IPv6 auswählen und **Verbindung öffnen**. Alternativ öffentliche IPv4 eintragen oder **IPv4 automatisch** für die Routeranfrage wählen. Alles geschieht im Hauptfenster. Der dort angezeigte Internetport ist **TCP 47801**; der interne Spielport wird nicht mehr als freizugebender Internetport angezeigt.
 3. Der Launcher prüft die Windows-Regel und fordert die Routerfreigabe an. Falls Windows Administratorrechte verlangt, bestätigen. **Einladung kopieren** und nur dem Mitspieler geben. Die Einladung gilt für diese laufende Verbindung. Routerfehler stehen im Protokoll. Bei IPv6 müssen beide Anschlüsse IPv6 unterstützen; bei IPv4 kann CGNAT/DS-Lite eine direkte Freigabe verhindern.
 4. Mitspieler: **Beitreten**, die vollständige Einladung einfügen. Der Launcher verbindet sich automatisch. **Löschen** leert das Feld und beendet eine noch wartende Verbindung.
@@ -46,7 +55,7 @@ Der Internetweg benötigt keinen Vermittlungsserver. Er ersetzt jedoch keine feh
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe [v56-Paket](release/TF3-Multiplayer-v56-Windows.zip) auf beiden PCs öffnen und das VPN verbinden.
+1. Dasselbe [v57-Paket](release/TF3-Multiplayer-v57-Windows.zip) auf beiden PCs öffnen und das VPN verbinden.
 2. Gastgeber: **VPN / LAN**, passende Adresse auswählen, **Adresse kopieren**. Der Wartekanal öffnet automatisch. Für VPN/LAN gilt weiter **TCP + UDP 47800**; eine Routerfreigabe ist dafür nicht nötig.
 3. Mitspieler: **Beitreten**, Adresse einfügen (z. B. `100.80.12.4:47800`). Sobald verbunden, wählt und teilt der Gastgeber den Spielstand direkt im Hauptfenster. Beide brauchen dieselbe Paketversion und passende zusätzliche Mods.
 4. Der Gastgeber klickt den grünen Knopf **Spiel für beide starten**. Beide Spiele laden den geteilten Stand automatisch. Sobald beide Karten bereit sind, gemeinsam fortsetzen und bauen.

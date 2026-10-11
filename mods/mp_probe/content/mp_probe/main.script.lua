@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 56
+main.PROBE_VERSION = 57
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -341,6 +341,7 @@ function main.finder(env)
 	return {
 		find_node = function(position) return world.find_node(nodes(), position) end,
 		find_edge = function(a, b) return world.find_edge(env, a, b) end,
+		find_edge_at = function(a, b, kind) return world.find_edge_at(env, nodes(), a, b, kind) end,
 		node_construction = function(node) return world.node_construction(env, node) end,
 		find_construction = function(file, position) return world.find_construction(env, file, position) end,
 		edge_objects_of = function(edge) return world.edge_objects_of(env, edge) end,
@@ -1838,14 +1839,15 @@ end
 --- handleEvent: makes the corrections. Commands may report their result here.
 -- @param fix table the event parameter: fix_loan, fix_money, fix_date (days), fix_gt
 function main.sync_apply(env, state, fix)
-	local function settle(field, amount, success)
+	local function settle(field, amount, success, evidence)
 		local live = state:get() or {}
 		local ss = live.sync
 		if type(ss) ~= "table" then return end
-		if success == false then
-			main.sync_give_up(ss, field)
-		elseif field == "money" then
-			ss.adj = (ss.adj or 0) + amount
+		local outcome = sync.settle_fix(ss, field, amount, success, evidence)
+		if outcome == "no_effect_stopped" then
+			logger.info("sync: three consecutive money bookings left the observed account unchanged; money is no longer corrected")
+		elseif outcome == "no_effect" then
+			logger.info("sync: money booking callback left the observed account unchanged; awaiting a fresh checkpoint")
 		end
 		state:set(live)
 	end
@@ -1856,10 +1858,10 @@ function main.sync_apply(env, state, fix)
 		if field == "money" and rebased and tonumber(fix.fix_gt) and fix.fix_gt <= rebased then
 			logger.info("sync: skipped money correction captured before subsidy balance alignment"); return
 		end
-		local ok, sent, notes = pcall(send, amount, function(_, success)
+		local ok, sent, notes = pcall(send, amount, function(_, success, evidence)
 			logger.info("sync: " .. label .. " " .. amount .. ", success=" .. tostring(success) ..
 				(success == false and ("; " .. field .. " is no longer corrected") or ""))
-			local ok_s, err_s = pcall(settle, field, amount, success)
+			local ok_s, err_s = pcall(settle, field, amount, success, evidence)
 			if not ok_s then logger.info("sync: noting the " .. field .. " correction failed: " .. main.error_text(err_s):sub(1, 200)) end
 		end)
 		if ok and sent then
@@ -1906,6 +1908,7 @@ function main.sync_speed_fallback(env, ss, role, gt, getenv)
 	local speed, calendar = sync.read_speed(env)
 	local out = sync.speed_step(ss.speed_mem, {
 		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")),
+		max_speed = sync.maximum_speed(env),
 		now = clock(), hold = false, src = "sim", restore = own_gui,
 	})
 	for _, line in ipairs(out.logs) do logger.info("sync " .. line) end

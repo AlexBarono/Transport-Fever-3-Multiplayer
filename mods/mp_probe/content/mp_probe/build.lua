@@ -896,6 +896,7 @@ end
 -- found makes the whole build fail (TF2 multiplayer mod: building without removing would double
 -- the road); a removed node that is not found is left out (the street graph cleanup removes it).
 -- @param finder table { find_node = function(position) -> id, find_edge = function(a, b) -> id,
+--   find_edge_at = function(p0, p1, type) -> edge, node0, node1 (optional unique graph fallback),
 --   find_construction = function(file, position) -> id, edge_objects_of = function(edge) ->
 --   {{id, side, position}} (optional) }
 -- @return boolean ok, string|nil what could not be found, table notes
@@ -912,12 +913,6 @@ function build.resolve(data, finder)
 		end
 		ids[ref] = id
 	end
-	data.positions_of = {}
-	for ref, id in pairs(ids) do data.positions_of[id] = data.foreign[ref] end
-	for _, seg in ipairs(data.segments) do
-		if type(seg.node0) == "string" then seg.node0 = ids[seg.node0] end
-		if type(seg.node1) == "string" then seg.node1 = ids[seg.node1] end
-	end
 	-- Demolished constructions first: the game removes their own connecting segments itself, and
 	-- naming such a segment again makes it assert (run 15, StreetProposal::RemoveSegment).
 	for _, d in ipairs(data.demolished) do
@@ -928,10 +923,38 @@ function build.resolve(data, finder)
 	end
 	local demolished = {}
 	for _, d in ipairs(data.demolished) do demolished[d.entity] = true end
-	local kept_removed, dropped_nodes, missing_ends = {}, {}, {}
+	local kept_removed, dropped_nodes, missing_ends, endpoint_ids, confirmed_endpoints = {}, {}, {}, {}, {}
+	local function same_endpoint(p, q)
+		local dx, dy, dz = p.x - q.x, p.y - q.y, p.z - q.z
+		return dx * dx + dy * dy + dz * dz <= 0.0001
+	end
 	for _, r in ipairs(data.removed_segments) do
 		local a, b = finder.find_node(r.p0), finder.find_node(r.p1)
 		r.entity = a and b and a ~= b and finder.find_edge(a, b) or nil
+		local lookup_reason
+		if not r.entity and finder.find_edge_at then
+			local edge, x, y, reason = finder.find_edge_at(r.p0, r.p1, r.type)
+			lookup_reason = reason
+			if edge and x and y and x ~= y then
+				r.entity, a, b = edge, x, y
+				confirmed_endpoints[#confirmed_endpoints + 1] = { r.p0, x }
+				confirmed_endpoints[#confirmed_endpoints + 1] = { r.p1, y }
+				-- A replacement must use the same confirmed endpoints as its removal. Otherwise
+				-- it would still connect to the unrelated coincident node chosen above.
+				for ref, position in pairs(data.foreign) do
+					for _, endpoint in ipairs({ { r.p0, x }, { r.p1, y } }) do
+						local p, id = endpoint[1], endpoint[2]
+						if same_endpoint(position, p) then
+							if endpoint_ids[ref] and endpoint_ids[ref] ~= id then
+								return false, "ambiguous coincident node in removed roads or tracks", notes
+							end
+							endpoint_ids[ref], ids[ref] = id, id
+						end
+					end
+				end
+				notes[#notes + 1] = "removed segment resolved through its actual connected endpoints"
+			end
+		end
 		local owner = r.entity and finder.edge_construction and finder.edge_construction(r.entity)
 		if r.entity and owner and demolished[owner] then
 			notes[#notes + 1] = "removed segment belongs to a demolished construction, the game removes it"
@@ -949,7 +972,7 @@ function build.resolve(data, finder)
 				r.p0.x, r.p0.y, r.p1.x, r.p1.y)
 		elseif not r.entity then
 			return false, string.format("removes a road or track that does not exist here (%.1f,%.1f to %.1f,%.1f)",
-				r.p0.x, r.p0.y, r.p1.x, r.p1.y), notes
+				r.p0.x, r.p0.y, r.p1.x, r.p1.y) .. (lookup_reason and "; " .. lookup_reason or ""), notes
 		else
 			local twice = false
 			for _, k in ipairs(kept_removed) do if k.entity == r.entity then twice = true end end
@@ -961,6 +984,12 @@ function build.resolve(data, finder)
 		end
 	end
 	data.removed_segments = kept_removed
+	data.positions_of = {}
+	for ref, id in pairs(ids) do data.positions_of[id] = data.foreign[ref] end
+	for _, seg in ipairs(data.segments) do
+		if type(seg.node0) == "string" then seg.node0 = ids[seg.node0] end
+		if type(seg.node1) == "string" then seg.node1 = ids[seg.node1] end
+	end
 	-- Stops and signals: objects on the edges removed here either come back (same position) or
 	-- were removed by the other player. A sent object that is not here yet is added.
 	data.objects_to_remove = {}
@@ -996,7 +1025,18 @@ function build.resolve(data, finder)
 	end
 	local removed_node_ids = {}
 	for _, n in ipairs(data.removed_nodes) do
-		n.entity = finder.find_node(n)
+		local confirmed
+		for _, endpoint in ipairs(confirmed_endpoints) do
+			if same_endpoint(n, endpoint[1]) then
+				if confirmed and confirmed ~= endpoint[2] then
+					return false, "ambiguous coincident node in removed roads or tracks", notes
+				end
+				confirmed = endpoint[2]
+			end
+		end
+		-- Never delete the unrelated coincident gate node selected by the old
+		-- nearest-node lookup when the removed edge proved a different endpoint.
+		n.entity = confirmed or finder.find_node(n)
 		if not n.entity then
 			notes[#notes + 1] = string.format("removed node near %.1f,%.1f not found", n.x, n.y)
 		elseif dropped_nodes[n.entity] or removed_node_ids[n.entity] then

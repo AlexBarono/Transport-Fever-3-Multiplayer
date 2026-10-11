@@ -826,6 +826,29 @@ local function resolve(env, ref, s, peer, offset, context)
 			if found then matches[#matches + 1] = id end
 		end
 	end
+	if ref.kind == "vehicle" and #matches > 1 and type(context) == "table" then
+		-- TF3 can give distinct vehicles the same automatic name. For an observed
+		-- update, narrow by its known pre-command line and unchanged configuration.
+		-- Never choose by foreign entity number or by name order.
+		local previous, value = context.previous, context.value
+		if type(previous) == "table" and type(value) == "table" then
+			local ok_line, line = true, -1
+			if previous.line then ok_line, line = pcall(resolve, env, previous.line, s, peer, offset) end
+			if ok_line then
+				local narrowed = {}
+				for _, id in ipairs(matches) do
+					local ok, candidate = pcall(record, env, id, "vehicle")
+					if ok then
+						local native = component(env, id, "TRANSPORT_VEHICLE")
+						local same_line = (field(native, "line") or -1) == line
+						local same_parts = previous.config_changed ~= false or same_config(candidate.config, value.config)
+						if same_line and same_parts then narrowed[#narrowed + 1] = id end
+					end
+				end
+				if #narrowed == 1 then return narrowed[1] end
+			end
+		end
+	end
 	return unique(matches, ref.kind .. " reference")
 end
 
@@ -1256,7 +1279,7 @@ function actions.replay(env, action, state, peer, offset, log)
 			vehicle_settings(id, value, readable and current or nil)
 		end, table.concat(diagnostic, ", "))
 	elseif op == "vehicle_update" then
-		local id = resolve(env, action.target, s, peer, offset)
+		local id = resolve(env, action.target, s, peer, offset, { previous = action.previous, value = value })
 		if value.line then resolve(env, value.line, s, peer, offset) end
 		local config_changed = action.previous.config_changed
 		if config_changed == nil then config_changed = not same_config(value.config, action.previous.config) end

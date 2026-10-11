@@ -17,6 +17,15 @@ local sync = {}
 --- Game speed. The speed is a register both games can change; the change with the higher version
 -- wins, and on a tie the host's value.
 sync.MAX_SPEED = 4
+--- TF3 may throttle a requested 4x to 3x on a busy world. Its own GUI clamps
+-- requests to this estimate; that is capacity feedback, not a failed command.
+function sync.maximum_speed(env)
+	local ok, value = pcall(function() return env.api.gui.game.getEstimatedMaximumGameSpeed() end)
+	if ok and type(value) == "number" and value == value and value > 0 and value < math.huge then
+		return math.min(sync.MAX_SPEED, math.max(1, math.floor(value)))
+	end
+	return sync.MAX_SPEED
+end
 --- Catching up: the game that is behind by more than CATCHUP_START_MS of game time runs at twice
 -- the shared speed (or, at MAX_SPEED, the game ahead runs at half) until the gap is below
 -- CATCHUP_STOP_MS. The GUI script lets the game ahead wait at speed 0 beyond HOLD_MS. Beyond
@@ -220,6 +229,8 @@ function sync.speed_step(mem, input)
 	local out = { logs = {} }
 	local function log(text) out.logs[#out.logs + 1] = text end
 	local own, role, peer, now = input.own, input.role, input.peer, input.now
+	local limit = tonumber(input.max_speed)
+	if not limit or limit ~= limit or limit < 1 or limit > sync.MAX_SPEED or limit ~= math.floor(limit) then limit = sync.MAX_SPEED end
 	if mem.speed == nil then
 		local o = input.restore
 		if o and o.src == input.src and tonumber(o.ver) and tonumber(o.speed) then
@@ -229,6 +240,12 @@ function sync.speed_step(mem, input)
 			mem.speed, mem.ver, mem.by, mem.target, mem.hb = own, 0, role, own, 0
 		end
 	end
+	-- A lower engine capacity must not turn an otherwise applied speed request
+	-- into a player edit or exhaust the retry budget. Preserve the shared request
+	-- so a later capacity increase can resume it without creating a new version.
+	local capacity_pending = mem.target and mem.target > limit and own == mem.target
+	if mem.target then mem.target = math.min(mem.target, limit) end
+	if mem.pending then mem.pending = math.min(mem.pending, limit) end
 	if peer and peer.hb ~= nil and peer.hb ~= mem.peer_hb then
 		mem.peer_hb, mem.peer_seen = peer.hb, now
 		mem.peer_t, mem.peer_run = tonumber(peer.gt), tonumber(peer.run) or 0
@@ -254,7 +271,7 @@ function sync.speed_step(mem, input)
 		end
 	end
 	-- The player changed the speed in this game.
-	if mem.pending == nil and own ~= mem.target then
+	if mem.pending == nil and own ~= mem.target and not capacity_pending then
 		mem.ver = math.max(mem.ver, peer and tonumber(peer.ver) or 0) + 1
 		mem.speed, mem.by, mem.catchup = own, role, nil
 		log(string.format("speed changed here: %s (version %d)", sync.speed_name(own), mem.ver))
@@ -264,7 +281,12 @@ function sync.speed_step(mem, input)
 		log(string.format("speed from the other game: %s (version %d, set by the %s)", sync.speed_name(mem.speed),
 			mem.ver, mem.by))
 	end
-	local target = sync.catchup(mem, input, fresh, log)
+	local requested = sync.catchup(mem, input, fresh, log)
+	local target = math.min(requested, limit)
+	if target ~= requested then
+		if mem.limited ~= limit then log("speed limited by the game's current capacity: " .. sync.speed_name(limit)) end
+		mem.limited = limit
+	else mem.limited = nil end
 	mem.target = target
 	if mem.broken then
 		-- Commands do not work here: follow nothing, but still pass the player's changes on.
@@ -404,7 +426,14 @@ function sync.compare(mem, k, own, peer, role, latest)
 		local fix = mem.fixes[field]
 		if fix and k > fix.after then
 			local d = diffs[field] and diffs[field].d or 0
-			if d ~= 0 and (d > 0) == (fix.amount > 0) and math.abs(d) * 2 >= math.abs(fix.amount) then
+			if field == "money" and d ~= 0 then
+				-- Purchases, maintenance and income continue between checkpoints.
+				-- A new difference of the same sign cannot prove a booking failed.
+				-- Direct callback/account observations are handled by settle_fix.
+				out.notes[#out.notes + 1] = string.format("the money correction by %s %s; current difference %s, continuing comparison",
+					tostring(fix.amount), fix.observed == true and "was observed in the account" or
+					(fix.confirmed and "was accepted by the game" or "has no direct confirmation"), tostring(d))
+			elseif d ~= 0 and (d > 0) == (fix.amount > 0) and math.abs(d) * 2 >= math.abs(fix.amount) then
 				mem.off[field] = true
 				out.notes[#out.notes + 1] = string.format("the %s correction by %s had no effect (still %s); " ..
 					"%s is no longer corrected", field, tostring(fix.amount), tostring(d), field)
@@ -456,6 +485,37 @@ function sync.compare(mem, k, own, peer, role, latest)
 	end
 	mem.last = { k = k, diffs = diffs }
 	return out
+end
+
+--- Record direct command evidence separately from a later world's balance.
+-- Only an explicit rejection stops a field immediately. Three consecutive
+-- successful nonzero money callbacks with an unchanged observed account stop
+-- that correction too, rather than issuing ineffective bookings forever.
+-- Mixed economic changes or unreadable accounts provide no such proof.
+function sync.settle_fix(mem, field, amount, success, evidence)
+	mem.fixes, mem.off = mem.fixes or {}, mem.off or {}
+	if success == false then
+		mem.off[field], mem.fixes[field] = true, nil
+		return "rejected"
+	end
+	local fix = mem.fixes[field]
+	if fix and fix.amount == amount then
+		fix.confirmed = success == true or nil
+		fix.observed = evidence and evidence.applied
+	end
+	if field == "money" then
+		if not evidence or evidence.applied ~= false then mem.adj = (mem.adj or 0) + amount end
+		if success == true and amount ~= 0 and evidence and evidence.applied == false then
+			mem.money_no_effect = (mem.money_no_effect or 0) + 1
+			if mem.money_no_effect >= 3 then
+				mem.off.money, mem.fixes.money = true, nil
+				return "no_effect_stopped"
+			end
+			return "no_effect"
+		end
+		mem.money_no_effect = nil
+	end
+	return evidence and evidence.applied == true and "observed" or "accepted"
 end
 
 -- ---------------------------------------------------------------------------------------------
@@ -604,8 +664,31 @@ function sync.book(env, amount, kind, callback)
 	local entry, notes = sync.journal_entry(env, amount, kind)
 	if not entry then return false, notes end
 	local cmd = env.api.cmd
+	local function balance()
+		local ok, value = pcall(function()
+			return env.api.engine.getComponent(env.api.engine.util.getPlayer(), env.api.type.ComponentType.ACCOUNT).balance
+		end)
+		if ok and type(value) == "number" and value == value and math.abs(value) < 2^53 then return value end
+	end
+	local before = callback and balance()
+	local done
+	if callback then
+		local settled = false
+		done = function(result, success)
+			if settled then return end
+			settled = true
+			local after = balance()
+			local evidence = { before = before, after = after, expected = amount }
+			if before ~= nil and after ~= nil then
+				evidence.delta = after - before
+				if evidence.delta == amount then evidence.applied = true
+				elseif amount ~= 0 and evidence.delta == 0 then evidence.applied = false end
+			end
+			callback(result, success, evidence)
+		end
+	end
 	-- Without a position, as in runs 24-30 (the position is optional and only places the money popup).
-	cmd.sendCommand(cmd.makeJournalBookAssetCmd(env.api.engine.util.getPlayer(), entry), callback)
+	cmd.sendCommand(cmd.makeJournalBookAssetCmd(env.api.engine.util.getPlayer(), entry), done)
 	return true, notes
 end
 
@@ -621,6 +704,7 @@ end
 --- Without callback the command goes out alone: the simulation's update() may not pass one (run 25).
 function sync.set_speed(env, speed, callback)
 	local cmd = env.api.cmd
+	speed = math.min(speed, sync.maximum_speed(env))
 	if callback then
 		cmd.sendCommand(cmd.makeGameSetSpeedCmd(speed), callback)
 	else

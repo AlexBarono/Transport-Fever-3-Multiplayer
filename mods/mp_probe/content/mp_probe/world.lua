@@ -216,6 +216,42 @@ function world.find_edge(env, a, b)
 	return found
 end
 
+--- Find a unique real edge when coincident gate/junction nodes defeat independent nearest-node
+-- lookups. This is a fallback for removals, never a reason to invent a missing connection.
+-- Both endpoint heights are bounded so a road below a bridge cannot replace its missing track.
+-- @return edge entity, node at p0, node at p1, nil; or nil, nil, nil, diagnostic
+world.EDGE_CANDIDATE_LIMIT = 64
+function world.find_edge_at(env, index, p0, p1, segment_type)
+	local radius, limit = world.NODE_RADIUS, world.EDGE_CANDIDATE_LIMIT
+	local left, right = world.nodes_near(index, p0, radius), world.nodes_near(index, p1, radius)
+	if #left > limit or #right > limit then return nil, nil, nil, "too many nearby edge endpoints" end
+	local targets = {}
+	for _, node in ipairs(right) do
+		if math.abs(node.p.z - p1.z) <= radius then targets[node.id] = true end
+	end
+	local found, first, second, seen = nil, nil, nil, {}
+	local expected = segment_type == 0 and 1 or segment_type == 1 and 0 or nil
+	for _, node in ipairs(left) do
+		if math.abs(node.p.z - p0.z) <= radius then
+			local edges = world.node_segments(env, node.id)
+			if #edges > limit then return nil, nil, nil, "too many segments at an edge endpoint" end
+			for _, id in ipairs(edges) do
+				if not seen[id] then
+					local edge = component(env, id, "BASE_EDGE")
+					local ok, a, b, road = pcall(function() return edge.node0, edge.node1, edge.roadType end)
+					local other = ok and (a == node.id and b or b == node.id and a) or nil
+					if other and other ~= node.id and targets[other] and (expected == nil or road == expected) then
+						seen[id] = true
+						if found then return nil, nil, nil, "ambiguous nearby road or track" end
+						found, first, second = id, node.id, other
+					end
+				end
+			end
+		end
+	end
+	return found, first, second
+end
+
 --- File name and position of a construction entity, or nil.
 function world.construction_info(env, id)
 	local con = component(env, id, "CONSTRUCTION")

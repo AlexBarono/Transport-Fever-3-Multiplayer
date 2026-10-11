@@ -768,5 +768,37 @@ test("informational purchase resource names cannot turn success into a failed re
 	assert(dest.state:get().network_done.result=="OK" and not dest.state:get().network_done.skipped)
 end)
 
+test("duplicate automatic vehicle names resolve by the previous line for settings and replacements", function()
+	for _, replacement in ipairs({ false, true }) do
+		local source, dest = mock(), mock()
+		source.line(20, "Salat"); source.vehicle(30, nil, 20)
+		dest.line(80, "Salat"); dest.line(81, "Bus Neuenhagen")
+		dest.vehicle(90, nil, 80); dest.vehicle(91, nil, 81)
+		dest.entities[90].NAME.name, dest.entities[91].NAME.name = "Bus 30", "Bus 30"
+		source.poll(); dest.poll()
+		if replacement then source.entities[30].TRANSPORT_VEHICLE.transportVehicleConfig.vehicles[1].part.reversed = false
+		else source.entities[30].TRANSPORT_VEHICLE.userStopped = true end
+		source.poll(); dest.replay(source.drain()[1])
+		assert(dest.sent[1].args[1] == 90 and dest.sent[1].name ==
+			(replacement and "makeVehicleReplaceCmd" or "makeVehicleSetStoppedByUserCmd"))
+		assert(dest.entities[91].TRANSPORT_VEHICLE.userStopped == false)
+	end
+end)
+
+test("duplicate depot vehicles resolve only with an unchanged distinguishing configuration", function()
+	local source, dest = mock(), mock(); source.vehicle(30); dest.vehicle(90); dest.vehicle(91)
+	dest.entities[90].NAME.name, dest.entities[91].NAME.name = "Bus 30", "Bus 30"
+	dest.entities[91].TRANSPORT_VEHICLE.transportVehicleConfig.vehicles[1].part.reversed = false
+	source.poll(); dest.poll(); source.entities[30].TRANSPORT_VEHICLE.userStopped = true; source.poll()
+	dest.replay(source.drain()[1]); assert(dest.sent[1].args[1] == 90)
+end)
+
+test("indistinguishable duplicate names remain an error without modifying either vehicle", function()
+	local source, dest = mock(), mock(); source.vehicle(30); dest.vehicle(90); dest.vehicle(91)
+	dest.entities[90].NAME.name, dest.entities[91].NAME.name = "Bus 30", "Bus 30"
+	source.poll(); dest.poll(); source.entities[30].TRANSPORT_VEHICLE.userStopped = true; source.poll()
+	assert(not pcall(dest.replay, source.drain()[1]) and #dest.sent == 0)
+end)
+
 print(string.format("%d action tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

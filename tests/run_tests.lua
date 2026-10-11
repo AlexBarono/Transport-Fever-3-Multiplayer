@@ -3040,61 +3040,42 @@ test("a held build is planned, built here at its common stamp and released after
 	end)
 end)
 
-test("a held build is refused only in a session and handed over after the wait", function()
-	local hold = require("/mp_probe/hold.lua")
-	local proposal = run5_street()
-	local data = { errorState = { critical = false }, costs = 10 }
-	local p = { proposal = proposal, toAdd = {}, toRemove = {} }
-	local gstate = { value = nil }
-	function gstate:get() return self.value end
-	function gstate:set(v) self.value = v end
-	local vars = { TF3MP_ROLE = "client", TF3MP_ORDERING = "1", TF3MP_OWN_CLOCK = "gt=1000 seq=0 phase=idle", TF3MP_PEER_CLOCK = "gt=1000 seq=0 phase=idle" }
-	local now, events = 0, {}
-	local env = { os = { getenv = function(k) return vars[k] end, clock = function() return now end },
-		api = { cmd = { sendCommand = function(c) events[#events + 1] = c end,
-			makeScriptingSendEventCmd = function(a, b, c, d) return { a, b, c, d } end },
-			engine = {}, type = {} } }
-	logged = {}
-	local r = hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate)
-	assert(r and r.errorMessages[hold.SYNC_TEXT], table.concat(logged, "\n"))
-	assert(gstate.value.held and gstate.value.held.line:sub(1, 3) == "B5 ")
-	assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate) == nil, "one held build at a time")
-	hold.step(env, gstate); assert(#events == 0, "waits HELD_WAIT_S")
-	now = 1; hold.step(env, gstate)
-	assert(#events == 1 and events[1][2] == "mp_probe_schedule" and events[1][4].held == true and events[1][4].line:sub(1, 3) == "B5 ")
-	assert(gstate.value.waiting and not gstate.value.held)
-	vars.TF3MP_OWN_CLOCK = "gt=1200 seq=1 phase=prepared"
-	hold.step(env, gstate); assert(not gstate.value.waiting and not gstate.value.hold_off)
-	-- A refusal TF3 ignores switches holding off; the build travels as before.
-	local r2 = hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate)
-	assert(r2)
-	hold.event(env, "", "", "builder.proposalApply", { p, data }, gstate)
-	assert(gstate.value.hold_off and not gstate.value.held)
-	assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate) == nil)
-	-- Without a partner, or without the ordered DLL, nothing is held.
-	local g2 = { value = nil, get = gstate.get, set = gstate.set }
-	vars.TF3MP_PEER_CLOCK = ""
-	assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, g2) == nil)
-	vars.TF3MP_PEER_CLOCK = "gt=1000"
-	vars.TF3MP_ORDERING = nil
-	assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, g2) == nil)
+test("native builds never schedule a second local build in a prepared session", function()
+    local hold = require("/mp_probe/hold.lua")
+    for _, role in ipairs({ "host", "client" }) do
+        local p = { proposal = run5_street(), toAdd = {}, toRemove = {} }
+        local data = { errorState = { critical = false }, costs = 10 }
+        local gstate = { value = {} }
+        function gstate:get() return self.value end
+        function gstate:set(v) self.value = v end
+        local now, events = 0, {}
+        local vars = { TF3MP_ROLE = role, TF3MP_ORDERING = "1", TF3MP_OWN_CLOCK = "gt=1000 seq=0 phase=idle", TF3MP_PEER_CLOCK = "gt=1000" }
+        local env = { os = { getenv = function(k) return vars[k] end, clock = function() return now end },
+            api = { cmd = { sendCommand = function(c) events[#events + 1] = c end,
+                makeScriptingSendEventCmd = function(...) return { ... } end }, engine = {}, type = {} } }
+        assert(hold.event(env, "", "", "builder.proposalPrepareForApply", { p, data }, gstate) == nil)
+        -- Reproduce the real run: native onPostBuildProposal has already executed,
+        -- then a heartbeat, and only afterwards the delayed GUI proposalApply.
+        now = 1; hold.step(env, gstate)
+        assert(#events == 0 and not gstate.value.held)
+        hold.event(env, "", "", "builder.proposalApply", { p, data }, gstate)
+        now = 5; hold.step(env, gstate)
+        assert(#events == 0 and not gstate.value.waiting)
+    end
 end)
 
-test("a handed-over build without a common tick switches holding off", function()
-	local hold = require("/mp_probe/hold.lua")
-	local gstate = { value = { waiting = { since = 0, seq = 3 } } }
-	function gstate:get() return self.value end
-	function gstate:set(v) self.value = v end
-	local now = 0
-	local vars = { TF3MP_ROLE = "host", TF3MP_ORDERING = "1", TF3MP_OWN_CLOCK = "seq=3 phase=idle" }
-	local env = { os = { getenv = function(k) return vars[k] end, clock = function() return now end }, api = { cmd = {} } }
-	logged = {}
-	hold.step(env, gstate); assert(gstate.value.waiting)
-	now = hold.GIVE_UP_S + 1; hold.step(env, gstate)
-	assert(gstate.value.hold_off == "no common tick" and not gstate.value.waiting)
-	gstate.value = { waiting = { since = now, seq = 3 } }
-	vars.TF3MP_OWN_CLOCK = "seq=3 phase=failed"
-	hold.step(env, gstate); assert(gstate.value.hold_off == "timeline failed")
+test("obsolete saved builder holds are discarded without another execution", function()
+    local hold = require("/mp_probe/hold.lua")
+    for _, via_event in ipairs({ false, true }) do
+        local gstate = { value = { held = { line = "B5 old", at = 0 }, waiting = { since = 0, seq = 3 }, keep = 42 } }
+        function gstate:get() return self.value end
+        function gstate:set(v) self.value = v end
+        local env = { os = { getenv = function(k) if k == "TF3MP_ROLE" then return "host" end end, clock = function() return 10 end },
+            api = { cmd = { sendCommand = function() error("stale build was submitted") end } } }
+        if via_event then hold.event(env, "", "", "builder.proposalApply", { {}, {} }, gstate)
+        else hold.step(env, gstate) end
+        assert(not gstate.value.held and not gstate.value.waiting and gstate.value.keep == 42)
+    end
 end)
 
 -- v35: vehicle commands clicked in the GUI are planned like held builds and run at the stamp.

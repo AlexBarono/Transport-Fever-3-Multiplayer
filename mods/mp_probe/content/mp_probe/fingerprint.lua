@@ -346,8 +346,13 @@ local function position(v)
 	return { x = bin(v.x), y = bin(v.y), z = bin(v.z) }
 end
 
-local function bounded_plain(value)
+local function bounded_plain(value, kind)
 	local items, bytes, active = 0, 0, {}
+	-- Each native stop repeats station references, transformations and cargo
+	-- filters. Bound those independent entries separately rather than applying
+	-- one stop's item allowance to a whole route. The total byte/depth limits
+	-- and all capture/hash budgets still apply to the complete line record.
+	local stops = kind == "line" and (value.data and value.data.stops or value.stops)
 	local function visit(v, depth)
 		items = items + 1
 		assert(items <= fingerprint.RECORD_MAX_ITEMS and depth <= fingerprint.MAX_DEPTH, "checkpoint record limit")
@@ -359,7 +364,14 @@ local function bounded_plain(value)
 		if t == "boolean" then return end
 		assert(t == "table" and not active[v], "checkpoint value unreadable")
 		active[v] = true
-		for k, x in pairs(v) do visit(k, depth + 1); visit(x, depth + 1) end
+		for k, x in pairs(v) do
+			visit(k, depth + 1)
+			if v == stops then
+				assert(type(k) == "number" and k >= 1 and k <= 128 and k == math.floor(k), "line stop limit")
+				local header_items = items
+				items = 0; visit(x, depth + 1); items = header_items
+			else visit(x, depth + 1) end
+		end
 		active[v] = nil
 	end
 	visit(value, 0)
@@ -488,10 +500,19 @@ function fingerprint.begin(env, gt)
 		assert(n == nil or type(n.name) == "string", "world name unreadable")
 		return n and n.name or ""
 	end
+	local cargo_names, entity_refs = {}, {}
 	local function cargo_name(id)
-		local name = call(env.api.res.cargoTypeRep.getName, integer(id))
+		id = integer(id)
+		if cargo_names[id] then return cargo_names[id] end
+		local name = call(env.api.res.cargoTypeRep.getName, id)
 		assert(type(name) == "string" and #name > 0, "cargo resource unreadable")
+		cargo_names[id] = name
 		return name
+	end
+	local function cargo_time(value, field)
+		assert(type(value) == "number" and value == value and math.abs(value) < math.huge,
+			"cargo " .. field .. " unreadable: " .. tostring(value))
+		return integer(value)
 	end
 	local function vehicle_ref(id)
 		local v = component(id, "TRANSPORT_VEHICLE")
@@ -499,16 +520,34 @@ function fingerprint.begin(env, gt)
 		if v.line and v.line >= 0 then out.line = name_of(v.line) end
 		return out
 	end
-	local function entity_ref(id)
+	local function entity_ref(id, label)
 		integer(id)
 		if id < 0 then return { missing = true } end
-		local box = component(id, "BOUNDING_VOLUME").bbox
-		local lo, hi = box.min, box.max
-		return { name = name_of(id), position = position({ x = (finite(lo.x) + finite(hi.x)) / 2,
-			y = (finite(lo.y) + finite(hi.y)) / 2, z = (finite(lo.z) + finite(hi.z)) / 2 }) }
+		if entity_refs[id] then return entity_refs[id] end
+		local ok, at = pcall(function()
+			local box = component(id, "BOUNDING_VOLUME").bbox
+			local lo, hi = box.min, box.max
+			return position({ x = (finite(lo.x) + finite(hi.x)) / 2,
+				y = (finite(lo.y) + finite(hi.y)) / 2, z = (finite(lo.z) + finite(hi.z)) / 2 })
+		end)
+		local ref = { name = name_of(id) }
+		if ok then ref.position = at
+		else
+			-- An invalid/empty bounding box is no geographic identity. A
+			-- construction still has its own native placement anchor; accept
+			-- that independently validated reference, never a fabricated zero.
+			local con = component(id, "CONSTRUCTION", true)
+			local t = con and build.read_transf(con.transf)
+			assert(t and type(con.fileName) == "string" and #con.fileName > 0,
+				"cargo " .. tostring(label) .. " position unreadable: " .. tostring(at):sub(1, 80))
+			ref.position = position({ x = t[13], y = t[14], z = t[15] })
+			ref.anchor, ref.fileName = "construction", con.fileName
+		end
+		entity_refs[id] = ref
+		return ref
 	end
 	local function append(record)
-		guard(); bounded_plain(record)
+		guard(); bounded_plain(record, category.kind)
 		category.records[#category.records + 1] = record
 		job.stats.records = job.stats.records + 1
 	end
@@ -618,8 +657,9 @@ function fingerprint.begin(env, gt)
 		end
 		for _, id in ipairs(ids("SIM_CARGO", fingerprint.CARGO_MAX_RECORDS, false)) do
 			local c = component(id, "SIM_CARGO")
-			local r = { scope = "freight", cargoType = cargo_name(c.cargoType), source = entity_ref(c.sourceEntity),
-				target = entity_ref(c.targetOrPickupEntity), startTime = integer(c.startTime), pickupTime = integer(c.pickupTime) }
+			local r = { scope = "freight", cargoType = cargo_name(c.cargoType), source = entity_ref(c.sourceEntity, "source"),
+				target = entity_ref(c.targetOrPickupEntity, "target"), startTime = cargo_time(c.startTime, "startTime"),
+				pickupTime = cargo_time(c.pickupTime, "pickupTime") }
 			local on_vehicle = component(id, "SIM_ENTITY_AT_VEHICLE", true)
 			if on_vehicle then r.vehicle = vehicle_ref(on_vehicle.vehicle) end
 			append(r)
@@ -628,7 +668,7 @@ function fingerprint.begin(env, gt)
 	end)
 	capture("town", function()
 		for _, id in ipairs(ids("TOWN", fingerprint.TOWN_MAX_RECORDS, false)) do
-			local c, ref = component(id, "TOWN"), entity_ref(id)
+			local c, ref = component(id, "TOWN"), entity_ref(id, "town")
 			assert(type(c.developmentActive) == "boolean", "town development unreadable")
 			local r = { name = ref.name, position = ref.position, initial = {}, sizeFactors = {}, usage = {},
 				cargoNeeds = {}, stock = {}, developmentActive = c.developmentActive,
@@ -690,9 +730,9 @@ function fingerprint.step(env, job)
 			if c.cursor <= #c.records then
 				local raw = c.records[c.cursor]
 				local ok, n, text = pcall(function()
-					bounded_plain(raw)
+					bounded_plain(raw, c.kind)
 					local normalized = fingerprint.normalize(c.kind, raw)
-					bounded_plain(normalized)
+					bounded_plain(normalized, c.kind)
 					local encoded = fingerprint.canonical(normalized)
 					assert(#encoded <= fingerprint.RECORD_MAX_BYTES, "checkpoint encoded record limit")
 					return normalized, encoded

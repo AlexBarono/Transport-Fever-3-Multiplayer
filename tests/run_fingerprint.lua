@@ -632,5 +632,79 @@ test("native cargo indexes replace an unsupported iterator and deduplicate freig
 	end
 end)
 
+test("long routes use per-stop item bounds and retain the existing complete digest", function()
+	local m = world_mock()
+	local stops = m.entities[m.lineid].LINE.stops
+	for i = 3, 16 do stops[i] = copy(stops[1 + i % 2]) end
+	local expected = m.values().hline
+	local values, missing = finish(m)
+	assert(values.hline and values.hline == expected, table.concat(missing, ","))
+	stops[16].stopConfig.maxLoad[0] = 0.25
+	differs(values, finish(m), "hline")
+end)
+
+test("per-stop line validation retains the total byte and individual item limits", function()
+	local m = world_mock()
+	local stops = m.entities[m.lineid].LINE.stops
+	for i = 3, 128 do stops[i] = copy(stops[1]) end
+	local values, _, stats = finish(m)
+	assert(not values.hline and stats.hline:find("byte limit", 1, true), tostring(stats.hline))
+	m = world_mock()
+	local load = m.entities[m.lineid].LINE.stops[1].stopConfig.load
+	for i = 1, fingerprint.RECORD_MAX_ITEMS do load[i] = true end
+	values, _, stats = finish(m)
+	assert(not values.hline and stats.hline:find("record limit", 1, true), tostring(stats.hline))
+end)
+
+test("cargo resource lookups are reused only within the original checkpoint", function()
+	local m = world_mock(); local reads = {}
+	local get = m.env.api.res.cargoTypeRep.getName
+	m.env.api.res.cargoTypeRep.getName = function(id)
+		reads[id] = (reads[id] or 0) + 1
+		return get(id)
+	end
+	for i = 1, 8 do m.entities[m.cargoid + i] = copy(m.entities[m.cargoid]) end
+	assert(finish(m).hcargo)
+	assert(reads[0] == 1 and reads[1] == 1)
+	assert(finish(m).hcargo)
+	assert(reads[0] == 2 and reads[1] == 2, "a later checkpoint must read fresh resources")
+end)
+
+test("empty cargo construction bounds use a validated placement anchor without foreign ids", function()
+	local results = {}
+	for i, m in ipairs({ world_mock(), world_mock(10000, true, 7) }) do
+		local native = m.env.api.engine.getComponent
+		m.env.api.engine.getComponent = function(id, ct)
+			if id == m.ca and ct == "BOUNDING_VOLUME" then
+				return { bbox = { min = xyz(math.huge, math.huge, math.huge), max = xyz(-math.huge, -math.huge, -math.huge) } }
+			end
+			return native(id, ct)
+		end
+		results[i] = finish(m)
+		assert(results[i].hcargo)
+		m.entities[m.ca].CONSTRUCTION.transf[4].x = 101
+		differs(results[i], finish(m), "hcargo")
+		m.entities[m.ca].CONSTRUCTION = nil
+		local values, _, stats = finish(m)
+		assert(not values.hcargo and stats.hcargo:find("cargo source position unreadable", 1, true), tostring(stats.hcargo))
+	end
+	assert(results[1].hcargo == results[2].hcargo)
+end)
+
+test("invalid cargo timestamps stay unknown and identify the unreadable field", function()
+	for _, field in ipairs({ "startTime", "pickupTime" }) do
+		for _, invalid in ipairs({ math.huge, -math.huge, 0 / 0 }) do
+			local m = world_mock(); local native = m.env.api.engine.getComponent
+			local cargo = copy(m.entities[m.cargoid].SIM_CARGO); cargo[field] = invalid
+			m.env.api.engine.getComponent = function(id, ct)
+				if id == m.cargoid and ct == "SIM_CARGO" then return cargo end
+				return native(id, ct)
+			end
+			local values, _, stats = finish(m)
+			assert(not values.hcargo and values.htown and stats.hcargo:find("cargo " .. field .. " unreadable", 1, true), tostring(stats.hcargo))
+		end
+	end
+end)
+
 print(string.format("%d fingerprint tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

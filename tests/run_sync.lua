@@ -148,6 +148,7 @@ local function game(role)
 		type = { ComponentType = ct, JournalEntry = JE,
 			Vec3f = { new = function(x, y, z) return { x = x, y = y, z = z } end },
 			Date = { addOffsetDays = function(d, n) return date_of(sync.days(d.year, d.month, d.day) + n) end } } }
+	g.api.gui = { game = { getEstimatedMaximumGameSpeed = function() return g.max_speed or 0 end } }
 	g.os = { getenv = function(name) return g.vars[name] end, clock = function() return g.clock end }
 	g.env = { api = g.api, os = g.os }
 	function g.apply_speed_commands()
@@ -318,6 +319,42 @@ test("a speed command on its way is not taken for the player's change, and is se
 	-- Without working commands the player's changes still go out, once each.
 	out = step(2, 16, peer); assert(mem.ver == 4 and mem.speed == 2)
 	out = step(2, 17, peer); assert(mem.ver == 4 and #out.logs == 0)
+end)
+
+test("native capacity clamps catchup without disabling shared speed or creating a user edit", function()
+	local mem, peer = {}, {speed=3,ver=0,by="client",hb=1,gt=60000,run=3}
+	local function step(own, now, limit)
+		peer.hb = peer.hb + 1
+		return sync.speed_step(mem, {own=own,own_t=0,role="client",peer=peer,now=now,src="gui",max_speed=limit})
+	end
+	local out=step(3,0,3)
+	assert(out.command==nil and mem.target==3 and mem.speed==3)
+	assert(has(out.logs,"current capacity: 3x"))
+	for now=1,20 do
+		out=step(3,now,3)
+		assert(out.command==nil and not mem.broken and mem.ver==0 and mem.speed==3)
+	end
+	out=step(3,21,4); assert(out.command==4 and mem.ver==0)
+	out=step(4,22,4); assert(not mem.pending and mem.speed==3 and mem.ver==0)
+	out=step(3,23,3); assert(out.command==nil and not mem.broken and mem.ver==0)
+end)
+
+test("a lower native capacity settles an already pending 4x request", function()
+	local mem, peer={}, {speed=4,ver=1,by="host",hb=1,gt=0,run=4}
+	local out=sync.speed_step(mem,{own=3,own_t=0,role="client",peer=peer,now=0,src="gui"})
+	assert(out.command==4 and mem.pending==4)
+	out=sync.speed_step(mem,{own=3,own_t=0,role="client",peer=peer,now=20,src="gui",max_speed=3})
+	assert(out.command==nil and not mem.pending and not mem.broken and mem.speed==4 and mem.ver==1)
+end)
+
+test("native speed capacity also bounds direct commands and menu release", function()
+	local g=game("client"); g.max_speed=3; g.speed=3; g.vars.TF3MP_ORDERING="1"; g.gui()
+	g.run(function() sync.set_speed(g.env,4) end); assert(g.speed==3)
+	g.vars.TF3MP_OWN_GUI="speed=4 ver=8 by=host run=3 tg=3 src=gui hb=9"
+	g.vars.TF3MP_OWN_CLOCKUI="hold=1 run=4"
+	g.speed=0; g.gui(); g.gui(); g.gui()
+	assert(g.speed==3 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).hold==0)
+	assert(not has(g.logs,"could not be set"))
 end)
 
 test("the game behind runs at twice the speed until it caught up", function()
@@ -514,7 +551,7 @@ test("a money difference that is gone at the next checkpoint is not booked", fun
 	for _, c in ipairs(client.sent) do assert(c.name ~= "book") end
 end)
 
-test("a booking without effect turns the money correction off", function()
+test("three directly observed ineffective bookings turn the money correction off", function()
 	local host, client = pair()
 	client.book_works = false
 	run(host, client, 299)
@@ -522,8 +559,64 @@ test("a booking without effect turns the money correction off", function()
 	run(host, client, 1500)
 	local books = 0
 	for _, c in ipairs(client.sent) do if c.name == "book" then books = books + 1 end end
-	assert(books == 1, books)
-	assert(has(client.logs, "had no effect"))
+	assert(books == 3, books)
+	assert(client.s.sync.off.money and client.s.sync.money_no_effect == 3)
+end)
+
+test("new economic drift after a successful booking cannot permanently disable money alignment", function()
+	for _, sign in ipairs({-1,1}) do
+		local host,client=pair()
+		run(host,client,299); client.balance=host.balance-sign*16502
+		run(host,client,600); assert(client.balance==host.balance)
+		client.balance=host.balance-sign*41174 -- income/costs after the first booking
+		run(host,client,300)
+		assert(not client.s.sync.off.money and client.balance==host.balance)
+		assert(has(client.logs,"continuing comparison") and not has(client.logs,"had no effect"))
+		run(host,client,300); assert(not client.s.sync.off.money)
+	end
+end)
+
+test("journal callback evidence distinguishes applied, unchanged, mixed and unreadable balances", function()
+	local g=game("client")
+	local evidence
+	local function booked(amount)
+		assert(sync.book(g.env,amount,"OTHER",function(_,success,observed) assert(success); evidence=observed end))
+		return evidence
+	end
+	assert(booked(5000).applied==true and evidence.delta==5000)
+	g.book_works=false
+	assert(booked(5000).applied==false and evidence.delta==0)
+	local native=g.api.cmd.sendCommand
+	g.api.cmd.sendCommand=function(command,cb) g.balance=g.balance+command.entry.amount+7; cb({},true) end
+	assert(booked(5000).applied==nil and evidence.delta==5007)
+	g.api.cmd.sendCommand=native
+	local getComponent=g.api.engine.getComponent
+	g.api.engine.getComponent=function(id,ct) if ct=="ACCOUNT" then error("not readable") end; return getComponent(id,ct) end
+	assert(booked(5000).applied==nil and evidence.before==nil and evidence.after==nil)
+end)
+
+test("a repeated native booking callback settles the financial observation only once", function()
+	local g = game("client")
+	local callback, answers = nil, 0
+	g.api.cmd.sendCommand = function(_, done) callback = done end
+	assert(sync.book(g.env, 5000, "OTHER", function() answers = answers + 1 end))
+	assert(callback and answers == 0)
+	callback({}, true); callback({}, true); callback({}, false)
+	assert(answers == 1)
+end)
+
+test("only consecutive directly unchanged booking callbacks reach the financial safeguard", function()
+	local mem={fixes={money={amount=5000,after=1}}}
+	assert(sync.settle_fix(mem,"money",5000,true,{applied=false})=="no_effect")
+	assert(sync.settle_fix(mem,"money",5000,true,{applied=false})=="no_effect")
+	sync.settle_fix(mem,"money",5000,true,{delta=5007})
+	assert(not mem.money_no_effect and not mem.off.money)
+	sync.settle_fix(mem,"money",5000,true,{applied=false})
+	sync.settle_fix(mem,"money",5000,true,{applied=true})
+	assert(not mem.money_no_effect and mem.fixes.money.observed==true)
+	for _=1,2 do assert(sync.settle_fix(mem,"money",5000,true,{applied=false})=="no_effect") end
+	assert(sync.settle_fix(mem,"money",5000,true,{applied=false})=="no_effect_stopped")
+	assert(mem.off.money and not mem.fixes.money)
 end)
 
 test("a loan difference is booked as a loan, and money waits for it", function()

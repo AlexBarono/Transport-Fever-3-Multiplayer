@@ -223,7 +223,7 @@ test("GUI callbacks work when require no longer resolves the mod namespace", fun
 		-- commands must still reach the simulation. Neither callback may load another module.
 		assert(hold.event(e, "", "", "builder.proposalPrepareForApply",
 			{ { proposal = {}, toAdd = {}, toRemove = {} }, { errorState = { critical = false } } }) == nil)
-		assert(has("nothing to build"))
+		assert(not has("build held for a common tick"))
 		hold.step(e)
 		e.api.cmd.sendCommand(e.api.cmd.makeVehicleReverseCmd(8))
 		hold.step(e)
@@ -237,10 +237,9 @@ test("GUI callbacks work when require no longer resolves the mod namespace", fun
 		} } } }
 		local result = hold.event(e, "", "", "builder.proposalPrepareForApply",
 			{ { proposal = p, toAdd = {}, toRemove = {} }, { errorState = { critical = false } } })
-		assert(result and result.errorMessages[hold.SYNC_TEXT], "the track is held before local execution")
+		assert(result == nil, "native track builds travel through the post-build capture")
 		e.now = 1; hold.step(e)
-		assert(#e.sent == 2 and e.sent[2].c.name == "mp_probe_schedule")
-		assert(e.sent[2].c.param.held and e.sent[2].c.param.line:match("^B5 "))
+		assert(#e.sent == 1, "the track is never scheduled for a duplicate local execution")
 	end)
 	require = gui_require
 	assert(ok, err)

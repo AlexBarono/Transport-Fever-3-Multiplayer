@@ -1,22 +1,8 @@
---- Holding a player's build BEFORE TF3 executes it, so that both games build it at a common tick
--- (timeline.lua). Capturing after the fact can only replay an action late.
---
--- TF3's own game scripts show the hook (base/content/game_mechanics.zip, company.script.tl): the
--- native build tools fire guiHandleEvent "builder.proposalCreate", "builder.proposalPrepareForApply"
--- and "builder.proposalApply" with param {proposal, data} to every game script that subscribed to
--- them (main.SUBSCRIBED_EVENTS), and a script refuses a build by returning { errorMessages = {...} }.
--- v33 did not subscribe, so its probe saw no events (run 36).
---
--- v34, in a session (host or client, DLL v12 ordering):
---   proposalPrepareForApply: serialize the proposal like the capture does (build.lua), refuse it
---   and keep the line in the GUI script state. If TF3 applies it anyway (proposalApply of the same
---   proposal), holding is switched off and the build travels as before.
---   guiUpdate, HELD_WAIT_S later: hand the line to the simulation as "mp_probe_schedule" with
---   held=true. The timeline gives it a common stamp; both games pause there and build it.
---   If the timeline fails or does not plan it within GIVE_UP_S, holding is switched off.
--- 'Allein testen' (loopback): the first build is refused once and re-sent by the mod REISSUE_S
--- later, to show in one minute whether refusing holds a build.
--- @module mp_probe.hold
+--- Observe native builders and hold vehicle commands for the shared timeline.
+-- TF3 may apply a refused build before its GUI proposalApply event arrives.
+-- v56 then submitted an already successful build again. Successful native
+-- builds now travel once through main.capture_build/onPostBuildProposal.
+-- The loopback refusal probe remains an explicit standalone diagnostic.
 local logger = require("/mp_probe/logger.lua")
 -- Load dependencies while TF3 still resolves paths inside this mod. A require during a GUI
 -- callback can resolve against ::/ instead (v40 VPN run: build.lua not found on every build).
@@ -33,10 +19,6 @@ hold.MAX_EVENTS = 40
 hold.MAX_BUILDS = 12
 --- Real seconds between the refused build and the mod's own copy of it ('Allein testen').
 hold.REISSUE_S = 2
---- Real seconds a held build waits for a proposalApply that would show the refusal did not hold.
-hold.HELD_WAIT_S = 0.3
---- Real seconds a handed-over build may wait for its common stamp before holding is switched off.
-hold.GIVE_UP_S = 30
 --- Largest line the timeline carries (timeline.MAX_PAYLOAD).
 hold.MAX_LINE = 120000
 --- Shown in TF3 as the reason the build was refused.
@@ -123,13 +105,6 @@ end
 
 --- A session whose partner is there: the DLL empties TF3MP_PEER_CLOCK once the partner falls silent,
 -- and without a partner nobody could plan the common stamp, so nothing is held then.
-local function session(env)
-	local role = getenv(env, "TF3MP_ROLE")
-	local peer = getenv(env, "TF3MP_PEER_CLOCK")
-	return (role == "host" or role == "client") and getenv(env, "TF3MP_ORDERING") == "1"
-		and type(peer) == "string" and peer:find("gt=", 1, true) ~= nil
-end
-
 --- guiHandleEvent (main.gs.lua). nil means no objection.
 function hold.event(env, src, id, name, param, gui_state)
 	local m = memory(env)
@@ -150,15 +125,14 @@ function hold.event(env, src, id, name, param, gui_state)
 	local usable = not critical and type(param) == "table" and param[1] ~= nil
 	gui_state = gui_state or m.fallback
 	local g = shared(gui_state)
+	-- TF3 may apply a refused build before the GUI apply event arrives. Never
+	-- resubmit these builds; onPostBuildProposal sends the successful original.
+	if g.held or g.waiting then
+		g.held, g.waiting = nil, nil
+		store(gui_state, g)
+	end
 
 	if name == "builder.proposalApply" then
-		local h = g.held
-		if h and not h.sent and h.key == described then
-			-- TF3 built it although it was refused: refusing does not hold builds here.
-			g.held, g.hold_off = nil, "TF3 applied a refused build"
-			store(gui_state, g)
-			logger.info("hold: TF3 applied the held build anyway; holding is off, builds travel as before")
-		end
 		local test = m.test
 		if test and not test.done then
 			test.applied = true
@@ -167,19 +141,6 @@ function hold.event(env, src, id, name, param, gui_state)
 		return nil
 	end
 	if name ~= "builder.proposalPrepareForApply" or not usable then return nil end
-
-	if session(env) then
-		if g.hold_off or g.held then return nil end
-		local line, err = hold.serialize(env, param[1])
-		if not line then
-			logger.info("hold: build not held (" .. tostring(err) .. "); it travels as before")
-			return nil
-		end
-		g.held = { line = line, key = described, at = hold.clock(env, m) + hold.HELD_WAIT_S }
-		store(gui_state, g)
-		logger.info("hold: build held for a common tick (" .. described .. ", " .. #line .. " characters)")
-		return { errorMessages = { [hold.SYNC_TEXT] = true } }
-	end
 
 	if getenv(env, "TF3MP_ROLE") == "loopback" and not g.tested then
 		-- The engine may reuse its proposal after the event; keep a copy (Proposal.clone).
@@ -197,18 +158,7 @@ function hold.event(env, src, id, name, param, gui_state)
 	return nil
 end
 
---- Hands a held build to the simulation (main.submit_intent) as a script event.
-function hold.submit(env, line)
-	local cmd = env.api.cmd
-	cmd.sendCommand(cmd.makeScriptingSendEventCmd("mp_probe", "mp_probe_schedule", "mp_probe_schedule",
-		{ line = line, held = true }))
-end
-
-local function own_clock(env)
-	return sync.decode(getenv(env, "TF3MP_OWN_CLOCK")) or {}
-end
-
---- Every GUI step: the vehicle hooks, held builds and the 'Allein testen' check.
+--- Every GUI step: vehicle hooks and the 'Allein testen' check.
 function hold.step(env, gui_state)
 	local m = memory(env)
 	m.gui_state = gui_state
@@ -217,35 +167,11 @@ function hold.step(env, gui_state)
 	local now = hold.clock(env, m)
 	gui_state = gui_state or m.fallback
 	local g = shared(gui_state)
-	local changed = false
-	local h = g.held
-	if h and not h.sent and now >= h.at then
-		local ok, err = pcall(hold.submit, env, h.line)
-		if ok then
-			g.waiting = { since = now, seq = tonumber(own_clock(env).seq) or 0 }
-			logger.info("hold: held build handed over for its common tick")
-		else
-			g.hold_off = "handing over failed"
-			logger.info("hold: handing over the held build failed (" .. tostring(err):sub(1, 160) .. "); it is lost, please build it again")
-		end
-		g.held = nil
-		changed = true
+	if g.held or g.waiting then
+		g.held, g.waiting = nil, nil
+		store(gui_state, g)
+		logger.info("hold: obsolete builder hold discarded; successful native builds travel through capture")
 	end
-	local w = g.waiting
-	if w then
-		local clock = own_clock(env)
-		if clock.phase == "failed" then
-			g.waiting, g.hold_off = nil, "timeline failed"
-			logger.info("hold: the common timeline failed; holding is off, builds travel as before")
-		elseif (tonumber(clock.seq) or 0) > w.seq then
-			g.waiting = nil
-		elseif now - w.since > hold.GIVE_UP_S or now < w.since then
-			g.waiting, g.hold_off = nil, "no common tick"
-			logger.info("hold: no common tick for the held build within " .. hold.GIVE_UP_S .. " s; holding is off")
-		end
-		changed = changed or g.waiting == nil
-	end
-	if changed then store(gui_state, g) end
 
 	local test = m.test
 	if g.test_pending and not test then
