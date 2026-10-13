@@ -229,6 +229,50 @@ function Get-WorldDifferenceText([string]$fields) {
 	foreach ($field in ($fields -split ',')) { $field = $field.Trim(); if ($field) { $parts += $(if ($labels.ContainsKey($field)) { $labels[$field] } else { $field }) } }
 	return ($parts -join ', ')
 }
+function Get-ReplayQueueText($values) {
+	# Older bridges report a combined count that also includes world/error reports.
+	$parsed=@{}
+	foreach($field in @('outbox_actions','inbox_actions','outbox_diagnostics','inbox_diagnostics')) {
+		$number=0
+		if(-not [int]::TryParse([string]$values[$field],[ref]$number) -or $number -lt 0 -or $number -gt 128) {
+			return "$([int]$values.outbox + [int]$values.inbox) Einträge warten"
+		}
+		$parsed[$field]=$number
+	}
+	$actions=$parsed.outbox_actions+$parsed.inbox_actions
+	$diagnostics=$parsed.outbox_diagnostics+$parsed.inbox_diagnostics
+	$text="$actions Spielaktion(en) warten"
+	if($diagnostics) { $text+="  |  $diagnostics Diagnosebericht(e) warten" }
+	return $text
+}
+function Get-ReplayWaitText($values) {
+	if($values.order_phase -notin @('active','ack','finish','done') -or -not $values.order_token) { return '' }
+	$progress=[string]$values.order_progress_age_ms
+	if($progress -notmatch '^\d{1,10}$') { $progress=[string]$values.order_age_ms }
+	if($progress -notmatch '^\d{1,10}$' -or [int64]$progress -lt 30000) { return '' }
+	$local=($values.mode -eq 'host' -and $values.order_side -eq 'C') -or ($values.mode -eq 'client' -and $values.order_side -eq 'H')
+	$place=if($local){'auf diesem PC'}else{'beim Mitspieler'}
+	$prefix=if($local){''}else{'peer_'}
+	$phase=if($values[$prefix+'work_token'] -eq $values.order_token){[string]$values[$prefix+'work_phase']}else{''}
+	$detail=switch($phase) {
+		'handoff' { 'Übergabe an TF3'; break }
+		'waiting' { 'Abschluss der Aktion'; break }
+		'callbacks' { 'TF3-Rückmeldung'; break }
+		'followup' { 'Fortsetzung der Aktion'; break }
+		'weld' { 'Anschlussprüfung'; break }
+		default { 'Ausführungsbestätigung' }
+	}
+	# A missing payload/order acknowledgement is a network wait, not an engine callback.
+	switch([string]$values.order_stage) {
+		'waiting_order_ack' { $detail='Bestätigung der Aktionsreihenfolge'; $place='beim Mitspieler' }
+		'waiting_release_ack' { $detail='Abschlussbestätigung'; $place='beim Mitspieler' }
+		'waiting_release' { $detail='Freigabe'; $place='durch den Gastgeber' }
+		{ $_ -in @('sending_payload','sending_fragments','waiting_peer_receipt') } { $detail='Empfangsbestätigung'; $place='beim Mitspieler' }
+		{ $_ -in @('receiving_payload','waiting_payload') } { $detail='Aktionsdaten'; $place='vom Mitspieler' }
+		'delivering_to_game' { $detail='Übergabe an TF3'; $place='auf diesem PC' }
+	}
+	return "Warte seit $([Math]::Floor([int64]$progress/1000)) s auf $detail $place (Kennung $($values.order_token))"
+}
 function Get-SessionStatus($gameDir) {
 	$path = Join-Path $gameDir 'alut_proxy.status'
 	if (-not (Test-GameRunning)) { return @{ Text='Bereit zum Einrichten'; Color='idle' } }
@@ -251,20 +295,22 @@ function Get-SessionStatus($gameDir) {
 	if ($values.epoch -match '^[1-9]' -and $values.connected -ne '1' -and $values.mode -in 'host','client') {
 		return @{ Text='Neu geladen - warte, bis der Mitspieler auch neu geladen hat ...'; Color='idle' }
 	}
-	$pending=[int]$values.outbox + [int]$values.inbox
+	$pending=Get-ReplayQueueText $values
 	$disk = if ([int64]$values.backlog -gt 0) { " + weitere auf Datenträger" } else { "" }
 	if ($values.connected -eq '1') {
 		$world = if ($drift) { $drift } elseif ($values.world -eq 'same') { '  |  Weltprüfung stimmt überein' } elseif ($values.world -eq 'checking') { '  |  Weltprüfung läuft' } else { '' }
-		return @{ Text="Verbunden  |  $pending Aktion(en) warten$disk$world"; Color='ok' }
+		$waiting=Get-ReplayWaitText $values
+		if($waiting) { return @{ Text="$waiting  |  $pending$disk"; Color='warning' } }
+		return @{ Text="Verbunden  |  $pending$disk$world"; Color='ok' }
 	}
-	if ($values.mode -eq 'loopback') { return @{ Text="Allein-Test  |  $pending Aktion(en) warten$disk"; Color='ok' } }
+	if ($values.mode -eq 'loopback') { return @{ Text="Allein-Test  |  $pending$disk"; Color='ok' } }
 	if ($values.protocol -eq '3' -and $values.ready -eq '0') {
 		if($values.loaded -eq '1') { return @{ Text='Spielstand geladen, aber Mod noch nicht bereit. Details stehen im Protokoll; TF3MP-Mod muss aktiv sein.'; Color='idle' } }
 		return @{ Text='Sitzung geprüft - den vereinbarten Spielstand pausiert laden'; Color='idle' }
 	}
 	if($values.protocol -eq '3' -and $values.compatible -eq '1' -and $values.peer_ready -eq '0') { return @{ Text='Partner erreicht; sein Spielstand / Mod ist noch nicht bereit.'; Color='idle' } }
 	if($values.protocol -eq '3' -and $values.hello_received -eq '0') { return @{ Text='Spiel bereit, keine UDP-Antwort vom Partner. Gastgeberrolle, Adresse und TF3-Firewall auf beiden PCs prüfen.'; Color='error' } }
-	return @{ Text="Warte auf Partner  |  $pending Aktion(en) vorgemerkt$disk"; Color='idle' }
+	return @{ Text="Warte auf Partner  |  $pending$disk"; Color='idle' }
 }
 
 # Die letzten Abgleich-Zeilen des Mods aus stdout.txt (Pause, Geschwindigkeit, Prüfpunkte, Warnungen).
@@ -938,20 +984,21 @@ $timer.Add_Tick({
         if(-not (Test-GameRunning)){
             $status.Text=if($script:lobbyError){$script:lobbyError}elseif($clientRadio.Checked){$joinStatus.Text}elseif(Test-LobbyCanStart){'Mitspieler bereit. Ihr könnt gemeinsam starten.'}elseif($script:lobbyPhase -eq 'ready'){'Spielstand übertragen. Warte auf die Bereitschaft des Mitspielers.'}elseif($script:presence -and $script:presence.Connected){'Mitspieler verbunden. Jetzt Spielstand bereitstellen.'}else{'Verbindung herstellen und Einladung oder VPN-Adresse teilen.'}
         }
-        $statusKey=$status.Text -replace '\d+ Aktion\(en\) warten','Aktionen warten'
+        $statusKey=$status.Text -replace '\d+ (Spielaktion\(en\)|Aktion\(en\)|Einträge|Diagnosebericht\(e\)) warten','$1 warten' -replace 'seit \d+ s','seit längerem'
         if($statusKey -ne $script:lastVisibleStatus){
             $script:lastVisibleStatus=$statusKey
             Write-LauncherLog $status.Text
             if(Test-GameRunning){
                 $diagnostic=Read-ProxyStatusValues (Join-Path $gameBox.Text.Trim() 'alut_proxy.status')
-                Write-LauncherLog "Spielkanal: Rolle=$($diagnostic.mode), Quelle geladen=$($diagnostic.loaded), Mod bereit=$($diagnostic.initialized), Partner bereit=$($diagnostic.peer_ready); UDP-Antworten=$($diagnostic.hello_received)."
-                if($status.Color -eq 'error' -or $status.Text -match 'Abweichung|Warte auf Partner'){
+                if($diagnostic.mode) { Write-LauncherLog "Spielkanal: Rolle=$($diagnostic.mode), Quelle geladen=$($diagnostic.loaded), Mod bereit=$($diagnostic.initialized), Partner bereit=$($diagnostic.peer_ready); UDP-Antworten=$($diagnostic.hello_received)." }
+                if($status.Color -eq 'warning') { Write-LauncherLog "Aktionswartezeit: Stufe=$($diagnostic.order_stage), Kennung=$($diagnostic.order_token), ohne Fortschritt=$($diagnostic.order_progress_age_ms) ms; TF3 hier=$($diagnostic.work_phase)/$($diagnostic.work_token), gegenüber=$($diagnostic.peer_work_phase)/$($diagnostic.peer_work_token). Weltabweichungen lösen keinen automatischen Neuabgleich aus." }
+                if($status.Color -in @('error','warning') -or $status.Text -match 'Abweichung|Warte auf Partner'){
                     $sync=Get-SyncStatus $steam; if($sync -and $sync -ne $script:lastSyncDiagnostic){$script:lastSyncDiagnostic=$sync; Write-LauncherLog $sync}
                 }
             }
         }
         $statusLabel.Text=$status.Text
-		$statusLabel.ForeColor = if ($status.Color -eq 'error') { [System.Drawing.ColorTranslator]::FromHtml('#FF8990') } elseif ($status.Color -eq 'ok') { $Accent } else { $Muted }
+		$statusLabel.ForeColor = if ($status.Color -eq 'error') { [System.Drawing.ColorTranslator]::FromHtml('#FF8990') } elseif ($status.Color -eq 'warning') { [System.Drawing.ColorTranslator]::FromHtml('#F1C879') } elseif ($status.Color -eq 'ok') { $Accent } else { $Muted }
 	} catch { $statusLabel.Text='Verbindungsstatus wird aktualisiert ...' }
 	if ($Preview -or $script:transferBusy -or -not (Test-GameRunning)) { return }
 	try {

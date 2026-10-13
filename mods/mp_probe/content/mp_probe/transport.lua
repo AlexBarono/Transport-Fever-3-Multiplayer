@@ -12,7 +12,7 @@ function transport.send(line, s, log)
 	end
 end
 
-function transport.receive(s, value, log)
+function transport.receive(s, value, log, defer_final)
 	local token, kind, index, count, text = value:match("^part (%S+) (%a+) (%d+) (%d+) (.+)$")
 	if not token then return value end
 	index, count = tonumber(index), tonumber(count)
@@ -25,7 +25,9 @@ function transport.receive(s, value, log)
 	end
 	if b.count ~= count or b.kind ~= kind or index > b.next then return nil end
 	if index == b.next then b.parts[#b.parts + 1] = text; b.next = b.next + 1 end
-	log("net partreceived " .. token .. " " .. index)
+	-- The final fragment releases the native inbox. Its ACK must wait until the
+	-- complete line has a durable owner, rather than merely an assembled buffer.
+	if not defer_final or index < count - 1 then log("net partreceived " .. token .. " " .. index) end
 	if b.next ~= count then return nil end
 	local line = table.concat(b.parts)
 	if #line > transport.MAX_BYTES then return nil end
@@ -33,11 +35,63 @@ function transport.receive(s, value, log)
 	return "line " .. token .. " " .. kind .. " " .. line
 end
 
+function transport.ack_complete(s, token, log)
+	local b = s.bridge_parts
+	if b and b.token == token and b.next == b.count then
+		log("net partreceived " .. token .. " " .. (b.count - 1))
+	end
+end
+
+local function new_work(s, token)
+	s.network_receipt_seq = (s.network_receipt_seq or 0) + 1
+	return { token = token, pending = 0, dispatched = false,
+		identity = tostring(s.loaded_world or "-") .. ":" .. tostring(s.network_handover_epoch or 0) ..
+			":" .. s.network_receipt_seq }
+end
+
 function transport.begin(state, token)
 	local s = state:get() or {}
 	if s.network_work then return s.network_work.token == token end
-	s.network_work = { token = token, pending = 0, dispatched = false }
+	s.network_work = new_work(s, token)
 	state:set(s); return true
+end
+
+-- One bounded, persisted inbox entry. Only an event carrying its identity may
+-- start it; repeated event submissions are safe until that first start.
+function transport.accept_handover(state, token, kind, line, offset)
+	assert(type(line) == "string" and #line <= transport.MAX_BYTES, "message exceeds 256 KiB")
+	local s = state:get() or {}; local h = s.network_handover
+	if s.network_work and s.network_work.token ~= token then return nil, "busy" end
+	if h and h.token == token then
+		if h.kind ~= kind or (h.line and h.line ~= line) then return nil, "identity mismatch" end
+		return h
+	end
+	if h and h.phase ~= "done" then return nil, "busy" end
+	-- A receipt already owns this token. Never turn it back into a queued build.
+	if s.network_work or (s.network_done and s.network_done.token == token) then return nil, "owned" end
+	s.network_handover_seq = (s.network_handover_seq or 0) + 1
+	h = { token = token, kind = kind, line = line, offset = offset, phase = "queued",
+		world = tostring(s.loaded_world or "-"), epoch = s.network_handover_epoch or 0,
+		id = tostring(s.loaded_world or "-") .. ":" .. tostring(s.network_handover_epoch or 0) ..
+			":" .. s.network_handover_seq, attempts = 0 }
+	s.network_handover, s.last_line_token = h, token
+	state:set(s)
+	return h
+end
+
+function transport.start_handover(state, param)
+	local s = state:get() or {}; local h = s.network_handover
+	if not h or h.id ~= param.handover_id or h.world ~= param.handover_world or
+		h.epoch ~= (s.network_handover_epoch or 0) or h.world ~= tostring(s.loaded_world or "-") or
+		h.token ~= tostring(param.number) or h.kind ~= param.source then return nil, "stale" end
+	if h.phase ~= "queued" then return nil, "duplicate" end
+	if s.network_work then return nil, "busy" end
+	if type(h.line) ~= "string" or #h.line > transport.MAX_BYTES then return nil, "invalid" end
+	local line, offset = h.line, h.offset
+	h.phase, h.line = "started", nil
+	s.network_work = new_work(s, h.token)
+	state:set(s) -- Commit the start before any engine command or reentrant callback.
+	return line, offset
 end
 
 function transport.fail(state, message)
@@ -66,18 +120,22 @@ function transport.env(env, state)
 	command_api.sendCommand = function(command, callback)
 		local s = state:get() or {}; local work = s.network_work
 		if not work then return env.api.cmd.sendCommand(command, callback) end
-		local token = work.token
+		local token, identity = work.token, work.identity
 		local called = false
 		work.pending = work.pending + 1
 		work.sent = (work.sent or 0) + 1; state:set(s)
 		local function done(result, success)
 			if called then return end
 			called = true
+			local before = (state:get() or {}).network_work
+			-- An old world's callback must not run its mapping/follow-up callback
+			-- against a new receipt, even if the native token happens to be reused.
+			if not before or before.token ~= token or before.identity ~= identity then return end
 			local ok, handled = pcall(function() if callback then return callback(result, success) end end)
 			local critical = false
 			pcall(function() critical = result.resultProposalData.errorState.critical == true end)
 			local live = state:get() or {}; local active = live.network_work
-			if active and active.token == token then
+			if active and active.token == token and active.identity == identity then
 				active.pending = math.max(0, active.pending - 1)
 				if not ok then active.error = tostring(handled)
 				elseif handled ~= true and (success == false or critical) and not active.error then active.error = "game command rejected" end
@@ -111,6 +169,9 @@ function transport.check(state, log, skip)
 	local result = (w.error and not skipped) and "FAIL" or "OK"
 	s.network_done = { token = w.token, result = result, skipped = skipped or nil }
 	s.network_work = nil
+	if s.network_handover and s.network_handover.token == w.token then
+		s.network_handover.phase, s.network_handover.line = "done", nil
+	end
 	-- The later entrance checks belong to this replay; left over, they would fail the next one.
 	if w.error then s.action_work, s.action_inbox, s.network_followup, s.weld_checks = nil, nil, nil, nil end
 	if skipped then

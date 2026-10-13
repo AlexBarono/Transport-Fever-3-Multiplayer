@@ -186,6 +186,31 @@ try {
         [IO.File]::WriteAllText((Join-Path $statusRoot 'alut_proxy.status'),"protocol=3`r`nmode=client`r`nconnected=0`r`noutbox=0`r`ninbox=0`r`n$($case.Extra)`r`n$($case.Detail)")
         if((Get-SessionStatus $statusRoot).Text -notlike $case.Expected) { throw 'Readiness failure was not distinguished' }; $passed++
     }
+    $queue=@{outbox='53';inbox='0';outbox_actions='21';inbox_actions='0';outbox_diagnostics='32';inbox_diagnostics='0'}
+    if((Get-ReplayQueueText $queue) -ne '21 Spielaktion(en) warten  |  32 Diagnosebericht(e) warten'){throw 'World reports were counted as game actions'}; $passed++
+    $legacy=@{outbox='53';inbox='0'}
+    if((Get-ReplayQueueText $legacy) -ne '53 Einträge warten'){throw 'Legacy combined count claimed a game action count'}; $passed++
+    $bad=$queue.Clone(); $bad.outbox_actions='-1'
+    if((Get-ReplayQueueText $bad) -ne '53 Einträge warten'){throw 'Malformed queue counts were trusted'}; $passed++
+    $waiting=@{mode='client';order_side='C';order_phase='active';order_token='62420-180487375.89';order_age_ms='600000';order_progress_age_ms='30000';peer_work_token='62420-180487375.89';peer_work_phase='callbacks'}
+    if((Get-ReplayWaitText $waiting) -notlike '*TF3-Rückmeldung beim Mitspieler*62420-180487375.89*'){throw 'Remote callback wait not identified'}; $passed++
+    $waiting.order_progress_age_ms='1000'
+    if(Get-ReplayWaitText $waiting){throw 'A long but progressing action was marked stuck'}; $passed++
+    $waiting.order_progress_age_ms='60000'; $waiting.peer_work_token='previous.1'
+    if((Get-ReplayWaitText $waiting) -notlike '*Ausführungsbestätigung beim Mitspieler*'){throw 'Stale remote work diagnosis reused'}; $passed++
+    $waiting.order_side='H'; $waiting.work_token=$waiting.order_token; $waiting.work_phase='weld'
+    if((Get-ReplayWaitText $waiting) -notlike '*Anschlussprüfung auf diesem PC*'){throw 'Local replay side was misidentified'}; $passed++
+    $waiting.order_phase='idle'
+    if(Get-ReplayWaitText $waiting){throw 'Completed order stayed marked as stalled'}; $passed++
+    $waiting.order_phase='active'; $waiting.order_stage='waiting_payload'
+    if((Get-ReplayWaitText $waiting) -notlike '*Aktionsdaten vom Mitspieler*'){throw 'Missing payload was reported as an engine callback wait'}; $passed++
+    $waiting.order_phase='finish'; $waiting.order_stage='waiting_release_ack'
+    if((Get-ReplayWaitText $waiting) -notlike '*Abschlussbestätigung beim Mitspieler*'){throw 'Order release acknowledgement was reported as an engine callback wait'}; $passed++
+    $statusValues=$queue.Clone()
+    foreach($pair in @{protocol='3';mode='client';connected='1';ready='1';peer_ready='1';world='diff';world_fields='hpos,htown';order_phase='active';order_side='C';order_token='incoming.89';order_progress_age_ms='40000'}.GetEnumerator()){$statusValues[$pair.Key]=$pair.Value}
+    [IO.File]::WriteAllLines((Join-Path $statusRoot 'alut_proxy.status'),[string[]]@($statusValues.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }))
+    $status=Get-SessionStatus $statusRoot
+    if($status.Color -ne 'warning' -or $status.Text -notlike '*Ausführungsbestätigung*21 Spielaktion*32 Diagnosebericht*' -or $status.Text -like '*Abgleich erforderlich*'){throw 'Stalled replay diagnosis was hidden behind world drift'}; $passed++
 } finally {
     Set-Item Function:\Test-GameRunning $originalGameRunning
     Remove-Item -LiteralPath (Join-Path $statusRoot 'alut_proxy.status') -Force

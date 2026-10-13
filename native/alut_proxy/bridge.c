@@ -503,12 +503,17 @@ static DWORD WINAPI bridge_thread(LPVOID arg)
 		refresh_peer_states();
 		drain_spool();
 		{
-			char status[1280], path[MAX_PATH]; HANDLE status_file; DWORD written;
+			char status[NET_STATUS_MAX], path[MAX_PATH], temp[MAX_PATH]; HANDLE status_file; DWORD written;
 			net_status(status, sizeof(status) - 64);
 			wsprintfA(status + lstrlenA(status), "backlog=%lu\r\n", (unsigned long)(spool_write.QuadPart - spool_read.QuadPart));
-			if (proxy_file_next_to_dll(path, "alut_proxy.status")) {
-				status_file = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-				if (status_file != INVALID_HANDLE_VALUE) { WriteFile(status_file, status, lstrlenA(status), &written, NULL); CloseHandle(status_file); }
+			if (proxy_file_next_to_dll(path, "alut_proxy.status") && proxy_file_next_to_dll(temp, "alut_proxy.status.tmp")) {
+				/* Publish one complete snapshot; readers keep the previous snapshot if replacement fails. */
+				status_file = CreateFileA(temp, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+				if (status_file != INVALID_HANDLE_VALUE) {
+					int complete = WriteFile(status_file, status, lstrlenA(status), &written, NULL) && written == (DWORD)lstrlenA(status);
+					CloseHandle(status_file);
+					if (complete) MoveFileExA(temp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+				}
 			}
 		}
 		if (pending_line) {

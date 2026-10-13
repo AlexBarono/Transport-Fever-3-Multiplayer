@@ -439,6 +439,9 @@ Test 'parallel: four connections transfer odd file sizes and unicode names with 
 		Assert (@($rows | Where-Object event -eq 'complete').Count -eq 1) 'completed trace survives worker teardown'
 		$summary = @($rows | Where-Object event -eq 'data_summary')[0]
 		Assert ($summary.bytes -eq 12123464 -and $summary.streams -eq 4 -and $summary.mib_per_s -gt 0) 'measured byte counts, streams and throughput'
+		$settings = @($rows | Where-Object event -eq 'settings')[0]
+		$attempt = @($rows | Where-Object event -eq 'attempt')[0]
+		Assert ($settings.max_attempts -eq 5 -and $settings.wait_seconds -in 0,30 -and $attempt.attempt -eq 1 -and $attempt.connection_attempt -eq 1) 'retry budget and actual connection attempt are recorded on both peers'
 		Assert ((Get-Content -LiteralPath $stats.LogPath -Raw) -notmatch 'Parallel|127\.0\.0\.1|[a-f0-9]{64}') 'trace has no save names, IPs or tokens'
 	}
 	foreach ($f in 'Parallel ä .sav','Parallel ä .jpg') { Assert (Test-SameBytes (Get-FileSha256 (Join-Path $hostDir $f)) (Get-FileSha256 (Join-Path $clientDir $f))) $f }

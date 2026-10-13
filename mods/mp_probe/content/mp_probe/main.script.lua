@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 58
+main.PROBE_VERSION = 59
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -110,6 +110,8 @@ main.SEND_MARKER = "net send "
 -- the DLL uses 768-byte UDP fragments, independently of those bridge chunks.
 main.MAX_LINE = transport.MAX_BYTES
 main.RECEIVED_MARKER = "net received token="
+main.HANDOVER_RETRY_SECONDS = 2
+main.HANDOVER_RETRY_POLLS = 50
 
 --- v24: keeping the two games in step (sync.lua). The simulation records a checkpoint every
 -- sync.CHECK_MS of game time and reads the other game's every SYNC_READ_EVERY updates. Without a
@@ -154,6 +156,7 @@ local last_bridge_in = false
 
 --- True if a line from the other game waits in TF3MP_IN or an action line waits to go out.
 function main.bridge_has_work(env, s)
+	if s.network_handover and s.network_handover.phase == "queued" then return true end
 	if actions.next_line_waiting(s) then return true end
 	local getenv = env.os and env.os.getenv
 	if not getenv then return false end
@@ -173,7 +176,10 @@ function main.bridge_tick(env, seq, s, state, quiet)
 	if outgoing then transport.send(outgoing, s, logger.info) end
 	if state then main.store(state, s) end
 	local getenv = env.os and env.os.getenv
-	if not getenv then return end
+	if not getenv then
+		if state then main.handover_tick(env, state) end
+		return
+	end
 	local ok, value = pcall(getenv, main.BRIDGE_ENV)
 	if not ok then value = "ERR " .. tostring(value) end
 	if value ~= last_bridge_in then
@@ -189,17 +195,36 @@ function main.bridge_tick(env, seq, s, state, quiet)
 		main.request_replay(env, s, request)
 	end
 	if type(value) == "string" and s then main.receive_line(env, s, value, state) end
+	if state then main.handover_tick(env, state) end
 end
 
 --- Handles a "line <token> <kind> <text>" value from the DLL. The DLL keeps the value until it sees
 -- the acknowledgement in stdout.txt, so the same token can be read again by the next tick; it is
 -- built only once (the token is kept in the savegame state) but acknowledged every time.
 function main.receive_line(env, s, value, state)
-	value = transport.receive(s, value, logger.info)
+	value = transport.receive(s, value, logger.info, state ~= nil)
 	if state then main.store(state, s) end
 	if not value then return end
 	local token, kind, line = string.match(value, "^line (%S+) (%a+) (.+)$")
-	if not token then return end
+	if not token or #line > main.MAX_LINE then return end
+	if state then
+		local live = state:get() or {}
+		-- Never release the DLL inbox while another receipt owns the event state.
+		-- In particular a scheduled action has no separate native inbox permit.
+		if live.network_work and live.network_work.token ~= token then return end
+		local h, reason = transport.accept_handover(state, token, kind, line,
+			kind == "loop" and main.REPLAY_SIDE_OFFSET or 0)
+		if not h and reason ~= "owned" then return end
+		live = state:get() or {}
+		transport.ack_complete(live, token, logger.info)
+		logger.info(main.RECEIVED_MARKER .. token .. " kind=" .. kind .. " (" .. #line .. " characters)")
+		if live.network_done and live.network_done.token == token then
+			logger.info("net result " .. token .. " " .. live.network_done.result)
+		end
+		main.handover_tick(env, state)
+		return
+	end
+	-- Legacy one-PC callers without a game-script state cannot retain a handover.
 	logger.info(main.RECEIVED_MARKER .. token .. " kind=" .. kind .. " (" .. #line .. " characters)")
 	if token == s.last_line_token then
 		if s.network_done and s.network_done.token == token then
@@ -226,6 +251,42 @@ function main.receive_line(env, s, value, state)
 		return
 	end
 	main.replay_line(env, line, token, state, offset)
+end
+
+local function handover_time(env)
+	for _, key in ipairs({ "time", "clock" }) do
+		local ok, now = pcall(function() return env.os[key]() end)
+		if ok and type(now) == "number" and now == now and math.abs(now) < math.huge then return now, key end
+	end
+end
+
+-- Sending a scripting command is not evidence that its event was delivered.
+-- Retry only the durable, not-yet-started handover; the handler atomically claims
+-- its identity before executing anything. Once started, only diagnostics remain.
+function main.handover_tick(env, state)
+	local s = state:get() or {}; local h = s.network_handover
+	if not h or h.phase ~= "queued" or s.network_work then return end
+	main.publish_network_work(state, false)
+	s = state:get() or s; h = s.network_handover
+	h.polls = (h.polls or 0) + 1
+	local now, timer = handover_time(env)
+	local due = (h.attempts or 0) == 0
+	if not due then
+		if now and h.timer == timer and h.last_attempt and now >= h.last_attempt then
+			due = now - h.last_attempt >= main.HANDOVER_RETRY_SECONDS or h.polls >= 2000
+		else due = h.polls >= main.HANDOVER_RETRY_POLLS end
+	end
+	if not due then state:set(s); return end
+	h.attempts, h.polls = (h.attempts or 0) + 1, 0
+	h.last_attempt, h.timer = now, timer
+	state:set(s)
+	local sent = main.send_replay_event(env, { number = h.token, source = h.kind,
+		handover_id = h.id, handover_world = h.world })
+	-- No state write after dispatch: the event may have run synchronously.
+	if h.attempts == 1 or h.attempts % 5 == 0 then
+		logger.info("net handover " .. h.token .. ": event attempt " .. h.attempts ..
+			(sent and " submitted; waiting for execution to start" or " unavailable; retained for safe delivery"))
+	end
 end
 
 --- Argument lists tried for api.cmd.makeScriptingSendEventCmd; TF2's equivalent took
@@ -832,8 +893,32 @@ end
 function main.store(state, s)
 	local live = state:get() or {}
 	s.network_work, s.network_done, s.network_followup = live.network_work, live.network_done, live.network_followup
+	s.network_handover, s.network_handover_seq = live.network_handover, live.network_handover_seq
+	s.network_handover_epoch, s.network_receipt_seq = live.network_handover_epoch, live.network_receipt_seq
+	s.network_work_published = live.network_work_published
+	s.last_line_token, s.loaded_world = live.last_line_token, live.loaded_world
 	s.timeline = live.timeline
 	state:set(s)
+end
+
+-- A compact native/launcher heartbeat. A handoff is still unstarted and may be
+-- safely redelivered; callbacks/followup/weld always retain their engine receipt.
+function main.publish_network_work(state, heartbeat)
+	local s = state:get() or {}; local w, h = s.network_work, s.network_handover
+	local token, phase, pending = "-", "idle", 0
+	if w then
+		token, pending = w.token, math.max(0, math.min(100000, tonumber(w.pending) or 0))
+		if pending > 0 then phase = "callbacks"
+		elseif s.network_followup then phase = "followup"
+		elseif s.weld_checks and #s.weld_checks > 0 then phase = "weld"
+		else phase = "waiting" end
+	elseif h and h.phase == "queued" then token, phase = h.token, "handoff" end
+	local raw = "token=" .. tostring(token):gsub("[^%w_.%-]", "_"):sub(1, 120) ..
+		" phase=" .. phase .. " pending=" .. string.format("%d", pending)
+	if heartbeat or raw ~= s.network_work_published then
+		s.network_work_published = raw; state:set(s)
+		logger.info(main.STATE_MARKER .. "work " .. raw)
+	end
 end
 
 --- Once per bridge tick while a received action is not confirmed yet: what it still waits for, so a
@@ -850,6 +935,9 @@ end
 
 function main.reset_loaded_runtime(s)
 	s.network_work, s.network_followup, s.network_done = nil, nil, nil
+	s.network_handover = nil
+	s.network_handover_epoch = (s.network_handover_epoch or 0) + 1
+	s.network_work_published = nil
 	s.actions, s.action_inbox, s.action_work = nil, nil, nil
 	s.action_busy, s.action_work_requested = false, false
 	s.sync, s.timeline = nil, nil
@@ -885,7 +973,11 @@ end
 -- update and the first GUI heartbeat while paused must use this same path.
 function main.loaded_state(env, state)
 	local s = state:get() or {}
-	if main.initialize_loaded_world(env, s) then state:set(s) end
+	if main.initialize_loaded_world(env, s) then
+		state:set(s)
+		main.publish_network_work(state, true)
+		s = state:get() or s
+	end
 	return s
 end
 
@@ -989,6 +1081,7 @@ function main.update(_user_params, state, _dt)
 	main.check_network(state)
 	s = state:get() or s
 	main.log_network_wait(s)
+	main.publish_network_work(state, bridge_now)
 	if actions.has_work(s) and not s.action_work_requested then
 		s.action_work_requested = true
 		state:set(s)
@@ -1391,6 +1484,7 @@ function main.check_network(state)
 			logger.info("timeline result " .. origin .. "." .. seq .. " " .. result)
 		else logger.info(text) end
 	end, main.skip_failures(_G))
+	main.publish_network_work(state, false)
 end
 
 function main.timeline_tick(env, state)
@@ -1502,6 +1596,7 @@ function main.paused_network_tick(env, state)
 	main.store(state, s)
 	if main.bridge_has_work(env, s) then main.bridge_tick(env, 0, s, state, true) end
 	main.timeline_tick(env, state)
+	main.publish_network_work(state, s.paused_polls % main.BRIDGE_EVERY == 0)
 end
 
 --- The simulation side of keeping the games in step (sync.lua), once per update.
@@ -2230,6 +2325,16 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 		local line = type(param) == "table" and param.line or nil
 		local number = type(param) == "table" and param.number or nil
 		local distance = type(param) == "table" and tonumber(param.offset) or nil
+		local durable = type(param) == "table" and param.handover_id ~= nil
+		if durable then
+			local reason
+			line, reason = transport.start_handover(state, param)
+			if not line then
+				logger.info("net handover " .. tostring(number):sub(1, 120) .. ": ignored " .. tostring(reason) .. " event")
+				return
+			end
+			distance = reason -- start_handover returns the persisted replay offset on success.
+		end
 		logger.info("replay event received (src=" .. tostring(src) .. " id=" .. tostring(id) .. ", line " ..
 			(line and (#line .. " characters") or "missing") .. ")")
 		if not line then
@@ -2243,7 +2348,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 			if live.timeline then timeline.reject(live.timeline, "engine event missed the common tick"); state:set(live) end
 			logger.info("timeline execution rejected after its tick"); return
 		end
-		if network then
+		if network and not durable then
 			local live = state:get() or {}
 			if live.network_done and live.network_done.token == tostring(number) then
 				logger.info("net result " .. tostring(number) .. " " .. live.network_done.result)
@@ -2263,8 +2368,8 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 				end
 				return
 			end
-			transport.describe(state, "Aktion " .. tostring(line and line:sub(1, 2) or "unbekannt"))
 		end
+		if network then transport.describe(state, "Aktion " .. tostring(line and line:sub(1, 2) or "unbekannt")) end
 		local env = transport.env(_G, state)
 		-- Keep the exact incoming build once, so a missing rail connection can be reproduced
 		-- offline. The bridge preview truncates it; duplicate deliveries return above.
@@ -2296,6 +2401,7 @@ function main.handleEvent(_user_params, state, src, id, name, param)
 		-- A native callback or an event in flight cannot survive a game reload.
 		-- Observe the loaded save anew; don't execute persisted, stale UI operations.
 		main.reset_loaded_runtime(s)
+		logger.info(main.STATE_MARKER .. "work token=- phase=idle pending=0")
 	end
 	-- Event counts live in the savegame; start over for each probe version so a new version dumps again.
 	if s.seen_events_version ~= main.PROBE_VERSION then

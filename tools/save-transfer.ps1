@@ -36,25 +36,82 @@ function Start-SaveTransferTrace([string]$Role) {
 		if (-not $dir) { $dir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'TF3MP\Logs' }
 		[IO.Directory]::CreateDirectory($dir) | Out-Null
 		$path = Join-Path $dir ('save-transfer-{0}-{1}-{2}.jsonl' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $PID, [Guid]::NewGuid().ToString('N').Substring(0,8))
-		$script:SaveTransferTrace = @{ Path = $path; Role = $Role; Clock = [Diagnostics.Stopwatch]::StartNew() }
+		$script:SaveTransferTrace = @{ Path = $path; Role = $Role; Clock = [Diagnostics.Stopwatch]::StartNew(); Attempt = 0; ConnectionAttempt = 0; Phase = 'prepare'; LastJob = $null }
 		Write-SaveTransferTrace 'start' @{ socket_buffer_bytes = 8MB }
 		if (Get-Command Write-LauncherLog -ErrorAction SilentlyContinue) { Write-LauncherLog "Spielstand-Messprotokoll: $path" }
 	} catch { $script:SaveTransferTrace = $null }
+}
+# Error messages may contain endpoints, invitations, paths or peer-controlled text. Record
+# only bounded exception identities and numeric system codes, never Message/Data/StackTrace.
+function Get-SaveTransferErrorFields($TransferException) {
+	$fields = @{ error_type = 'unknown'; error_reason = 'unknown'; error_chain = @() }
+	try {
+		if (-not $TransferException) { return $fields }
+		$fields.error_type = ($TransferException.GetType().Name -replace '[^A-Za-z0-9_.]', '_').Substring(0, [Math]::Min(80, $TransferException.GetType().Name.Length))
+		$e = $TransferException
+		for ($depth = 0; $e -and $depth -lt 8; $depth++) {
+			$typeName = $e.GetType().Name -replace '[^A-Za-z0-9_.]', '_'
+			$item = @{ type = $typeName.Substring(0, [Math]::Min(80, $typeName.Length)); hresult = [int]$e.HResult }
+			if ($e -is [Net.Sockets.SocketException]) {
+				$item.socket_error = $e.SocketErrorCode.ToString(); $item.socket_code = [int]$e.NativeErrorCode
+				if ($fields.error_reason -eq 'unknown') { $fields.error_reason = 'socket_error' }
+			} elseif ($e -is [IO.EndOfStreamException]) { $fields.error_reason = 'peer_closed_stream' }
+			elseif ($e -is [TimeoutException]) { $fields.error_reason = 'timeout' }
+			elseif ($e -is [OperationCanceledException] -or $e.Message -ceq 'Abgebrochen.') { $fields.error_reason = 'cancelled' }
+			elseif ($e -is [IO.InvalidDataException]) { $fields.error_reason = 'invalid_transfer_data' }
+			if ($e.Data -and $e.Data['TF3MPNoHost']) {
+				$reason = [string]$e.Data['TF3MPNoHostReason']
+				$fields.error_reason = if ($reason -in 'host_not_ready','connect_failed','connect_timeout') { $reason } else { 'host_unavailable' }
+			}
+			$fields.error_chain += $item
+			$next = $e.InnerException
+			# Connect failures keep their existing retry semantics; this private diagnostic
+			# reference exposes the discarded socket cause without changing InnerException.
+			if (-not $next -and $e.Data -and $e.Data['TF3MPConnectError'] -is [Exception]) { $next = $e.Data['TF3MPConnectError'] }
+			$e = $next
+		}
+		$fields.error_chain_truncated = [bool]$e
+	} catch {} # Diagnostic collection must never replace the actual transfer error.
+	return $fields
+}
+function Set-SaveTransferTracePhase([string]$Phase) {
+	if ($script:SaveTransferTrace -and $Phase -in 'starting','connect','allocate','data','verify','hash','header','file_headers','compatibility','replacement','confirmation') {
+		$script:SaveTransferTrace.Phase = $Phase
+	}
+}
+function Set-SaveTransferTraceProgress([string]$Kind, [int64]$Bytes) {
+	if ($script:SaveTransferTrace) { $script:SaveTransferTrace.LastJob = @{ kind = $Kind; bytes = $Bytes; streams = 1; lane_bytes = @($Bytes) } }
+	Set-SaveTransferTracePhase 'data'
 }
 function Write-SaveTransferTrace([string]$Event, $Fields = @{}) {
 	if (-not $script:SaveTransferTrace) { return }
 	try {
 		$trace = $script:SaveTransferTrace
+		if ($Event -eq 'attempt') {
+			$trace.Attempt = [int]$Fields.number; $trace.ConnectionAttempt++; $trace.Phase = 'connect'; $trace.LastJob = $null
+		}
+		$phase = switch ($Event) { 'connected' { 'header' }; 'negotiated' { 'file_headers' }; 'replacement_check' { 'replacement' }; 'confirmation_wait' { 'confirmation' } }
+		if ($phase) { Set-SaveTransferTracePhase $phase }
 		$row = [ordered]@{ utc = [DateTime]::UtcNow.ToString('o'); elapsed_s = [Math]::Round($trace.Clock.Elapsed.TotalSeconds,3); role = $trace.Role; event = $Event }
-		if($Event -match '(^failed$|_failed$)') { $row.failure_stage = $trace.LastStage }
+		if ($trace.Attempt -gt 0) { $row.attempt = $trace.Attempt; $row.connection_attempt = $trace.ConnectionAttempt }
+		if($Event -match '(^failed$|_failed$)') {
+			$row.failure_stage = $trace.LastStage; $row.failure_phase = $trace.Phase
+			if ($trace.LastJob) {
+				$row.kind = $trace.LastJob.kind; $row.bytes = $trace.LastJob.bytes; $row.streams = $trace.LastJob.streams; $row.lane_bytes = @($trace.LastJob.lane_bytes)
+				# The worker currently supplies per-lane offsets but no failing-lane identity.
+				# A smaller offset does not prove which connection failed first.
+				$row.failure_lane_known = $false
+			}
+		}
 		foreach ($key in $Fields.Keys) { $row[$key] = $Fields[$key] }
 		[IO.File]::AppendAllText($trace.Path, (($row | ConvertTo-Json -Depth 5 -Compress) + [Environment]::NewLine), (New-Object Text.UTF8Encoding($false)))
 		if($Event -notmatch '(^sample$|failed$)') { $trace.LastStage = $Event }
 	} catch {}
 }
-function Write-SaveJobTrace($Job, [string]$Event, $Watch) {
+function Write-SaveJobTrace($Job, [string]$Event, $Watch, $TransferException = $null) {
 	if ($Job.Kind -notin 'send','receive','hash') { return }
-	Write-SaveTransferTrace $Event @{
+	Set-SaveTransferTracePhase $Job.Phase
+	$fields = @{
 		kind = $Job.Kind; phase = $Job.Phase; method = $Job.Method; streams = $Job.Streams
 		bytes = $Job.Bytes; seconds = [Math]::Round($Watch.Elapsed.TotalSeconds,3)
 		mib_per_s = [Math]::Round(($Job.Bytes / 1MB / [Math]::Max(0.001, $Watch.Elapsed.TotalSeconds)),3)
@@ -63,6 +120,12 @@ function Write-SaveJobTrace($Job, [string]$Event, $Watch) {
 		verify_s = [Math]::Round($Job.VerifySeconds,3); data_s = [Math]::Round($Job.Seconds,3)
 		send_buffer_bytes = $Job.SendBufferBytes; receive_buffer_bytes = $Job.ReceiveBufferBytes
 	}
+	if ($script:SaveTransferTrace) { $script:SaveTransferTrace.LastJob = @{ kind = $Job.Kind; bytes = $Job.Bytes; streams = $Job.Streams; lane_bytes = @($Job.LaneBytes) } }
+	if ($TransferException) {
+		$details = Get-SaveTransferErrorFields $TransferException
+		foreach ($key in $details.Keys) { $fields[$key] = $details[$key] }
+	}
+	Write-SaveTransferTrace $Event $fields
 }
 $SaveChunk = 1MB
 # v36: Socketpuffer. Ein Puffer von 64 KB erlaubt nur 64 KB unterwegs; über ein VPN mit etwa 60 ms Ping sind das
@@ -161,9 +224,11 @@ function Get-TransferNetworkError($exception) {
 function New-TransferBreak($text) { return New-Object System.IO.IOException($text) }
 
 # Der Gastgeber wartet (noch) nicht: Mit -WaitSeconds versucht der Mitspieler es weiter, sonst endgültig.
-function New-NoHostError($text) {
+function New-NoHostError($text, [string]$Reason = 'host_unavailable', $DiagnosticError = $null) {
 	$e = New-Object System.Exception($text)
 	$e.Data['TF3MPNoHost'] = $true
+	$e.Data['TF3MPNoHostReason'] = $Reason
+	if ($DiagnosticError -is [Exception]) { $e.Data['TF3MPConnectError'] = $DiagnosticError }
 	return $e
 }
 function Test-NoHostError($exception) { return [bool]($exception -and $exception.Data -and $exception.Data['TF3MPNoHost']) }
@@ -191,6 +256,7 @@ function Wait-SaveJob($Job, $Tick, [string]$Text, [int64]$Total = 0, [int64]$Bas
 	Write-SaveJobTrace $Job 'job_start' $jobClock
 	try {
 		while (-not $Job.Work.Wait(100)) {
+			if ($Job.Kind -in 'send','receive','hash') { Set-SaveTransferTracePhase $Job.Phase }
 			if ($jobClock.ElapsedMilliseconds - $sampleAt -ge 1000) { $sampleAt = $jobClock.ElapsedMilliseconds; Write-SaveJobTrace $Job 'sample' $jobClock }
 			if (Write-SaveProgress $meter $Tick $Text ($BaseDone + $Job.Bytes) $Total) { throw 'Abgebrochen.' }
 			if ($ControlClient -and $ControlClient.GetStream().DataAvailable) {
@@ -208,9 +274,10 @@ function Wait-SaveJob($Job, $Tick, [string]$Text, [int64]$Total = 0, [int64]$Bas
 		Write-SaveJobTrace $Job 'job_done' $jobClock
 		return ,$Job.Result
 	} catch {
+		$transferFailure = $_.Exception
 		$Job.Cancel()
 		[void]$Job.Work.Wait(3000)
-		Write-SaveJobTrace $Job 'job_failed' $jobClock
+		Write-SaveJobTrace $Job 'job_failed' $jobClock $transferFailure
 		throw
 	}
 }
@@ -221,12 +288,14 @@ function Read-SaveHeader($Reader, [string]$Kind, $Tick, [string]$Text, [int]$Lim
 }
 
 function Write-SaveData($Stream, [byte[]]$Buffer, [int]$Offset, [int]$Count, $Progress, $Tick, [string]$Text, [int64]$Done, [int64]$Total) {
+	Set-SaveTransferTraceProgress 'send' $Done
 	$job = [TF3MP.TransferJob]::Write($Stream, $Buffer, $Offset, $Count)
 	try {
 		while (-not $job.Work.Wait(100)) {
 			if (Write-SaveProgress $Progress $Tick $Text $Done $Total) { throw 'Abgebrochen.' }
 		}
 		if ($job.Error) { throw $job.Error }
+		Set-SaveTransferTraceProgress 'send' ($Done + $Count)
 	} catch { $job.Cancel(); [void]$job.Work.Wait(3000); throw }
 }
 
@@ -240,6 +309,7 @@ function Set-SaveTransferStats($Job) {
 # Asynchroner Nutzdatenempfang hält den Abbrechen-Knopf auch bei einem stehenden VPN bedienbar.
 # Die BinärWriter-Kopfdaten und das bestehende Sitzungsprotokoll ändern sich dadurch nicht.
 function Read-SaveData($Stream, [byte[]]$Buffer, [int]$Count, $Progress, $Tick, [string]$Text, [int64]$Done, [int64]$Total, [int]$TimeoutSeconds = 60) {
+	Set-SaveTransferTraceProgress 'receive' $Done
 	$operation = $Stream.BeginRead($Buffer, 0, $Count, $null, $null)
 	$deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
 	$cancelOperation = $false
@@ -248,7 +318,9 @@ function Read-SaveData($Stream, [byte[]]$Buffer, [int]$Count, $Progress, $Tick, 
 			if (Write-SaveProgress $Progress $Tick $Text $Done $Total) { $cancelOperation = $true; throw 'Abgebrochen.' }
 			if ([DateTime]::UtcNow -ge $deadline) { $cancelOperation = $true; throw (New-TransferBreak "Seit $TimeoutSeconds Sekunden keine Datenübertragung. $SaveRetryHint") }
 		}
-		return $Stream.EndRead($operation)
+		$receivedBytes = $Stream.EndRead($operation)
+		if ($receivedBytes -gt 0) { Set-SaveTransferTraceProgress 'receive' ($Done + $receivedBytes) }
+		return $receivedBytes
 	} catch { if ($cancelOperation) { $Stream.Close() }; throw }
 	finally { $operation.AsyncWaitHandle.Close() }
 }
@@ -278,6 +350,7 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 	$writer = New-Object System.IO.BinaryWriter($stream, [System.Text.Encoding]::UTF8)
 	$reader = New-Object System.IO.BinaryReader($stream, [System.Text.Encoding]::UTF8)
 	try {
+		Set-SaveTransferTracePhase 'compatibility'
 		if ($Session) {
 			$writer.Write($SaveSessionMagic)
 			$writer.Write([int]$metadata.Length); $writer.Write([byte[]]$metadata); $writer.Flush()
@@ -303,6 +376,7 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 		$progress = New-SaveProgress
 		$plans = @()
 		foreach ($f in $files) {
+			Set-SaveTransferTracePhase 'file_headers'
 			$writer.Write($f.Name)
 			$writer.Write([int64]$f.Length)
 			$writer.Write([byte[]]$hashes[$f.Name])
@@ -341,6 +415,7 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 			$done = $job.Bytes
 		}
 	} catch {
+		Write-SaveTransferTrace 'send_failed' (Get-SaveTransferErrorFields $_.Exception)
 		# Schreibfehler: Meist hat der Mitspieler die Verbindung geschlossen. Seine Begründung steht dann noch im Empfangspuffer.
 		if (Get-TransferNetworkError $_.Exception) {
 			$reason = Read-ReceiverAbort $client $reader 3000 $tick
@@ -349,12 +424,14 @@ function Send-SaveToClient($client, $Session, $metadata, $name, $files, $hashes,
 		}
 		throw
 	}
+	Set-SaveTransferTracePhase 'confirmation'
 	if (& $tick "Warte auf die Bestätigung des Mitspielers ..." $done $total) { throw 'Abgebrochen.' }
 	Write-SaveTransferTrace 'confirmation_wait'
 	try {
 		$ok = Read-SaveHeader $reader 'byte' $tick 'Warte auf die Bestätigung des Mitspielers ...'
 		$text = Read-SaveHeader $reader 'text' $tick 'Warte auf die Bestätigung des Mitspielers ...'
 	} catch {
+		Write-SaveTransferTrace 'confirmation_failed' (Get-SaveTransferErrorFields $_.Exception)
 		if (Get-TransferNetworkError $_.Exception) { throw (New-TransferBreak "Der Mitspieler hat den Empfang nicht bestätigt, die Verbindung ist abgebrochen. $SaveRetryHint") }
 		throw
 	}
@@ -371,7 +448,7 @@ function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Se
 	if ($Connections -lt 1 -or $Connections -gt 4) { throw 'Die Zahl der Datenverbindungen muss zwischen 1 und 4 liegen.' }
 	$script:LastSaveTransfer = $null
 	Start-SaveTransferTrace 'host'
-	Write-SaveTransferTrace 'settings' @{ streams = $Connections; continuous = $Continuous }
+	Write-SaveTransferTrace 'settings' @{ streams = $Connections; continuous = $Continuous; max_attempts = $MaxAttempts; wait_seconds = $waitSeconds }
 	$files = Get-SaveFiles $savPath
 	$name = [System.IO.Path]::GetFileNameWithoutExtension($savPath)
 	$hashes = @{}
@@ -421,7 +498,8 @@ function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Se
 				if ($Session) { return [pscustomobject]@{ Text = $text; Session = $Session; SavePath = [IO.Path]::GetFullPath($savPath) } }
 				return $text
 			} catch {
-				Write-SaveTransferTrace 'attempt_failed' @{ number = $attempt; error_type = $_.Exception.GetType().Name }
+				$transferFailure = Get-SaveTransferErrorFields $_.Exception; $transferFailure.number = $attempt
+				Write-SaveTransferTrace 'attempt_failed' $transferFailure
 				$break = Get-TransferNetworkError $_.Exception
 				if (-not $break -or $attempt -ge $MaxAttempts) { if ($break) { throw $break.Message }; throw }
 				$lastBreak = $break.Message
@@ -429,7 +507,7 @@ function Send-Savegame($savPath, [int]$port, $tick, [int]$waitSeconds = 600, $Se
 			} finally { if (-not $handedOff) { $client.Close() } }
 		}
 	} catch {
-		Write-SaveTransferTrace 'failed' @{ error_type = $_.Exception.GetType().Name }
+		Write-SaveTransferTrace 'failed' (Get-SaveTransferErrorFields $_.Exception)
 		throw
 	} finally {
 		$listener.Stop()
@@ -466,11 +544,11 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		try {
 			$deadline = [DateTime]::UtcNow.AddSeconds(15)
 			while (-not $async.AsyncWaitHandle.WaitOne(100)) {
-				if ([DateTime]::UtcNow -gt $deadline) { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt?") }
+				if ([DateTime]::UtcNow -gt $deadline) { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt?" 'connect_timeout') }
 				if (& $tick "Verbinde mit $($hostIp):$port ..." 0 0) { throw 'Abgebrochen.' }
 			}
 			# No connection: final unless Receive-Savegame was asked to wait for the host.
-			try { $client.EndConnect($async) } catch { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt? ($((Get-TransferNetworkError $_.Exception).Message))") }
+			try { $client.EndConnect($async) } catch { throw (New-NoHostError "Keine Verbindung zu $($hostIp):$port. Hat der Gastgeber auf 'Spielstand übertragen' geklickt? ($((Get-TransferNetworkError $_.Exception).Message))" 'connect_failed' $_.Exception) }
 		} finally { $async.AsyncWaitHandle.Close() }
 		$client.ReceiveTimeout = 60000
 		Write-SaveTransferTrace 'connected'
@@ -481,8 +559,9 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		$writer = New-Object System.IO.BinaryWriter($stream, [System.Text.Encoding]::UTF8)
 		$headerText = 'Warte auf die Übertragungsdaten des Gastgebers ...'
 		$magic = Read-SaveHeader $reader 'text' $tick $headerText 32
-		if ($magic -eq 'TF3MPWAIT') { throw (New-NoHostError 'Der Internetzugang steht. Der Gastgeber hat den Spielstand noch nicht bereitgestellt; warte auf seinen Launcher.') }
+		if ($magic -eq 'TF3MPWAIT') { throw (New-NoHostError 'Der Internetzugang steht. Der Gastgeber hat den Spielstand noch nicht bereitgestellt; warte auf seinen Launcher.' 'host_not_ready') }
 		if ($magic -eq $SaveSessionMagic) {
+			Set-SaveTransferTracePhase 'compatibility'
 			if (-not $LocalManifest) { throw 'Der Gastgeber verlangt die neue Kompatibilitätsprüfung. Bitte denselben aktuellen Launcher verwenden.' }
 			$metadataLength = Read-SaveHeader $reader 'int' $tick $headerText
 			if ($metadataLength -lt 2 -or $metadataLength -gt 1MB) { throw 'Ungültige Sitzungsbeschreibung vom Gastgeber.' }
@@ -521,6 +600,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		$done = [int64]0
 		$progress = New-SaveProgress
 		for ($i = 0; $i -lt $count; $i++) {
+			Set-SaveTransferTracePhase 'file_headers'
 			$fileName = Read-SaveHeader $reader 'text' $tick $headerText 800
 			$length = Read-SaveHeader $reader 'long' $tick $headerText
 			$hash = Read-SaveHeader $reader 'bytes' $tick $headerText 32
@@ -545,6 +625,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			try { $partFile = [System.IO.File]::Create($part) }
 			catch { $sha.Dispose(); throw "Der Spielstand kann nicht in '$saveDir' gespeichert werden: $($_.Exception.Message)" }
 			try {
+				Set-SaveTransferTracePhase 'data'
 				$left = $length
 				while ($left -gt 0) {
 					$want = [int][Math]::Min([int64]$buffer.Length, $left)
@@ -556,6 +637,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 					$done += $n
 					if (Write-SaveProgress $progress $tick "Empfange '$name' ..." $done $total) { throw 'Abgebrochen.' }
 				}
+				Set-SaveTransferTracePhase 'verify'
 				[void]$sha.TransformFinalBlock($buffer, 0, 0)
 				if (-not (Test-SameBytes $sha.Hash $hash)) { throw (New-TransferBreak "Die Datei '$fileName' kam beschädigt an.") }
 			} finally { $partFile.Dispose(); $sha.Dispose() }
@@ -574,6 +656,7 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			$target = Join-Path $saveDir $r.Name
 			if ((Test-Path -LiteralPath $target) -and -not (Test-SameBytes (Get-FileSha256 $target $tick) $r.Hash)) { $replace += $r.Name }
 		}
+		Set-SaveTransferTracePhase 'replacement'
 		if ($replace.Count -gt 0 -and -not (& $confirm "Es gibt schon einen anderen Spielstand '$name'. Ersetzen? (Der alte bleibt als .bak erhalten.)")) {
 			throw "Nicht gespeichert: Der Mitspieler wollte seinen Spielstand mit diesem Namen behalten ('$name')."
 		}
@@ -584,13 +667,14 @@ function Receive-SaveOnce($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 		}
 		$partsRef.Value = @()
 		$text = "Spielstand '$name' gespeichert ($([Math]::Round($done / 1MB, 1)) MB)."
+		Set-SaveTransferTracePhase 'confirmation'
 		$writer.Write([byte]1); $writer.Write($text); $writer.Flush()
 		Write-SaveTransferTrace 'complete' @{ total_bytes = $total }
 		if ($KeepConnection) { $KeepConnection.Value = $client; $handedOff = $true }
 		if ($session) { return [pscustomobject]@{ Text = $text; Session = $session; SavePath = (Join-Path $saveDir ($name + '.sav')) } }
 		return $text
 	} catch {
-		Write-SaveTransferTrace 'receive_failed' @{ error_type = $_.Exception.GetType().Name }
+		Write-SaveTransferTrace 'receive_failed' (Get-SaveTransferErrorFields $_.Exception)
 		# Endgültige Gründe gehen an den Gastgeber, damit er sie anzeigen kann; Netzwerkfehler versucht der Aufrufer erneut.
 		if ($writer -and -not (Get-TransferNetworkError $_.Exception)) { Send-ReceiverAbort $client $writer $_.Exception.Message }
 		throw
@@ -608,7 +692,7 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 	if ($Connections -lt 1 -or $Connections -gt 4) { throw 'Die Zahl der Datenverbindungen muss zwischen 1 und 4 liegen.' }
 	$script:LastSaveTransfer = $null
 	Start-SaveTransferTrace 'client'
-	Write-SaveTransferTrace 'settings' @{ streams = $Connections; continuous = $Continuous }
+	Write-SaveTransferTrace 'settings' @{ streams = $Connections; continuous = $Continuous; max_attempts = $MaxAttempts; wait_seconds = $WaitSeconds }
 	$parts = @()
 	$waitUntil = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
 	try {
@@ -643,7 +727,7 @@ function Receive-Savegame($hostIp, [int]$port, $saveDir, $tick, $confirm, $Local
 			}
 		}
 	} catch {
-		Write-SaveTransferTrace 'failed' @{ error_type = $_.Exception.GetType().Name }
+		Write-SaveTransferTrace 'failed' (Get-SaveTransferErrorFields $_.Exception)
 		throw
 	} finally {
 		foreach ($p in $parts) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue } }

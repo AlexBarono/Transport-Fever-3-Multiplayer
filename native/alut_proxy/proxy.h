@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <stdarg.h>
 
-#define PROXY_VERSION "15"
+#define PROXY_VERSION "16"
 
 /* Longest build line the DLL passes between the games, in characters. */
 #define NET_LINE_MAX 262145
@@ -15,8 +15,10 @@
 
 /* State texts (v8): the latest text per key, sent to the peer every second, nothing queued. */
 #define NET_STATE_MAX 1024
-#define NET_STATE_KEYS 8
+#define NET_STATE_KEYS 16
 #define NET_STATE_KEY_MAX 12
+/* Includes queue categories, current order progress and both Lua work receipts. */
+#define NET_STATUS_MAX 2048
 
 /* Appends one timestamped line to alut_proxy.log next to the DLL. */
 void proxy_log(const char *fmt, ...);

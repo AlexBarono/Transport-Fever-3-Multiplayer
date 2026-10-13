@@ -74,7 +74,7 @@ def dll(role, port, name=None, test="", manifest=MANIFEST, initialize=True):
     return api
 
 def status(api):
-    buf = c.create_string_buffer(1024); api.mp_status(buf)
+    buf = c.create_string_buffer(2048); api.mp_status(buf)
     return dict(line.split("=", 1) for line in buf.value.decode().splitlines())
 
 def wait(check, seconds=15):
