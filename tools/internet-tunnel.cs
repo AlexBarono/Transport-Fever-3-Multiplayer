@@ -10,6 +10,8 @@ using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -49,6 +51,347 @@ namespace TF3MP.Internet {
         public long Rejected { get { return Interlocked.Read(ref rejected); } }
         public long Reconnects { get { return Interlocked.Read(ref reconnects); } }
         public bool GameChannelConnected { get { return Volatile.Read(ref udpActive) != 0; } }
+
+        // Diagnostics have their own authenticated TLS connection and failure state.
+        // Neither a slow disk nor a missing log can hold up game/save traffic.
+        private const int DiagnosticFrameLimit=32768, DiagnosticLineLimit=512*1024;
+        private const int DiagnosticTailLimit=2*1024*1024, DiagnosticFileLimit=8*1024*1024;
+        private readonly object diagnosticGate=new object();
+        private readonly AutoResetEvent diagnosticWake=new AutoResetEvent(false);
+        private readonly Dictionary<byte,string> diagnosticPaths=new Dictionary<byte,string>();
+        private readonly Dictionary<string,DiagnosticSession> diagnosticSessions=new Dictionary<string,DiagnosticSession>();
+        private string diagnosticRoot="";
+        private volatile string diagnosticDirectory="", diagnosticError="";
+        private readonly string diagnosticSessionId=NewKey().Substring(0,32);
+        private int diagnosticActive, diagnosticCollectorStarted;
+        private Thread diagnosticThread;
+        private long diagnosticBytesSent, diagnosticBytesReceived;
+        public string DiagnosticDirectory { get { return diagnosticDirectory; } }
+        public string DiagnosticLastError { get { return diagnosticError; } }
+        public long DiagnosticBytesSent { get { return Interlocked.Read(ref diagnosticBytesSent); } }
+        public long DiagnosticBytesReceived { get { return Interlocked.Read(ref diagnosticBytesReceived); } }
+        public bool DiagnosticConnected { get { return Volatile.Read(ref diagnosticActive)!=0; } }
+        private static readonly string[] DiagnosticKinds={"", "stdout", "bridge", "launcher", "status", "internet", "transfer"};
+        private sealed class DiagnosticSink {
+            internal string Id, Path; internal long Offset;
+        }
+        private sealed class DiagnosticSession {
+            internal string Directory; internal readonly Dictionary<byte,DiagnosticSink> Sources=new Dictionary<byte,DiagnosticSink>();
+        }
+        private sealed class DiagnosticSource {
+            internal byte Kind; internal string Path, Id, Identity="", Prefix="", Boundary="", SnapshotHash="";
+            internal long RawOffset, AckedOffset;
+            internal bool Initialized, SkipLine, AtEof;
+            internal string NextGap="";
+            internal DateTime PollAfter=DateTime.MinValue;
+            internal DateTime LastGrowth=DateTime.UtcNow;
+            internal DateTime UnavailableSince=DateTime.MinValue;
+            internal readonly Queue<string> NextPaths=new Queue<string>();
+            internal MemoryStream Partial=new MemoryStream();
+            internal byte[] Input, Output, DeferredOutput; internal int InputAt, OutputAt;
+            internal DiagnosticSource(byte kind,string path) { Kind=kind; Path=path; Id=NewKey().Substring(0,32); }
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DiagnosticFileInfo {
+            internal uint Attributes;
+            internal System.Runtime.InteropServices.ComTypes.FILETIME Creation, Access, Write;
+            internal uint Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+        }
+        [DllImport("kernel32.dll",SetLastError=true)]
+        private static extern bool GetFileInformationByHandle(Microsoft.Win32.SafeHandles.SafeFileHandle file, out DiagnosticFileInfo information);
+        private static byte DiagnosticKind(string value) {
+            for(byte i=1;i<DiagnosticKinds.Length;i++) if(String.Equals(value,DiagnosticKinds[i],StringComparison.Ordinal)) return i;
+            throw new ArgumentException("Unsupported diagnostic source kind");
+        }
+        public void EnableDiagnosticReceiver(string root) {
+            if(host!=null || stopped) throw new InvalidOperationException("Diagnostic receiver requires a running host");
+            string resolved=System.IO.Path.GetFullPath(root);
+            lock(diagnosticGate) {
+                if(diagnosticRoot.Length!=0 && !String.Equals(diagnosticRoot,resolved,StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Diagnostic receiver is already configured");
+                diagnosticRoot=resolved; if(diagnosticDirectory.Length==0) diagnosticDirectory=resolved;
+            }
+        }
+        // These are trusted local paths. Only the logical kind and a random stream
+        // identifier cross the network; the peer never supplies a filesystem path.
+        public void SetDiagnosticSources(string[] kinds,string[] paths) {
+            if(host==null || stopped) throw new InvalidOperationException("Diagnostic sources require a running client");
+            if(kinds==null || paths==null || kinds.Length!=paths.Length || kinds.Length>6) throw new ArgumentException("Invalid diagnostic source list");
+            Dictionary<byte,string> replacement=new Dictionary<byte,string>();
+            for(int i=0;i<kinds.Length;i++) {
+                byte kind=DiagnosticKind(kinds[i]);
+                if(replacement.ContainsKey(kind)) throw new ArgumentException("Duplicate diagnostic source kind");
+                if(String.IsNullOrWhiteSpace(paths[i])) throw new ArgumentException("Missing diagnostic source path");
+                replacement.Add(kind,System.IO.Path.GetFullPath(paths[i]));
+            }
+            lock(diagnosticGate) { diagnosticPaths.Clear(); foreach(KeyValuePair<byte,string> p in replacement) diagnosticPaths.Add(p.Key,p.Value); }
+            lock(gate) if(!stopped && Interlocked.CompareExchange(ref diagnosticCollectorStarted,1,0)==0) {
+                diagnosticThread=new Thread(ClientDiagnostics); diagnosticThread.IsBackground=true; diagnosticThread.Start();
+            }
+            lock(gate) if(!stopped) diagnosticWake.Set();
+        }
+        private void DiagnosticError(Exception error) {
+            if(stopped) return;
+            // Exception messages can include local paths or an invitation. Retain
+            // bounded exception/socket types only, never their uncontrolled text.
+            string value=error.GetType().Name; Exception current=error;
+            for(int i=0;i<4 && current!=null;i++,current=current.InnerException) {
+                SocketException socket=current as SocketException;
+                if(socket!=null) { value+=" / "+socket.SocketErrorCode.ToString(); break; }
+            }
+            diagnosticError=value;
+        }
+        private static bool DiagnosticId(string value) {
+            if(value.Length!=32) return false;
+            foreach(char c in value) if(!((c>='0' && c<='9') || (c>='a' && c<='f'))) return false;
+            return true;
+        }
+        private static byte[] DiagnosticIdBytes(string id) {
+            byte[] bytes=new byte[16]; for(int i=0;i<16;i++) bytes[i]=Convert.ToByte(id.Substring(i*2,2),16); return bytes;
+        }
+        private static string DiagnosticIdString(byte[] frame,int at) {
+            return BitConverter.ToString(frame,at,16).Replace("-","").ToLowerInvariant();
+        }
+        private void HostDiagnostics(SslStream ssl) {
+            ssl.ReadTimeout=15000;
+            string sessionId=ReadLine(ssl); if(!DiagnosticId(sessionId)) throw new IOException("Invalid diagnostic session identifier");
+            DiagnosticSession session;
+            {
+                if(!diagnosticSessions.TryGetValue(sessionId,out session)) {
+                    if(diagnosticSessions.Count>=4) {
+                        // Only one diagnostic connection is admitted at a time.
+                        // Drop the oldest resume state, retaining its received files.
+                        string oldest=null; foreach(string old in diagnosticSessions.Keys) { oldest=old; break; }
+                        if(oldest!=null) diagnosticSessions.Remove(oldest);
+                    }
+                    // The host assigns this folder. The remote identifier is only
+                    // a dictionary key and never becomes part of any local path.
+                    session=new DiagnosticSession(); session.Directory=System.IO.Path.Combine(diagnosticRoot,"client-"+Guid.NewGuid().ToString("N"));
+                    System.IO.Directory.CreateDirectory(session.Directory);
+                    File.WriteAllText(System.IO.Path.Combine(session.Directory,"session.txt"),"TF3MP remote diagnostics LOG/1\r\nStarted UTC: "+DateTime.UtcNow.ToString("o")+"\r\n",new UTF8Encoding(false));
+                    diagnosticSessions.Add(sessionId,session);
+                }
+                diagnosticDirectory=session.Directory; diagnosticError="";
+            }
+            Line(ssl,"READY");
+            while(!stopped) {
+                byte[] frame=Frame(ssl,DiagnosticFrameLimit);
+                if(frame.Length==1 && frame[0]==0) { SendFrame(ssl,frame,1); continue; }
+                if(frame.Length<=26 || frame[0]!=1 || frame[1]<1 || frame[1]>=DiagnosticKinds.Length) throw new IOException("Invalid diagnostic frame");
+                byte kind=frame[1]; string sourceId=DiagnosticIdString(frame,2); long offset=BitConverter.ToInt64(frame,18); int count=frame.Length-26;
+                if(offset<0 || offset>Int64.MaxValue-count) throw new IOException("Invalid diagnostic offset");
+                long acknowledged;
+                {
+                    DiagnosticSink sink;
+                    if(!session.Sources.TryGetValue(kind,out sink)) {
+                        if(offset!=0) throw new IOException("Unknown diagnostic stream offset");
+                        sink=new DiagnosticSink(); sink.Id=sourceId; sink.Path=System.IO.Path.Combine(session.Directory,DiagnosticKinds[kind]+".log"); session.Sources.Add(kind,sink);
+                    } else if(sink.Id!=sourceId) {
+                        if(offset!=0) throw new IOException("Changed diagnostic stream offset");
+                        sink.Id=sourceId; sink.Offset=0;
+                        byte[] marker=Encoding.UTF8.GetBytes("\n[TF3MP diagnostics: source replaced or truncated]\n");
+                        DiagnosticAppend(sink.Path,marker,0,marker.Length);
+                    }
+                    if(offset==sink.Offset) {
+                        DiagnosticAppend(sink.Path,frame,26,count); sink.Offset+=count;
+                        Interlocked.Add(ref diagnosticBytesReceived,count);
+                    } else if(offset>sink.Offset || offset+count>sink.Offset) throw new IOException("Diagnostic offset gap");
+                    // A full repeated frame means its ACK was lost. Never append
+                    // it twice, including after reconnect or file rotation.
+                    acknowledged=sink.Offset; diagnosticError="";
+                }
+                byte[] answer=new byte[10]; answer[0]=2; answer[1]=kind; Buffer.BlockCopy(BitConverter.GetBytes(acknowledged),0,answer,2,8); SendFrame(ssl,answer,answer.Length);
+            }
+        }
+        private static void DiagnosticAppend(string path,byte[] bytes,int at,int count) {
+            long length=File.Exists(path) ? new FileInfo(path).Length : 0;
+            if(length+count>DiagnosticFileLimit) {
+                string previous=path+".previous"; if(File.Exists(previous)) File.Delete(previous); File.Move(path,previous);
+                byte[] marker=Encoding.UTF8.GetBytes("[TF3MP diagnostics: older bytes rotated; preceding part is in .previous]\n");
+                File.WriteAllBytes(path,marker);
+            }
+            using(FileStream file=new FileStream(path,FileMode.Append,FileAccess.Write,FileShare.ReadWrite)) { file.Write(bytes,at,count); file.Flush(); }
+        }
+        private string RedactDiagnostic(string value) {
+            value=Regex.Replace(value,@"tf3mp-internet://[^\s\""'<>]+","[invitation redacted]",RegexOptions.IgnoreCase);
+            if(!String.IsNullOrEmpty(secret)) value=Regex.Replace(value,Regex.Escape(secret),"[key redacted]",RegexOptions.IgnoreCase);
+            if(!String.IsNullOrEmpty(pin)) value=Regex.Replace(value,Regex.Escape(pin),"[pin redacted]",RegexOptions.IgnoreCase);
+            return value;
+        }
+        private static string FileIdentity(FileStream file) {
+            DiagnosticFileInfo info;
+            if(GetFileInformationByHandle(file.SafeFileHandle,out info)) return info.Volume.ToString("x8")+info.IndexHigh.ToString("x8")+info.IndexLow.ToString("x8");
+            throw new IOException("Diagnostic file identity unavailable");
+        }
+        private static string FilePiece(FileStream file,long at,int count) {
+            file.Position=at; byte[] bytes=new byte[count]; int got=0,n;
+            while(got<count && (n=file.Read(bytes,got,count-got))>0) got+=n;
+            if(got!=count) throw new IOException("Diagnostic source changed during read"); return Hash(bytes);
+        }
+        private void ResetDiagnosticSource(DiagnosticSource source,long length,string identity,string prefix) {
+            bool replaced=source.Initialized;
+            source.Id=NewKey().Substring(0,32); source.AckedOffset=0; source.Initialized=true;
+            source.Identity=identity; source.Prefix=prefix; source.Boundary=""; source.RawOffset=Math.Max(0,length-DiagnosticTailLimit);
+            source.LastGrowth=DateTime.UtcNow; source.AtEof=false;
+            source.UnavailableSince=DateTime.MinValue;
+            source.Input=null; source.DeferredOutput=null; source.InputAt=0; source.Partial.SetLength(0); source.SkipLine=source.RawOffset>0;
+            string marker=replaced ? "[TF3MP diagnostics: source replaced/truncated; new tail follows]\n" : "[TF3MP diagnostics: source tail begins]\n";
+            if(source.RawOffset>0) marker+="[TF3MP diagnostics: "+source.RawOffset+" earlier source bytes omitted; partial first line skipped]\n";
+            source.Output=Encoding.UTF8.GetBytes(marker); source.OutputAt=0;
+        }
+        private bool ReadDiagnosticSnapshot(DiagnosticSource source) {
+            if(DateTime.UtcNow<source.PollAfter) return false; source.PollAfter=DateTime.UtcNow.AddSeconds(2);
+            try {
+                using(FileStream file=new FileStream(source.Path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete)) {
+                    if(file.Length>DiagnosticFrameLimit) {
+                        source.UnavailableSince=DateTime.MinValue;
+                        if(source.SnapshotHash=="oversized") return false; source.SnapshotHash="oversized";
+                        source.Output=Encoding.UTF8.GetBytes("[TF3MP diagnostics: status snapshot omitted (>32 KiB)]\n"); source.OutputAt=0; source.AtEof=true; source.LastGrowth=DateTime.UtcNow; return true;
+                    }
+                    byte[] bytes=new byte[(int)file.Length]; int got=0,n;
+                    while(got<bytes.Length && (n=file.Read(bytes,got,bytes.Length-got))>0) got+=n;
+                    source.UnavailableSince=DateTime.MinValue;
+                    if(got!=bytes.Length) return false;
+                    string hash=Hash(bytes); source.AtEof=true; if(hash==source.SnapshotHash) return false; source.SnapshotHash=hash; source.LastGrowth=DateTime.UtcNow;
+                    string value="\n[TF3MP status UTC "+DateTime.UtcNow.ToString("o")+"]\n"+Encoding.UTF8.GetString(bytes);
+                    source.Output=Encoding.UTF8.GetBytes(RedactDiagnostic(value)+"\n"); source.OutputAt=0; return true;
+                }
+            } catch(FileNotFoundException) { source.AtEof=true; return false; } catch(DirectoryNotFoundException) { source.AtEof=true; return false; }
+        }
+        private bool ReadDiagnosticSource(DiagnosticSource source) {
+            if(source.Output!=null) return true;
+            if(source.DeferredOutput!=null) { source.Output=source.DeferredOutput; source.DeferredOutput=null; source.OutputAt=0; return true; }
+            if(source.Kind==4) return ReadDiagnosticSnapshot(source);
+            // Complete a bounded line before redaction. This prevents a split
+            // invitation/key from leaking at a file-read or upload-frame boundary.
+            if(source.Input!=null) {
+                MemoryStream batch=new MemoryStream();
+                while(source.InputAt<source.Input.Length) {
+                    byte b=source.Input[source.InputAt++];
+                    if(source.SkipLine) { if(b==10) source.SkipLine=false; continue; }
+                    if(source.Partial.Length>=DiagnosticLineLimit) {
+                        source.Partial.SetLength(0); source.SkipLine=b!=10;
+                        if(BatchDiagnosticOutput(source,batch,Encoding.UTF8.GetBytes("[TF3MP diagnostics: oversized line omitted (>512 KiB)]\n"))) return true;
+                        continue;
+                    }
+                    source.Partial.WriteByte(b);
+                    if(b==10) {
+                        byte[] line=Encoding.UTF8.GetBytes(RedactDiagnostic(Encoding.UTF8.GetString(source.Partial.ToArray())));
+                        source.Partial.SetLength(0); if(BatchDiagnosticOutput(source,batch,line)) return true;
+                    }
+                }
+                source.Input=null; source.InputAt=0;
+                if(batch.Length!=0) { source.Output=batch.ToArray(); source.OutputAt=0; return true; }
+            }
+            if(DateTime.UtcNow<source.PollAfter) return false;
+            source.PollAfter=DateTime.UtcNow.AddMilliseconds(250);
+            try {
+                using(FileStream file=new FileStream(source.Path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete)) {
+                    long length=file.Length; string identity=FileIdentity(file);
+                    // Prefixes shorter than 64 bytes naturally grow on append. A
+                    // boundary check detects rewriting even with a stable prefix.
+                    int prefixLength=(int)Math.Min(64,length);
+                    string prefix=FilePiece(file,0,prefixLength);
+                    bool changed=source.Initialized && (identity!=source.Identity || length<source.RawOffset);
+                    if(source.Initialized && !changed && source.RawOffset>0 && source.Boundary.Length!=0)
+                        changed=FilePiece(file,Math.Max(0,source.RawOffset-64),(int)Math.Min(64,source.RawOffset))!=source.Boundary;
+                    if(!source.Initialized || changed) { ResetDiagnosticSource(source,length,identity,prefix); return true; }
+                    if(source.RawOffset>=length) { source.AtEof=true; source.UnavailableSince=DateTime.MinValue; return false; }
+                    file.Position=source.RawOffset; byte[] bytes=new byte[(int)Math.Min(DiagnosticFrameLimit,length-source.RawOffset)]; int got=file.Read(bytes,0,bytes.Length);
+                    if(got==0) return false; if(got!=bytes.Length) Array.Resize(ref bytes,got);
+                    source.RawOffset+=got; source.Input=bytes; source.AtEof=false; source.LastGrowth=DateTime.UtcNow;
+                    source.Boundary=FilePiece(file,Math.Max(0,source.RawOffset-64),(int)Math.Min(64,source.RawOffset));
+                    source.UnavailableSince=DateTime.MinValue;
+                }
+            } catch(FileNotFoundException) { source.AtEof=true; return false; } catch(DirectoryNotFoundException) { source.AtEof=true; return false; }
+            // Process this read on the next round, giving the other sources turns.
+            return false;
+        }
+        private static bool BatchDiagnosticOutput(DiagnosticSource source,MemoryStream batch,byte[] line) {
+            if(batch.Length==0 && line.Length>=DiagnosticFrameLimit-26) { source.Output=line; source.OutputAt=0; return true; }
+            if(batch.Length+line.Length>DiagnosticFrameLimit-26) {
+                source.Output=batch.ToArray(); source.OutputAt=0; source.DeferredOutput=line; return true;
+            }
+            batch.Write(line,0,line.Length); return false;
+        }
+        private void DiagnosticWait(int milliseconds) { if(!stopped) diagnosticWake.WaitOne(milliseconds); }
+        private void ClientDiagnostics() {
+            Dictionary<byte,DiagnosticSource> sources=new Dictionary<byte,DiagnosticSource>(); int backoff=2000;
+            while(!stopped) {
+                TcpClient c=null; SslStream ssl=null;
+                try {
+                    bool configured; lock(diagnosticGate) configured=diagnosticPaths.Count!=0;
+                    if(!configured) { DiagnosticWait(1000); continue; }
+                    ssl=Connect("LOG/1",out c); ssl.ReadTimeout=15000; Line(ssl,diagnosticSessionId);
+                    if(ReadLine(ssl)!="READY") throw new IOException("Diagnostic receiver not ready");
+                    Interlocked.Exchange(ref diagnosticActive,1); lock(diagnosticGate) diagnosticError=""; backoff=2000;
+                    DateTime pulse=DateTime.UtcNow, nextSend=DateTime.UtcNow;
+                    while(!stopped) {
+                        Dictionary<byte,string> paths;
+                        lock(diagnosticGate) paths=new Dictionary<byte,string>(diagnosticPaths);
+                        foreach(KeyValuePair<byte,string> p in paths) {
+                            DiagnosticSource existing;
+                            if(!sources.TryGetValue(p.Key,out existing)) sources[p.Key]=new DiagnosticSource(p.Key,p.Value);
+                            else if(!String.Equals(existing.Path,p.Value,StringComparison.OrdinalIgnoreCase) && !existing.NextPaths.Contains(p.Value)) {
+                                if(existing.NextPaths.Count>=2) { existing.NextPaths.Dequeue(); existing.NextGap="source generation backlog exceeded; intermediate file omitted"; }
+                                existing.NextPaths.Enqueue(p.Value);
+                            }
+                        }
+                        bool sent=false;
+                        foreach(KeyValuePair<byte,DiagnosticSource> p in new List<KeyValuePair<byte,DiagnosticSource>>(sources)) {
+                            if(!paths.ContainsKey(p.Key)) continue;
+                            DiagnosticSource source=p.Value;
+                            if(source.NextPaths.Count!=0 && source.Output==null && source.DeferredOutput==null && source.Input==null && source.AtEof && (DateTime.UtcNow-source.LastGrowth).TotalSeconds>=2) {
+                                // Verify EOF again now: a final failure line may
+                                // have appeared since the previous polling round.
+                                if(source.UnavailableSince!=DateTime.MinValue && (DateTime.UtcNow-source.UnavailableSince).TotalSeconds>=10)
+                                    source.NextGap="unreadable source retired after 10 s; some source bytes omitted";
+                                else {
+                                    if(source.UnavailableSince!=DateTime.MinValue && DateTime.UtcNow<source.PollAfter) continue;
+                                    source.PollAfter=DateTime.MinValue;
+                                    try { ReadDiagnosticSource(source); source.UnavailableSince=DateTime.MinValue; }
+                                    catch(Exception e) { DiagnosticError(e); if(source.UnavailableSince==DateTime.MinValue) source.UnavailableSince=DateTime.UtcNow; source.AtEof=true; source.PollAfter=DateTime.UtcNow.AddSeconds(2); continue; }
+                                }
+                            }
+                            if(source.NextPaths.Count!=0 && source.Output==null && source.DeferredOutput==null && source.Input==null && source.AtEof && (DateTime.UtcNow-source.LastGrowth).TotalSeconds>=2) {
+                                if(source.Partial.Length!=0) {
+                                    source.Output=Encoding.UTF8.GetBytes(RedactDiagnostic(Encoding.UTF8.GetString(source.Partial.ToArray()))+"\n[TF3MP diagnostics: final unterminated line ended with source]\n"); source.Partial.SetLength(0); source.OutputAt=0;
+                                } else {
+                                    DiagnosticSource next=new DiagnosticSource(source.Kind,source.NextPaths.Dequeue());
+                                    foreach(string remaining in source.NextPaths) next.NextPaths.Enqueue(remaining);
+                                    if(source.NextGap.Length!=0) next.Output=Encoding.UTF8.GetBytes("[TF3MP diagnostics: "+source.NextGap+"]\n");
+                                    source.Partial.Dispose(); sources[p.Key]=next; source=next;
+                                }
+                            }
+                            try { if(!ReadDiagnosticSource(source)) continue; }
+                            catch(Exception e) { DiagnosticError(e); if(source.UnavailableSince==DateTime.MinValue) source.UnavailableSince=DateTime.UtcNow; source.AtEof=true; source.PollAfter=DateTime.UtcNow.AddSeconds(2); continue; }
+                            while(!stopped && DateTime.UtcNow<nextSend) DiagnosticWait(Math.Min(100,Math.Max(1,(int)(nextSend-DateTime.UtcNow).TotalMilliseconds)));
+                            if(stopped) break;
+                            int count=Math.Min(DiagnosticFrameLimit-26,source.Output.Length-source.OutputAt);
+                            byte[] frame=new byte[26+count]; frame[0]=1; frame[1]=source.Kind;
+                            Buffer.BlockCopy(DiagnosticIdBytes(source.Id),0,frame,2,16); Buffer.BlockCopy(BitConverter.GetBytes(source.AckedOffset),0,frame,18,8);
+                            Buffer.BlockCopy(source.Output,source.OutputAt,frame,26,count);
+                            SendFrame(ssl,frame,frame.Length);
+                            byte[] answer=Frame(ssl,10);
+                            if(answer.Length!=10 || answer[0]!=2 || answer[1]!=source.Kind || BitConverter.ToInt64(answer,2)!=source.AckedOffset+count)
+                                throw new IOException("Invalid diagnostic acknowledgement");
+                            source.AckedOffset+=count; source.OutputAt+=count; Interlocked.Add(ref diagnosticBytesSent,count);
+                            if(source.OutputAt==source.Output.Length) { source.Output=null; source.OutputAt=0; }
+                            nextSend=DateTime.UtcNow.AddSeconds((double)count/(64*1024)); pulse=DateTime.UtcNow; sent=true;
+                            lock(diagnosticGate) diagnosticError="";
+                        }
+                        if(!sent && (DateTime.UtcNow-pulse).TotalSeconds>=2) {
+                            SendFrame(ssl,new byte[]{0},1); byte[] answer=Frame(ssl,1);
+                            if(answer.Length!=1 || answer[0]!=0) throw new IOException("Invalid diagnostic heartbeat"); pulse=DateTime.UtcNow;
+                        }
+                        DiagnosticWait(50);
+                    }
+                } catch(Exception e) { DiagnosticError(e); }
+                finally { Interlocked.Exchange(ref diagnosticActive,0); if(ssl!=null) ssl.Dispose(); if(c!=null) Forget(c); }
+                if(!stopped) { DiagnosticWait(backoff); backoff=Math.Min(30000,backoff*2); }
+            }
+            foreach(DiagnosticSource source in sources.Values) source.Partial.Dispose();
+        }
 
         public static string Hash(byte[] bytes) {
             using (SHA256 sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
@@ -204,7 +547,7 @@ namespace TF3MP.Internet {
             catch(Exception e) { Error(e); if(!stopped) Thread.Sleep(200); }
         }
         private void HostConnection(TcpClient c) {
-            SslStream ssl = null; bool ownsUdp = false;
+            SslStream ssl = null; bool ownsUdp = false, ownsDiagnostics=false;
             string stage="TLS authentication";
             try {
                 Configure(c);
@@ -217,6 +560,11 @@ namespace TF3MP.Internet {
                 string route = ReadLine(ssl);
                 stage=route;
                 if(route=="PROBE") { Line(ssl,"OK"); Line(ssl,"READY"); return; }
+                if(route=="LOG/1") {
+                    bool enabled; lock(diagnosticGate) enabled=diagnosticRoot.Length!=0;
+                    if(!enabled || Interlocked.CompareExchange(ref diagnosticActive,1,0)!=0) { Line(ssl,"WAIT"); return; }
+                    ownsDiagnostics=true; Line(ssl,"OK"); HostDiagnostics(ssl); return;
+                }
                 if(route=="UDP") {
                     if(Interlocked.CompareExchange(ref udpActive,1,0)!=0) { Interlocked.Increment(ref rejected); Error(new IOException("Game channel already in use")); return; }
                     ownsUdp=true; lock(gate) lastError=""; Line(ssl,"OK"); ssl.ReadTimeout=15000; HostUdp(ssl);
@@ -231,8 +579,8 @@ namespace TF3MP.Internet {
                         finally { Forget(target); }
                     }
                 } else Interlocked.Increment(ref rejected);
-            } catch(Exception e) { Error(new IOException(stage+": "+e.Message,e)); }
-            finally { c.Close(); if(ssl!=null) ssl.Dispose(); if(ownsUdp) Interlocked.Exchange(ref udpActive,0); Forget(c); }
+            } catch(Exception e) { if(stage=="LOG/1") DiagnosticError(e); else Error(new IOException(stage+": "+e.Message,e)); }
+            finally { c.Close(); if(ssl!=null) ssl.Dispose(); if(ownsUdp) Interlocked.Exchange(ref udpActive,0); if(ownsDiagnostics) Interlocked.Exchange(ref diagnosticActive,0); Forget(c); }
         }
         private static byte[] Frame(Stream s, int max) {
             byte[] head = Exact(s,4); int n = head[0] | head[1]<<8 | head[2]<<16 | head[3]<<24;
@@ -345,9 +693,11 @@ namespace TF3MP.Internet {
         }
         public void Dispose() {
             if(stopped) return; stopped=true;
+            diagnosticWake.Set();
             if(listener!=null) listener.Stop(); if(localUdp!=null) localUdp.Close(); if(hostUdp!=null) hostUdp.Close();
             lock(gate) { foreach(TcpClient c in sockets) c.Close(); sockets.Clear(); }
             if(certificate!=null) certificate.Dispose();
+            if(diagnosticThread==null || diagnosticThread==Thread.CurrentThread || diagnosticThread.Join(2000)) diagnosticWake.Close();
         }
     }
 }

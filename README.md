@@ -1,8 +1,14 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v59 / DLL v16**. **Beide PCs brauchen das v59-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v60 / DLL v16**. **Beide PCs brauchen das v60-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
 
-[v59: Wartende Aktionen und sichere Übergabe](docs/v59-warteschlange.md) · [v58: Brücken, Tunnel und Bahnhofprüfung](docs/v58-bruecken-anschluesse.md) · [v57: Auswertung und Korrekturen](docs/v57-sitzung-fehler.md) · [v56: Fahrzeugkäufe und Linienzuweisung](docs/v56-fahrzeuge.md) · [v55: Baufehler, Geld und Weltvergleich](docs/v55-bau-wirtschaft-vergleich.md) · [v54: Pause, Neuabgleich und Fahrzeugbefehle](docs/v54-pause-fahrzeuge.md) · [v53: Launcher und automatischer Spielstart](docs/v53-launcher-start.md)
+[v60: Protokolle des Mitspielers beim Gastgeber](docs/v60-mitspieler-protokolle.md) · [v59: Wartende Aktionen und sichere Übergabe](docs/v59-warteschlange.md) · [v58: Brücken, Tunnel und Bahnhofprüfung](docs/v58-bruecken-anschluesse.md) · [v57: Auswertung und Korrekturen](docs/v57-sitzung-fehler.md) · [v56: Fahrzeugkäufe und Linienzuweisung](docs/v56-fahrzeuge.md) · [v55: Baufehler, Geld und Weltvergleich](docs/v55-bau-wirtschaft-vergleich.md) · [v54: Pause, Neuabgleich und Fahrzeugbefehle](docs/v54-pause-fahrzeuge.md) · [v53: Launcher und automatischer Spielstart](docs/v53-launcher-start.md)
+
+## Neu in v60
+
+- **Mitspieler-Protokolle automatisch beim Gastgeber:** Bei Internet ohne VPN werden Spiel-, Bridge- und Launcherprotokoll, Status sowie Internet- und Spielstandmessungen im Hintergrund übertragen. Der Gastgeber sieht den Empfangsordner unter **Sitzung & Protokoll**. VPN/LAN bleibt unverändert.
+- **Kein zusätzlicher Port:** Die Diagnose verwendet einen eigenen Kanal mit derselben geprüften Einladung über den vorhandenen Internetport. Wiederverbindungen übernehmen bestätigte Daten ohne doppelte Einträge. Datenrate und Dateigrößen sind begrenzt; Einladungen und bekannte Zugangsschlüssel werden vor dem Senden entfernt.
+- **Beide PCs verwenden v60.** Beide Launcher bleiben geöffnet. [Dateien, Grenzen und Prüfplan](docs/v60-mitspieler-protokolle.md).
 
 ## Neu in v59
 
@@ -57,9 +63,9 @@ Auf beiden PCs aktualisieren und einmal denselben Gastgeberstand laden oder bewu
 
 Nach dem Update einmal den gemeinsamen Stand laden bzw. manuell neu abgleichen. Alte fehlende Bauten werden durch das Update allein nicht wiederhergestellt. [Befund, automatische Prüfungen und Zwei-PC-Test](docs/v54-pause-fahrzeuge.md).
 
-## Ohne VPN starten (v59)
+## Ohne VPN starten (v60)
 
-1. Beide verwenden das [v59-Paket](release/TF3-Multiplayer-v59-Windows.zip) und öffnen `Start.bat`.
+1. Beide verwenden das [v60-Paket](release/TF3-Multiplayer-v60-Windows.zip) und öffnen `Start.bat`.
 2. Gastgeber: Unter **Internet ohne VPN** eine öffentliche IPv6 auswählen und **Verbindung öffnen**. Alternativ öffentliche IPv4 eintragen oder **IPv4 automatisch** für die Routeranfrage wählen. Alles geschieht im Hauptfenster. Der dort angezeigte Internetport ist **TCP 47801**; der interne Spielport wird nicht mehr als freizugebender Internetport angezeigt.
 3. Der Launcher prüft die Windows-Regel und fordert die Routerfreigabe an. Falls Windows Administratorrechte verlangt, bestätigen. **Einladung kopieren** und nur dem Mitspieler geben. Die Einladung gilt für diese laufende Verbindung. Routerfehler stehen im Protokoll. Bei IPv6 müssen beide Anschlüsse IPv6 unterstützen; bei IPv4 kann CGNAT/DS-Lite eine direkte Freigabe verhindern.
 4. Mitspieler: **Beitreten**, die vollständige Einladung einfügen. Der Launcher verbindet sich automatisch. **Löschen** leert das Feld und beendet eine noch wartende Verbindung.
@@ -70,7 +76,7 @@ Der Internetweg benötigt keinen Vermittlungsserver. Er ersetzt jedoch keine feh
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe [v59-Paket](release/TF3-Multiplayer-v59-Windows.zip) auf beiden PCs öffnen und das VPN verbinden.
+1. Dasselbe [v60-Paket](release/TF3-Multiplayer-v60-Windows.zip) auf beiden PCs öffnen und das VPN verbinden.
 2. Gastgeber: **VPN / LAN**, passende Adresse auswählen, **Adresse kopieren**. Der Wartekanal öffnet automatisch. Für VPN/LAN gilt weiter **TCP + UDP 47800**; eine Routerfreigabe ist dafür nicht nötig.
 3. Mitspieler: **Beitreten**, Adresse einfügen (z. B. `100.80.12.4:47800`). Sobald verbunden, wählt und teilt der Gastgeber den Spielstand direkt im Hauptfenster. Beide brauchen dieselbe Paketversion und passende zusätzliche Mods.
 4. Der Gastgeber klickt den grünen Knopf **Spiel für beide starten**. Beide Spiele laden den geteilten Stand automatisch. Sobald beide Karten bereit sind, gemeinsam fortsetzen und bauen.

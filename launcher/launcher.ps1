@@ -26,6 +26,7 @@ $ModName = 'mp_probe'
 . (Join-Path $Root 'tools\action-issues.ps1')
 . (Join-Path $Root 'tools\internet.ps1')
 . (Join-Path $Root 'tools\internet-view.ps1')
+. (Join-Path $Root 'tools\internet-diagnostics.ps1')
 $script:actionIssues = New-ActionIssueReader
 $script:actionLogPath = ''
 $script:actionLogChecked = [datetime]::MinValue

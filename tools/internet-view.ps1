@@ -23,6 +23,7 @@ function Write-InternetLog([string]$Event, $Data = @{}) {
 
 function Stop-LauncherInternet {
     if ($script:internetTunnel) { $script:internetTunnel.Dispose(); $script:internetTunnel=$null }
+    Reset-InternetProtocolSharing
     if ($script:internetLease) {
         $script:internetLease.Dispose()
         Write-InternetLog 'ipv6_pinhole_closed' @{ error=$script:internetLease.LastError }
@@ -50,6 +51,7 @@ function Resolve-LauncherEndpoint([string]$Text, [string]$DefaultPort) {
             $script:internetTunnel=[TF3MP.Internet.Tunnel]::StartClient($invite.Address,$invite.Port,$invite.Fingerprint,$invite.Key,$localPort)
             $script:internetRole='client'; $script:internetInvite=$Text.Trim(); $script:internetLocalPort=$localPort
             Write-InternetLog 'client_started' @{ family=([Net.IPAddress]::Parse($invite.Address).AddressFamily.ToString()); local_port=$localPort; public_port=$invite.Port; invitation_id=$script:internetTunnel.InvitationId; save_transport='authenticated_plain_tcp' }
+            Update-InternetProtocolSharing $(if($gameBox){$gameBox.Text}else{''}) $steam
         }
         return @{ Address='127.0.0.1'; Port=$localPort; Internet=$true }
     }
@@ -72,7 +74,7 @@ function Assert-LauncherInternetMode([string]$Role, [int]$Port, [string]$Test) {
 function Get-LauncherInternetSummary {
     if(-not $script:internetTunnel) { return '' }
     $t=$script:internetTunnel
-    return "Internet: $($script:internetRole), Spielkanal=$($t.GameChannelConnected), $($t.UdpPackets) Pakete, $([Math]::Round($t.TcpBytes/1MB,1)) MB, $($t.Reconnects) Wiederverbindungen, $($t.Rejected) abgewiesen.`r`nSpielstände: direktes TCP ohne Verschlüsselung; Einladung wird geprüft. Klartext-Verbindungen=$($t.ClearConnections), TLS-Kompatibilität=$($t.TlsConnections).`r`nRouter: $script:internetRouterStatus`r`nLetzte Transportmeldung: $($t.LastError)`r`nProtokoll: $script:internetLogPath`r`n`r`n"
+    return "Internet: $($script:internetRole), Spielkanal=$($t.GameChannelConnected), $($t.UdpPackets) Pakete, $([Math]::Round($t.TcpBytes/1MB,1)) MB, $($t.Reconnects) Wiederverbindungen, $($t.Rejected) abgewiesen.`r`nSpielstände: direktes TCP ohne Verschlüsselung; Einladung wird geprüft. Klartext-Verbindungen=$($t.ClearConnections), TLS-Kompatibilität=$($t.TlsConnections).`r`n$(Get-InternetProtocolSummary)`r`nRouter: $script:internetRouterStatus`r`nLetzte Transportmeldung: $($t.LastError)`r`nProtokoll: $script:internetLogPath`r`n`r`n"
 }
 
 function Test-ReuseInternetHost([int]$PublicPort,[int]$LocalPort) {
@@ -136,6 +138,7 @@ function Start-LauncherInternetHost([bool]$UseIPv4 = $false) {
             Initialize-InternetTransport
             $script:internetTunnel=[TF3MP.Internet.Tunnel]::StartHost($port,$localPort)
             $script:internetRole='host'; $script:internetLocalPort=$localPort
+            Update-InternetProtocolSharing $(if($gameBox){$gameBox.Text}else{''}) $steam
             $connectionStatus.Text='Prüfe Windows-Firewall. Falls Windows fragt, Administratorfreigabe bestätigen ...'; [Windows.Forms.Application]::DoEvents()
             Write-InternetLog 'firewall_requested' @{ port=$port }
             $firewallResult=Enable-InternetFirewall $port
@@ -172,10 +175,12 @@ function Start-LauncherInternetHost([bool]$UseIPv4 = $false) {
 
 function Update-InternetDiagnostics {
     if (-not $script:internetTunnel) { return }
+    Update-InternetProtocolSharing $(if($gameBox){$gameBox.Text}else{''}) $steam
     if($script:internetDiagnosticAt -and ([DateTime]::UtcNow-$script:internetDiagnosticAt).TotalSeconds -lt 2){return}
     $script:internetDiagnosticAt=[DateTime]::UtcNow
     $t=$script:internetTunnel
     $values=@{ tcp_bytes=$t.TcpBytes; udp_packets=$t.UdpPackets; accepted=$t.Accepted; rejected=$t.Rejected; reconnects=$t.Reconnects; game_channel=$t.GameChannelConnected; clear_connections=$t.ClearConnections; tls_connections=$t.TlsConnections; public_port=$t.PublicPort; last_error=$t.LastError; invitation_id=$t.InvitationId }
+    $values.diagnostic_sent=$t.DiagnosticBytesSent; $values.diagnostic_received=$t.DiagnosticBytesReceived; $values.diagnostic_connected=$t.DiagnosticConnected; $values.diagnostic_error=$t.DiagnosticLastError
     if($script:internetLease) {
         $values.router_active=$script:internetLease.Active; $values.router_renewals=$script:internetLease.Renewals; $values.router_error=$script:internetLease.LastError
         $script:internetRouterStatus=if(-not $script:internetLease.Active -or $script:internetLease.LastError) { "IPv6-Freigabe: aktiv=$($script:internetLease.Active), Meldung=$($script:internetLease.LastError)" } elseif($script:internetLease.FirewallDisabled) { 'Router meldet keine aktive IPv6-Firewall' } else { "IPv6 TCP $($t.Port) freigegeben; $($script:internetLease.Renewals) Verlängerungen bestätigt" }
