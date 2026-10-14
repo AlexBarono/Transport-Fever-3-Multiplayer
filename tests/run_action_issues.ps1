@@ -58,7 +58,10 @@ foreach($case in @(
  @('build capture failed: unknown bridge/tunnel edge type 99','nicht an den Mitspieler übertragen'),
  @('build capture too long: 300000 characters, limit 262144','nicht an den Mitspieler übertragen'),
  @('joins a road or track that does not exist here: node -1907.6, 880.7','Ein vorheriger Bau'),
- @('construction entrance not confirmed: gate 183238, no road reached','Anschluss konnte nicht bestätigt'))){
+ @('construction entrance not confirmed: gate 183238, no road reached','Anschluss konnte nicht bestätigt'),
+ @('street terminal count differs','unterschiedliche Anschlüsse'),
+ @('station terminal tag 16 not found','Anschluss der Haltestelle'),
+ @('street stop parcel occupied: 71042','Grundstücksparzelle'))){
  if(-not (Get-ActionReasonText $case[0]).Contains($case[1])){throw "Missing build/path diagnosis: $($case[0])"}; $passed++
 }
 Write-Output "$passed action issue tests passed"

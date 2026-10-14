@@ -1720,6 +1720,92 @@ function build.make_context(env, player)
 	return context
 end
 
+-- A stop rebuilds its street segment. In run 61 an extra, empty town parcel on the other
+-- PC stayed attached to the removed street: "Unexpected parcel on a segment". SimpleProposal
+-- has no parcel list. Compose TF3's own empty-parcel removals into the expanded Proposal before
+-- sending one command; never run a separate bulldozer command or remove an occupied parcel.
+function build.prepare_stop_parcels(env, source, command, context, log)
+	local api = env.api
+	local eligible, removed = pcall(function()
+		local sp = source.streetProposal
+		if #sp.edgesToAdd ~= 1 or #sp.edgesToRemove ~= 1 or #sp.edgeObjectsToAdd == 0 or
+			#(sp.nodesToAdd or {}) > 0 or #(sp.nodesToRemove or {}) > 0 or
+			#(source.constructionsToAdd or {}) > 0 or #(source.constructionsToRemove or {}) > 0 then return nil end
+		if sp.edgesToAdd[1].type ~= 0 then return nil end
+		local is_stop = false
+		for _, object in ipairs(sp.edgeObjectsToAdd) do
+			if type(object.model) == "string" and object.model:find("/stations/street/", 1, true) then is_stop = true end
+		end
+		if is_stop then return sp.edgesToRemove[1] end
+	end)
+	if not eligible or removed == nil then return command end
+	local available, parcels = pcall(function()
+		return api.engine.system.parcelSystem
+	end)
+	if not available or not parcels then return command end
+	local ok, result = pcall(function()
+		assert(type(removed) == "number" and removed >= 0 and removed % 1 == 0, "invalid replaced street entity")
+		local parcel_data = parcels.getParcelData(removed)
+		if parcel_data == nil then return command end
+		local ids, seen, lists = {}, {}, 0
+		-- leftEntities/rightParcels are the shipped ParcelData fields. Accept the symmetrical
+		-- aliases as well; some binding versions expose these instead. Read every list safely.
+		for _, key in ipairs({ "leftEntities", "rightParcels", "leftParcels", "rightEntities" }) do
+			local readable, list = pcall(function() return parcel_data[key] end)
+			if readable and list ~= nil then
+				lists = lists + 1
+				assert(#list <= 2048, "too many attached street parcels")
+				for i = 1, #list do
+					local id = list[i]
+					assert(type(id) == "number" and id >= 0 and id % 1 == 0, "invalid attached parcel entity")
+					if not seen[id] then seen[id], ids[#ids + 1] = true, id end
+				end
+			end
+		end
+		assert(lists > 0, "attached street parcel lists unreadable")
+		if #ids == 0 then return command end
+		local proposal = command.proposal
+		local existing, included = proposal.toRemove, {}
+		assert(existing ~= nil and #existing <= 8192, "expanded proposal removals unreadable")
+		for i = 1, #existing do included[existing[i]] = true end
+		local missing = {}
+		local buildings = api.engine.system.townBuildingSystem
+		for _, id in ipairs(ids) do
+			if not included[id] then
+				local occupied = buildings.hasBuilding(id)
+				assert(type(occupied) == "boolean", "parcel occupancy unreadable for " .. id)
+				assert(not occupied, "occupied town parcel " .. id .. " on replaced street " .. removed .. " requires a new shared save")
+				missing[#missing + 1] = id
+			end
+		end
+		if #missing == 0 then return command end
+		local helper = api.engine.util.proposal.makeSegmentsRemoveProposal
+		assert(helper ~= nil, "native street parcel helper unavailable")
+		local cleanup = helper({ removed })
+		assert(cleanup ~= nil and cleanup.toRemove ~= nil and #cleanup.toRemove <= 8192,
+			"native street parcel cleanup unreadable")
+		local permitted = {}
+		for i = 1, #cleanup.toRemove do permitted[cleanup.toRemove[i]] = true end
+		local combined = {}
+		for i = 1, #existing do combined[i] = existing[i] end
+		for _, id in ipairs(missing) do
+			assert(permitted[id], "native street helper did not prepare empty parcel " .. id)
+			combined[#combined + 1] = id
+		end
+		proposal.toRemove = combined
+		-- Recompute resultProposalData after changing a full proposal, still before execution.
+		local prepared = api.cmd.makeWorldBuildProposalCmd(proposal, context, true, false)
+		local readback, found = prepared.proposal.toRemove, {}
+		assert(#readback == #combined, "prepared proposal lost parcel removals")
+		for i = 1, #readback do found[readback[i]] = true end
+		for _, id in ipairs(combined) do assert(found[id], "prepared proposal lost removal " .. id) end
+		if log then log("street stop: prepared " .. #missing .. " empty town parcel removal(s) on street " .. removed .. "; one atomic build") end
+		return prepared
+	end)
+	if not ok then error("street stop parcel cleanup: " .. tostring(result):gsub("^.-:%d+:%s*", ""), 0) end
+	return result
+end
+
 --- Sends a proposal, trying every signature in build.CMD_ARGS.
 -- @param log function|nil receives one line per failed attempt
 -- @param on_result function|nil callback(result, success) the game calls once it has executed the
@@ -1740,6 +1826,7 @@ function build.send(env, proposal, log, on_result, player, prepare, native_repla
 			local cmd
 			if native_replacement then cmd = api.cmd.makeWorldBuildProposalCmd(args[1], nil, false, false)
 			else cmd = api.cmd.makeWorldBuildProposalCmd(args[1], args[2], args[3]) end
+			if not native_replacement then cmd = build.prepare_stop_parcels(env, proposal, cmd, context, log) end
 			if prepare then
 				local ok_p, err_p = pcall(prepare, cmd)
 				if not ok_p and log then log("prepare: " .. tostring(err_p):sub(1, 200)) end

@@ -88,6 +88,9 @@ function Get-ActionReasonText([string]$reason) {
 		'node configurations|existing node|node.*not found|node.*resolved' { 'Ein benötigter Gleis-/Straßenanschluss wurde nicht gefunden.'; break }
 		'bridge|tunnel|resource' { 'Eine benötigte Bauressource fehlt oder ist nicht zuordenbar.'; break }
 		'vehicle.*not found|vehicle.*missing' { 'Das zugehörige Fahrzeug fehlt auf diesem PC.'; break }
+		'street terminal count differs|invalid single street terminal' { 'Die Straßenhaltestelle hat auf den beiden PCs unterschiedliche Anschlüsse. Haltestelle und Straßenumbau prüfen.'; break }
+		'station terminal tag.*not found|station terminal tag.*ambiguous' { 'Der gewählte Anschluss der Haltestelle konnte nicht eindeutig zugeordnet werden. Bahnsteig, Terminal oder Straßenhaltestelle prüfen.'; break }
+		'parcel|Unexpected parcel' { 'Der Straßenumbau kollidiert mit einer Grundstücksparzelle oder konnte deren sichere Entfernung nicht bestätigen. Straße und angrenzende Gebäude prüfen.'; break }
 		'line.*not found|station.*not found|station.*resolve' { 'Die zugehörige Linie oder Haltestelle fehlt.'; break }
 		'rejected|not possible|critical' { 'TF3 hat die Ausführung abgelehnt.'; break }
 		default { 'Die Aktion konnte nicht vollständig übernommen werden.' }

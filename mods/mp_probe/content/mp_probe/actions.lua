@@ -5,6 +5,7 @@ local wire = require("/mp_probe/wire.lua")
 local build = require("/mp_probe/build.lua")
 local world = require("/mp_probe/world.lua")
 local economy = require("/mp_probe/economy.lua")
+local line_identity = require("/mp_probe/line_identity.lua")
 local actions = { VERSION = 1, KINDS = { "construction", "line", "vehicle", "edge", "account", "company" } }
 
 local function field(obj, key)
@@ -235,6 +236,20 @@ local function terminal_tag(env, group, station, terminal)
 	return ok and type(tag) == "number" and tag or nil
 end
 
+local function line_terminal(env, group, refs, station, terminal)
+	local ref = type(station) == "number" and refs[station + 1]
+	if ref and ref.kind == "street_station" and terminal == 0 then
+		local ok, count = pcall(function()
+			return #component(env, assert(group.stations[station + 1]), "STATION").terminals
+		end)
+		-- A simple street stop has one local terminal. Its tag describes the
+		-- road lane and can change after a street/tram rebuild on either PC.
+		-- Modular or multi-terminal stations still need their actual gate tags.
+		if ok and count == 1 then return nil, true end
+	end
+	return terminal_tag(env, group, station, terminal), nil
+end
+
 local function line_data(env, id)
 	local l = component(env, id, "LINE")
 	local out = take(l, { "customFilters", "reservationPriority" })
@@ -244,13 +259,14 @@ local function line_data(env, id)
 		local entry = take(s, STOP_FIELDS)
 		entry.target = stop_ref(env, s)
 		local group = component(env, s.stationGroup, "STATION_GROUP")
-		entry.terminalTag = terminal_tag(env, group, s.station, s.terminal)
+		entry.terminalTag, entry.singleStreetTerminal = line_terminal(env, group, entry.target.stations, s.station, s.terminal)
 		entry.stopConfig = take(s.stopConfig, CONFIG_FIELDS)
 		entry.alternativeTerminals = {}
 		for j = 1, #s.alternativeTerminals do
 			local t = s.alternativeTerminals[j]
+			local tag, single = line_terminal(env, group, entry.target.stations, t.station, t.terminal)
 			entry.alternativeTerminals[j] = { station = t.station, terminal = t.terminal,
-				terminalTag = terminal_tag(env, group, t.station, t.terminal) }
+				terminalTag = tag, singleStreetTerminal = single }
 		end
 		-- Preserve geographic waypoints. Edge waypoints need the local base-edge id.
 		entry.waypoints = {}
@@ -443,15 +459,6 @@ local function same(a, b)
 	return true
 end
 
---- A line record without the transport modes, which the game derives from the vehicles on the line.
-local function line_without_modes(r)
-	local data = {}
-	for k, v in pairs(r.data or {}) do
-		if k ~= "vehicleInfo" then data[k] = v end
-	end
-	return { ref = r.ref, data = data, name = r.name, color = r.color }
-end
-
 --- The vehicle's line by its key: the line ref also carries the line's name, and v26 must not
 -- send every vehicle of a line again when only the line was renamed.
 local function line_key(r) return r and r.line and r.line.key or nil end
@@ -493,7 +500,7 @@ local function changed(kind, r, old)
 	if kind == "line" then
 		-- Run 24: once a bus was put on the copied line, the game filled in its transport modes and
 		-- the copy was sent back as a line change. The modes still travel with every line.
-		return not same(line_without_modes(r), line_without_modes(old))
+		return not line_identity.same(r, old)
 	end
 	return not same(r, old)
 end
@@ -896,7 +903,14 @@ local function make_line(env, value, s, peer, offset, current)
 		local stop = line_type(env, "Stop").new()
 		put_fields(stop, take(entry, STOP_FIELDS))
 		stop.stationGroup, stop.station = group_id, station
-		local function local_terminal(source_station, index, tag)
+		local function local_terminal(source_station, index, tag, single)
+			if single == true then
+				local ref = entry.target.stations[source_station + 1]
+				assert(ref and ref.kind == "street_station" and index == 0, "invalid single street terminal reference")
+				local id = assert(station_ids[source_station + 1], "street terminal station missing")
+				assert(#component(env, id, "STATION").terminals == 1, "street terminal count differs")
+				return 0
+			end
 			if tag == nil then return index end -- Older action payloads retain their index.
 			local id = assert(station_ids[source_station + 1], "terminal station missing")
 			local terminals = component(env, id, "STATION").terminals
@@ -904,12 +918,12 @@ local function make_line(env, value, s, peer, offset, current)
 			for k = 1, #terminals do if terminals[k].tag == tag then matches[#matches + 1] = k - 1 end end
 			return unique(matches, "station terminal tag " .. tostring(tag))
 		end
-		stop.terminal = local_terminal(entry.target.station, entry.terminal, entry.terminalTag)
+		stop.terminal = local_terminal(entry.target.station, entry.terminal, entry.terminalTag, entry.singleStreetTerminal)
 		stop.stopConfig = put_fields(line_type(env, "StopConfig").new(), entry.stopConfig)
 		local alternatives = {}
 		for j, alt in ipairs(entry.alternativeTerminals) do
 			alternatives[j] = env.api.type.StationTerminal.new(assert(indexes[alt.station]),
-				local_terminal(alt.station, alt.terminal, alt.terminalTag))
+				local_terminal(alt.station, alt.terminal, alt.terminalTag, alt.singleStreetTerminal))
 		end
 		stop.alternativeTerminals = alternatives
 		local waypoints = {}

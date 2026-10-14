@@ -8,6 +8,7 @@
         "mp_probe/fingerprint.lua",
         "mp_probe/gui.lua",
         "mp_probe/hold.lua",
+        "mp_probe/line_identity.lua",
         "mp_probe/logger.lua",
         "mp_probe/main.gs.lua",
         "mp_probe/main.script.lua",
