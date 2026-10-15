@@ -110,7 +110,8 @@ end
 
 local function newer(peer, mem, role)
 	local ver, speed = tonumber(peer.ver), tonumber(peer.speed)
-	if not ver or not speed then return false end
+	if not ver or ver < 0 or ver >= 2 ^ 53 or ver ~= math.floor(ver) or
+		not speed or speed < 0 or speed > sync.MAX_SPEED or speed ~= math.floor(speed) then return false end
 	if ver > mem.ver then return true end
 	return ver == mem.ver and speed ~= mem.speed and role == "client"
 end
@@ -119,7 +120,10 @@ end
 function sync.catchup(mem, input, fresh, log)
 	local base = mem.speed
 	local mode
-	if base > 0 and fresh and mem.peer_t and input.own_t then
+	-- Ordered two-PC sessions deliberately allow simulation drift. Changing one
+	-- game's visible speed to catch it up made a correctly transmitted user
+	-- choice look broken; common action barriers already coordinate construction.
+	if not input.ordered and base > 0 and fresh and mem.peer_t and input.own_t then
 		local peer_now = mem.peer_t + (input.now - mem.peer_seen) * 1000 * (mem.peer_run or 0)
 		-- Positive: this game is behind.
 		local gap = peer_now - input.own_t
@@ -160,6 +164,22 @@ function sync.catchup(mem, input, fresh, log)
 	if mode == "slow" then return math.max(1, math.floor(base / 2)) end
 	if mode == "hold" then return 0 end
 	return base
+end
+
+local function speed_limit(value)
+	value = tonumber(value)
+	if not value or value ~= value or value < 1 or value > sync.MAX_SPEED or value ~= math.floor(value) then
+		return sync.MAX_SPEED
+	end
+	return value
+end
+
+--- Keep the requested register separate from both PCs' current capacity.
+-- Older peers without max still work using the local estimate.
+function sync.effective_speed_limit(local_max, peer, ordered)
+	local limit = speed_limit(local_max)
+	if ordered and peer then limit = math.min(limit, speed_limit(peer.max)) end
+	return limit
 end
 
 --- One step of the shared game speed, from the GUI script or (without it) from the simulation.
@@ -229,39 +249,78 @@ function sync.speed_step(mem, input)
 	local out = { logs = {} }
 	local function log(text) out.logs[#out.logs + 1] = text end
 	local own, role, peer, now = input.own, input.role, input.peer, input.now
-	local limit = tonumber(input.max_speed)
-	if not limit or limit ~= limit or limit < 1 or limit > sync.MAX_SPEED or limit ~= math.floor(limit) then limit = sync.MAX_SPEED end
+	local local_limit = speed_limit(input.max_speed)
 	if mem.speed == nil then
 		local o = input.restore
 		if o and o.src == input.src and tonumber(o.ver) and tonumber(o.speed) then
 			mem.speed, mem.ver, mem.by = tonumber(o.speed), tonumber(o.ver), tostring(o.by)
 			mem.target, mem.hb, mem.restores = tonumber(o.tg) or own, tonumber(o.hb) or 0, (tonumber(o.rs) or 0) + 1
+			mem.run, mem.requested, mem.limit = tonumber(o.run), tonumber(o.rq), tonumber(o.lm)
+			if tonumber(o.sp) ~= nil and tonumber(o.sf) ~= nil and tonumber(o.sa) ~= nil then
+				mem.pending, mem.pending_from, mem.pending_at, mem.tries = tonumber(o.sp), tonumber(o.sf), tonumber(o.sa), tonumber(o.sn) or 0
+			end
+			mem.command_echoes = {}
+			for value = 0, sync.MAX_SPEED do
+				local until_at = tonumber(o["e" .. value])
+				if until_at and now <= until_at then mem.command_echoes[value] = until_at end
+			end
 		else
 			mem.speed, mem.ver, mem.by, mem.target, mem.hb = own, 0, role, own, 0
 		end
 	end
-	-- A lower engine capacity must not turn an otherwise applied speed request
-	-- into a player edit or exhaust the retry budget. Preserve the shared request
-	-- so a later capacity increase can resume it without creating a new version.
-	local capacity_pending = mem.target and mem.target > limit and own == mem.target
-	if mem.target then mem.target = math.min(mem.target, limit) end
-	if mem.pending then mem.pending = math.min(mem.pending, limit) end
 	if peer and peer.hb ~= nil and peer.hb ~= mem.peer_hb then
 		mem.peer_hb, mem.peer_seen = peer.hb, now
 		mem.peer_t, mem.peer_run = tonumber(peer.gt), tonumber(peer.run) or 0
 	end
 	local fresh = peer ~= nil and mem.peer_seen ~= nil and now - mem.peer_seen <= sync.PEER_STALE_S
+	local limit = sync.effective_speed_limit(local_limit, fresh and peer or nil, input.ordered)
+	-- Remember outstanding command values for a bounded time. An old 4x
+	-- command may become visible after its replacement with 3x; that readback
+	-- is not a new user choice and must not get a higher shared version.
+	mem.command_echoes = mem.command_echoes or {}
+	local changed = mem.run ~= nil and own ~= mem.run
+	local late_echo = false
+	for value, until_at in pairs(mem.command_echoes) do
+		if now > until_at then mem.command_echoes[value] = nil
+		elseif changed and own == value and own ~= mem.target then late_echo = true end
+	end
+	if late_echo then
+		mem.command_echoes[own] = nil
+		-- A superseded command can remain visible while its replacement is
+		-- queued. Retain that readback as the pending command's starting value;
+		-- otherwise the retry timeout would later mistake it for a user edit.
+		if mem.pending ~= nil and own ~= mem.pending then mem.pending_from = own end
+	end
+	local capacity_echo = mem.target and mem.target > limit and
+		(own == mem.target or own == limit)
+	if input.ordered and own == math.min(mem.speed, limit) then
+		-- Includes a restored v61 catchup target or a confirmed hold release:
+		-- observing the already selected common speed is never a new choice.
+		capacity_echo = true
+	end
+	if mem.limit and mem.limit ~= limit and mem.requested and own == math.min(mem.requested, limit) then
+		capacity_echo = true
+	end
+	-- The DLL expires peer state when disconnected. A fresh connection may try
+	-- a previously failed request again, without inventing a new user version.
+	if fresh and not mem.was_fresh and mem.broken then mem.broken, mem.pending = nil, nil end
+	mem.was_fresh = fresh and true or false
 	-- A speed command of ours that has not arrived yet.
 	if mem.pending ~= nil then
-		if own == mem.pending then
+		if own == mem.pending or (mem.pending > limit and own == limit) then
+			if own == mem.pending then mem.command_echoes[own] = nil end
+			mem.pending = nil
+		elseif changed and own ~= mem.pending_from and not late_echo and not capacity_echo then
+			-- A distinct local click wins immediately, even while an earlier
+			-- command is still awaiting its readback.
 			mem.pending = nil
 		elseif now - mem.pending_at > sync.APPLY_WAIT_S then
-			if own == mem.pending_from and (mem.tries or 0) < sync.APPLY_TRIES then
+			if (own == mem.pending_from or late_echo or capacity_echo) and (mem.tries or 0) < sync.APPLY_TRIES then
 				mem.tries = (mem.tries or 0) + 1
 				mem.pending_at = now
 				out.command = mem.pending
 				log("speed " .. sync.speed_name(mem.pending) .. " not set yet, sending again")
-			elseif own == mem.pending_from then
+			elseif own == mem.pending_from or late_echo or capacity_echo then
 				log("speed " .. sync.speed_name(mem.pending) .. " could not be set; this game no longer follows")
 				mem.broken, mem.pending, mem.target = true, nil, own
 			else
@@ -271,13 +330,15 @@ function sync.speed_step(mem, input)
 		end
 	end
 	-- The player changed the speed in this game.
-	if mem.pending == nil and own ~= mem.target and not capacity_pending then
+	if mem.pending == nil and own ~= mem.target and not capacity_echo and not late_echo then
 		mem.ver = math.max(mem.ver, peer and tonumber(peer.ver) or 0) + 1
 		mem.speed, mem.by, mem.catchup = own, role, nil
+		mem.broken, out.command = nil, nil
 		log(string.format("speed changed here: %s (version %d)", sync.speed_name(own), mem.ver))
 	end
 	if peer and newer(peer, mem, role) then
 		mem.speed, mem.ver, mem.by, mem.catchup = tonumber(peer.speed), tonumber(peer.ver), tostring(peer.by), nil
+		mem.broken, out.command = nil, nil
 		log(string.format("speed from the other game: %s (version %d, set by the %s)", sync.speed_name(mem.speed),
 			mem.ver, mem.by))
 	end
@@ -297,7 +358,16 @@ function sync.speed_step(mem, input)
 		out.command = target
 		mem.pending, mem.pending_from, mem.pending_at, mem.tries = target, own, now, 0
 	end
-	local state = { speed = mem.speed, ver = mem.ver, by = mem.by, run = own, tg = mem.target, src = input.src }
+	if out.command ~= nil then
+		mem.command_echoes[out.command] = now + sync.APPLY_WAIT_S * (sync.APPLY_TRIES + 2)
+	end
+	mem.run, mem.limit, mem.requested = own, limit, requested
+	local state = { speed = mem.speed, ver = mem.ver, by = mem.by, run = own, tg = mem.target, max = local_limit, src = input.src,
+		rq = requested, lm = limit }
+	if mem.pending ~= nil then
+		state.sp, state.sf, state.sa, state.sn = mem.pending, mem.pending_from, mem.pending_at, mem.tries
+	end
+	for value, until_at in pairs(mem.command_echoes) do state["e" .. value] = until_at end
 	mem.calendar = mem.calendar or {}
 	local calendar = sync.calendar_step(mem.calendar, input)
 	out.calendar_command = calendar.command

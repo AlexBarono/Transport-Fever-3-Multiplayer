@@ -1,6 +1,6 @@
 --- The GUI side of the game script (probe v24, resync save v32). TF3 calls main.guiUpdate in the GUI's Lua state on
 -- every frame, also while the game is paused, so the shared game speed lives here (sync.speed_step):
--- pause, speed changes and catching up. The simulation scripts stop while the game is paused and
+-- pause, speed changes and common capacity. The simulation scripts stop while the game is paused and
 -- could neither notice a pause of this game nor lift one of the other game.
 -- @module mp_probe.gui
 local logger = require("/mp_probe/logger.lua")
@@ -64,7 +64,9 @@ end
 -- actually resumed. sendCommand returning does not mean the GUI sees its result.
 -- The DLL echo also protects a GUI Lua state that loses its memory between calls.
 function gui.release_hold(env, g, clock_ui, speed, now, getenv)
-	local run = math.min(tonumber(clock_ui.run) or 0, sync.maximum_speed(env))
+	local limit = sync.effective_speed_limit(sync.maximum_speed(env),
+		sync.decode(getenv("TF3MP_PEER_GUI")), getenv("TF3MP_ORDERING") == "1")
+	local run = math.min(tonumber(clock_ui.run) or 0, limit)
 	local releasing = tonumber(clock_ui.release) == 1
 	-- Seeing the old positive speed is not proof of a resume: a quick menu
 	-- close may leave its earlier pause command queued. Wait for our resume
@@ -135,6 +137,7 @@ function gui.step(env, g, now)
 	if not getenv then return end
 	local role = sync.role(getenv)
 	if not role then return end
+	local ordered = getenv("TF3MP_ORDERING") == "1"
 	local speed, calendar = sync.read_speed(env)
 	local gt = sync.read_time(env)
 	if not g.tested and not restore then
@@ -163,13 +166,13 @@ function gui.step(env, g, now)
 	local clock_ui = sync.decode(getenv("TF3MP_OWN_CLOCKUI"))
 	local own_menu = sync.decode(getenv("TF3MP_OWN_MENU"))
 	local peer_menu = sync.decode(getenv("TF3MP_PEER_MENU"))
-	local menu_hold = getenv("TF3MP_ORDERING") == "1" and
+	local menu_hold = ordered and
 		((own_menu and own_menu.open == 1) or (peer_menu and peer_menu.open == 1))
 	local at = clock and tonumber(clock.at)
 	local holding = clock and ((clock.phase == "failed" and at and at > 0) or tonumber(clock.hold) == 1 or
 		(at and at > 0 and gt >= at and clock.phase ~= "idle"))
 	holding = holding or menu_hold
-	if getenv("TF3MP_ORDERING") == "1" and (speed == 0 or holding) then
+	if ordered and (speed == 0 or holding) then
 		-- Simulation update() stops at a barrier; script events still run while paused.
 		-- gui.update already throttles this heartbeat to four events per second.
 		local ok, err = pcall(function()
@@ -187,6 +190,14 @@ function gui.step(env, g, now)
 			-- delayed resume command from the previous hold is still in flight.
 			local run = clock_ui and clock_ui.hold == 1 and tonumber(clock_ui.run) or
 				(restore and tonumber(restore.tg or restore.run) or speed)
+			if ordered and not (clock_ui and clock_ui.hold == 1) then
+				-- Preserve the user's shared request, not an old local catch-up
+				-- target or temporary capacity limit. Release applies the common cap.
+				local requested = tonumber(g.speed.speed) or (restore and tonumber(restore.speed))
+				if requested and requested >= 0 and requested <= sync.MAX_SPEED and requested == math.floor(requested) then
+					run = requested
+				end
+			end
 			logger.info("sync automatic pause: " .. (menu_hold and "a player is in the game menu" or "common action"))
 			logger.info("net state clockui hold=1 run=" .. tostring(run))
 		end
@@ -198,10 +209,10 @@ function gui.step(env, g, now)
 	end
 	local out = sync.speed_step(g.speed, {
 		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
-		max_speed = sync.maximum_speed(env),
-		-- World/time differences are diagnostic in a two-PC session. Catch up
-		-- without stopping the game ahead; only a live action barrier may pause it.
-		hold = getenv("TF3MP_ORDERING") ~= "1", src = "gui", restore = restore,
+		max_speed = sync.maximum_speed(env), ordered = ordered,
+		-- Ordered sessions share the requested speed and both capacity limits.
+		-- Time differences remain diagnostic; action/menu holds still pause both.
+		hold = not ordered, src = "gui", restore = restore,
 	})
 	for _, line in ipairs(out.logs) do logger.info("sync " .. line) end
 	if out.command then

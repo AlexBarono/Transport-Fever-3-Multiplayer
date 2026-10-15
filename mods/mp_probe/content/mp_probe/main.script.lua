@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 61
+main.PROBE_VERSION = 62
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -2006,7 +2006,7 @@ function main.sync_speed_fallback(env, ss, role, gt, getenv)
 	local speed, calendar = sync.read_speed(env)
 	local out = sync.speed_step(ss.speed_mem, {
 		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")),
-		max_speed = sync.maximum_speed(env),
+		max_speed = sync.maximum_speed(env), ordered = getenv("TF3MP_ORDERING") == "1",
 		now = clock(), hold = false, src = "sim", restore = own_gui,
 	})
 	for _, line in ipairs(out.logs) do logger.info("sync " .. line) end
