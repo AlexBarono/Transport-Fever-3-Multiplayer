@@ -1,5 +1,7 @@
 # Fehler und Lösungen
 
+> Historische Auswertung vom 8. Oktober. Aktuelle Befunde stehen im [Dokumentationsindex](README.md); die damaligen Protokolle im [Protokollarchiv](../logs/README.md).
+
 Stand: 8. Oktober 2026. Diese Datei sammelt die Fehler, an denen Claude beim Multiplayer-Mod gearbeitet hat: was man im Spiel gesehen hat, woran es lag und wie es gelöst wurde. Die Läufe („Lauf 23“, „run34“) sind die Testrunden auf dem PC des Nutzers; ihre Protokolle liegen unter `logs/`. Die Kennungen wie `d3d90bc` sind Commits im Repository.
 
 ## So arbeitet der Mod (kurz)

@@ -75,7 +75,7 @@ function Add-PackageFile([string]$Path) {
 	$relative = $full.Substring($packagePrefix.Length).Replace('\', '/')
 	$sources[$relative] = Get-PackageSource $relative
 }
-foreach ($file in 'Start.bat', 'Test-letzte-Aufnahme.bat', 'README.md', 'launcher/bin/alut.dll', 'logs/run29-stdout.txt') {
+foreach ($file in 'Start.bat', 'Test-letzte-Aufnahme.bat', 'README.md', 'launcher/bin/alut.dll', 'tests/fixtures/run29-replay.log', 'logs/README.md') {
 	Add-PackageFile (Get-PackageSource $file)
 }
 foreach ($pattern in @(

@@ -93,7 +93,7 @@ try {
     if($import.Current -ne 'historical-other-save'){throw 'Live validation modified the saved recording'}
     $passed++
 } finally { Remove-Item -LiteralPath $testLog -Force -ErrorAction SilentlyContinue }
-$actualReplay=Read-ReplayRecording (Join-Path $Root 'logs\run29-stdout.txt')
+$actualReplay=Read-ReplayRecording (Join-Path $Root 'tests\fixtures\run29-replay.log')
 if($actualReplay.Save -ne 'Det' -or $actualReplay.Lines.Count -ne 21){throw 'The saved run29 replay no longer contains the 21 original actions'}
 $passed++
 $originalGameRunning=(Get-Item Function:\Test-GameRunning).ScriptBlock

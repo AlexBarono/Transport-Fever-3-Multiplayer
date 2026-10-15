@@ -1,8 +1,10 @@
 # Phase 0: Ergebnisse
 
+> Historische Forschung. Aktueller Einstieg: [Dokumentation](README.md). Die Originalprotokolle liegen im [Protokollarchiv](../logs/README.md).
+
 ## Lauf 1 (06.10.2026, Spielstand „Test Luna“, Probe v1)
 
-Log: [logs/probe-log-1-mp_probe.txt](../logs/probe-log-1-mp_probe.txt), Kontext: [logs/probe-log-1-context.txt](../logs/probe-log-1-context.txt)
+Log: [logs/probe-log-1-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-1-mp_probe.txt), Kontext: [logs/probe-log-1-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-1-context.txt)
 
 **Sandbox (Game Script, Thread „Sim Pool“):**
 
@@ -31,7 +33,7 @@ Für Multiplayer interessante Befehle in `api.cmd`:
 
 ## Lauf 2 (06.10.2026, Spielstand „Test2“, Probe v2)
 
-Log: [logs/probe-log-2-mp_probe.txt](../logs/probe-log-2-mp_probe.txt), Kontext: [logs/probe-log-2-context.txt](../logs/probe-log-2-context.txt)
+Log: [logs/probe-log-2-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-2-mp_probe.txt), Kontext: [logs/probe-log-2-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-2-context.txt)
 
 **Snapshots über `api.engine` funktionieren.** Lesbar: Spielzeit (`GAME_TIME.gameTime`, 200 ms Spielzeit pro Update), Geld (`ACCOUNT.balance` des Spielers) und Anzahlen für `TRANSPORT_VEHICLE`, `STATION`, `CONSTRUCTION`, `TOWN`, `SIM_PERSON`. Nicht lesbar: `PLAYER.balance` (nil); `LINE` und `BASE_EDGE` lassen sich nicht mit `forEachEntityWithComponent` durchlaufen („Cannot loop over this component type“).
 
@@ -47,7 +49,7 @@ In einer Spielsitzung: Spielstand „Test2“ laden, 5 Minuten ohne Eingabe und 
 
 ## Lauf 3 (06.10.2026, „Test2“ zweimal geladen, Probe v3)
 
-Log: [logs/probe-log-3-mp_probe.txt](../logs/probe-log-3-mp_probe.txt), Kontext: [logs/probe-log-3-context.txt](../logs/probe-log-3-context.txt)
+Log: [logs/probe-log-3-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-3-mp_probe.txt), Kontext: [logs/probe-log-3-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-3-context.txt)
 
 **Determinismus-Vergleich nicht möglich:** „Test2“ wurde direkt vor dem zweiten Laden überschrieben (11:05:01 gespeichert, 11:05:08 geladen). Der zweite Lauf setzte deshalb beim Stand des ersten fort (Updates 3000–7800, dann 8100–11400) statt beim selben Startpunkt.
 
@@ -61,7 +63,7 @@ Log: [logs/probe-log-3-mp_probe.txt](../logs/probe-log-3-mp_probe.txt), Kontext:
 
 ## Lauf 4 (06.10.2026, „Det“ zweimal geladen, Probe v4): Determinismus-Test
 
-Log: [logs/probe-log-4-mp_probe.txt](../logs/probe-log-4-mp_probe.txt), Kontext: [logs/probe-log-4-context.txt](../logs/probe-log-4-context.txt)
+Log: [logs/probe-log-4-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-4-mp_probe.txt), Kontext: [logs/probe-log-4-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-4-context.txt)
 
 **Ergebnis: Die Simulation war in diesem Test deterministisch.** „Det“ wurde einmal gespeichert und zweimal geladen (11:16:11 und 11:18:49), beide Läufe starten bei Update 11700 / `game_time` 2340000. Alle 8 Snapshots, die in beiden Läufen vorkommen (Updates 11700–13800, 7 Minuten Spielzeit), sind in jedem Wert identisch: `game_time`, `money`, `n_construction`, `n_line`, `n_sim_person`, `n_station`, `n_town`, `n_transport_vehicle`, `vehicle_stop_sum`. Das Geld allein ändert sich mit jeder Lieferung und jedem Kostenposten und stimmte trotzdem auf die Einheit.
 

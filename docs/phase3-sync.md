@@ -1,5 +1,7 @@
 # Probe v24: beide Spiele im Gleichschritt halten
 
+> Historischer Stand v24. Aktuelle Synchronisierung: [v62](v62-geschwindigkeit.md). Die Originalprotokolle liegen im [Protokollarchiv](../logs/README.md).
+
 Stand 07.10.2026. Bauten, Linien und Fahrzeuge kommen als Zeilen beim anderen Spiel an (Phase 1 und 2). Damit beide Spiele auch danach gleich bleiben, gleicht v24 ab:
 
 - Pause und Spielgeschwindigkeit,

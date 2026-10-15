@@ -1,5 +1,7 @@
 # Phase 1: Brücke zwischen Lua-Mod und DLL
 
+> Historische Forschung. Aktueller Einstieg: [Dokumentation](README.md). Die Originalprotokolle liegen im [Protokollarchiv](../logs/README.md).
+
 ## Problem
 
 Der TF2-Multiplayer-Mod (silver2127/tpf2-multiplayer) tauscht alle Daten zwischen Lua und DLL über Textdateien aus: Lua schreibt und liest sie mit `io.open`, die DLL liest sie mit. Die Bauaktionen fängt dort die DLL ab (Hooks auf feste Adressen in der TF2-exe), Lua spielt sie über `api.cmd` nach. Lua-C-API-Hooks benutzt der TF2-Mod nicht.
@@ -25,7 +27,7 @@ Falls `os.getenv` die Änderung nicht sieht (z. B. weil Lua eine eigene Kopie de
 
 ## Ergebnis Lauf 5 (06.10.2026, Probe v5 + DLL v4)
 
-Logs: [logs/probe-log-5-mp_probe.txt](../logs/probe-log-5-mp_probe.txt), [logs/proxy-log-5.txt](../logs/proxy-log-5.txt)
+Logs: [logs/probe-log-5-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-5-mp_probe.txt), [logs/proxy-log-5.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/proxy-log-5.txt)
 
 **Die Brücke funktioniert in beiden Richtungen.**
 
@@ -63,7 +65,7 @@ Beispiele aus Lauf 5: Straße = 2 Segmente, 3 Knoten, 7.379; Gleis = 2 Segmente 
 
 ## Ergebnis Lauf 6 (06.10.2026, Probe v6 + DLL v5)
 
-Logs: [logs/probe-log-6-mp_probe.txt](../logs/probe-log-6-mp_probe.txt), [logs/probe-log-6-context.txt](../logs/probe-log-6-context.txt), [logs/proxy-log-6.txt](../logs/proxy-log-6.txt)
+Logs: [logs/probe-log-6-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-6-mp_probe.txt), [logs/probe-log-6-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-6-context.txt), [logs/proxy-log-6.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/proxy-log-6.txt)
 
 - Kein Hängen mehr. Jeder Dump dauert jetzt 0,00–0,03 s (`dump of onPostBuildProposal player #1 took 0.02 s`).
 - **Aufzeichnung funktioniert.** Zwei Spielerbauten, beide ohne fremde Knoten:
@@ -100,7 +102,7 @@ Nächster Schritt für Probe v7: `WorldBuildProposal.new()` bzw. `StreetProposal
 
 ## Ergebnis Lauf 7 (06.10.2026, Probe v7 + DLL v6)
 
-Logs: [logs/probe-log-7-mp_probe.txt](../logs/probe-log-7-mp_probe.txt), [logs/probe-log-7-context.txt](../logs/probe-log-7-context.txt), [logs/proxy-log-7.txt](../logs/proxy-log-7.txt)
+Logs: [logs/probe-log-7-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-7-mp_probe.txt), [logs/probe-log-7-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-7-context.txt), [logs/proxy-log-7.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/proxy-log-7.txt)
 
 Der Nutzer hat zwei Straßen und zwei Gleise auf freier Fläche gebaut. Kein Hängen, **aber im Spiel entstand keine Kopie.**
 
@@ -163,7 +165,7 @@ Straßen und Gleise sind in TF3 also derselbe Segmenttyp; nur das Template unter
 
 ## Ergebnis Lauf 8 (06.10.2026, Probe v8 + DLL v6)
 
-Logs: [logs/probe-log-8-mp_probe.txt](../logs/probe-log-8-mp_probe.txt), [logs/probe-log-8-context.txt](../logs/probe-log-8-context.txt), [logs/proxy-log-8.txt](../logs/proxy-log-8.txt)
+Logs: [logs/probe-log-8-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-8-mp_probe.txt), [logs/probe-log-8-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-8-context.txt), [logs/proxy-log-8.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/proxy-log-8.txt)
 
 Der Nutzer hat eine Straße und ein Gleis gebaut. Keine Kopie, kein Hängen. **Der Nachbau wurde diesmal gar nicht versucht.**
 
@@ -186,7 +188,7 @@ Folgerung für Probe v9: Modul-Variablen gar nicht mehr für Daten zwischen Aufr
 
 ## Ergebnis Lauf 9 (06.10.2026, Probe v9 + DLL v6)
 
-Logs: [logs/probe-log-9-mp_probe.txt](../logs/probe-log-9-mp_probe.txt), [logs/probe-log-9-context.txt](../logs/probe-log-9-context.txt), [logs/proxy-log-9.txt](../logs/proxy-log-9.txt)
+Logs: [logs/probe-log-9-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-9-mp_probe.txt), [logs/probe-log-9-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-9-context.txt), [logs/proxy-log-9.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/proxy-log-9.txt)
 
 Keine Kopie im Spiel (vom Nutzer bestätigt), kein Hängen, keine Warnungen des Spiels nach Ladeende. **Aber das Spiel führt den Nachbau jetzt aus und meldet Erfolg, mit einem leeren Vorschlag.**
 
@@ -228,7 +230,7 @@ Nebenbefund: Kurz nach dem Gleis kamen drei Aufzeichnungen mit je 25 Knoten und 
 
 ## Ergebnis Lauf 10 (06.10.2026, Probe v10 + DLL v6)
 
-Logs: [logs/probe-log-10-mp_probe.txt](../logs/probe-log-10-mp_probe.txt), [logs/probe-log-10-context.txt](../logs/probe-log-10-context.txt), [logs/proxy-log-10.txt](../logs/proxy-log-10.txt)
+Logs: [logs/probe-log-10-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-10-mp_probe.txt), [logs/probe-log-10-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-10-context.txt), [logs/proxy-log-10.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/proxy-log-10.txt)
 
 Keine Kopie (vom Nutzer bestätigt), kein Hängen. Erstmals verarbeitet das Spiel den Vorschlag wirklich, bricht aber in der Straßengeometrie ab.
 
@@ -255,7 +257,7 @@ Zur Ursache aus Lauf 10: TF3 hat kein `streetTypeRep`/`trackTypeRep` wie TF2 (`a
 
 ## Ergebnis Lauf 11 (06.10.2026, Probe v11 + DLL v6)
 
-Logs: [logs/probe-log-11-mp_probe.txt](../logs/probe-log-11-mp_probe.txt), [logs/probe-log-11-context.txt](../logs/probe-log-11-context.txt), [logs/proxy-log-11.txt](../logs/proxy-log-11.txt)
+Logs: [logs/probe-log-11-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-11-mp_probe.txt), [logs/probe-log-11-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-11-context.txt), [logs/proxy-log-11.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/proxy-log-11.txt)
 
 **Der Nachbau funktioniert.** Der Nutzer hat zwei Straßen gebaut, beide wurden 40 m daneben automatisch nachgebaut („hat geklappt“). Gleise wurden in diesem Lauf nicht getestet. Kein Hängen, keine Warnungen oder Assertions des Spiels nach dem Laden.
 
@@ -285,7 +287,7 @@ Noch offen: Gleise, Straßen mit Anschluss an bestehende Knoten (Knoten-IDs unte
 
 ## Ergebnis Lauf 12 (06.10.2026, Probe v12 + DLL v7, Loopback über den Launcher)
 
-Logs: [logs/probe-log-12-mp_probe.txt](../logs/probe-log-12-mp_probe.txt), [logs/probe-log-12-context.txt](../logs/probe-log-12-context.txt), [logs/proxy-log-12.txt](../logs/proxy-log-12.txt)
+Logs: [logs/probe-log-12-mp_probe.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-12-mp_probe.txt), [logs/probe-log-12-context.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/probe-log-12-context.txt), [logs/proxy-log-12.txt](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/blob/bda25222c171ea4dd776f75cc8e132d80b7c2553/logs/proxy-log-12.txt)
 
 Der Nutzer hat mit `Start.bat` → „Allein testen“ installiert (`alut_proxy.ini`: `[net] mode=loopback port=47800`). Er hat eine Straße und ein Gleis gebaut, **beide Kopien sind erschienen.** Kein Hängen, keine Warnungen des Spiels außer den üblichen beim Laden.
 

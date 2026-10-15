@@ -1,5 +1,7 @@
 # v48: Menüpause, Fortsetzen nach Fahrzeugaktionen, Spielstandübertragung
 
+> Historischer Versionsstand. Die damaligen Messdaten liegen im [Protokollarchiv](../logs/README.md). Aktueller Einstieg: [Dokumentation](README.md).
+
 ## Menüpause und vorheriges Tempo
 
 TF3s `gui/main/pause_menu.tl` ruft beim Öffnen `api.gui.game.setInGameMenuPause(true)` und beim Schließen dieselbe Funktion mit `false` auf. Die Multiplayer-Erweiterung beobachtet diese Aufrufe direkt im nativen GUI-Kontext und veröffentlicht den zusätzlichen Zustand `menu`. Der bestehende DLL-v13-Kanal hat acht Plätze; mit diesem Zustand werden sieben verwendet. Eine neue DLL ist nicht erforderlich.

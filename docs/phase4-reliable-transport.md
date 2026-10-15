@@ -1,5 +1,7 @@
 # Übergabe: Probe v30 / Proxy v10
 
+> Historische Übergabe v30. Aktueller Einstieg: [Dokumentation](README.md). Die Originalprotokolle liegen im [Protokollarchiv](../logs/README.md); die benötigte Replay-Aufnahme liegt unter `tests/fixtures/run29-replay.log`.
+
 Historischer Stand der Transport-Korrekturen. Run30 hat inzwischen alle 21 Aktionen bestätigt. Aktueller Stand v31/v11 und nächste Arbeit: [phase5-session-world.md](phase5-session-world.md).
 
 Auftrag: Fehler aus run26 beheben, zuverlässige Übertragung und große Aktionen umsetzen, Launcher mit Gastgeber-/Beitreten-Ansichten für einen gemeinsamen VPN-Test verbessern. Grundlage ist Claudes Commit `3009beb` (v26/v9). Der Nutzer hat v27, v28 und v29 im Spiel getestet; v30 korrigiert den abgelehnten Bahnhofsumbau. Codex hat kein Spiel gestartet und keinen Zwei-PC-Spieltest durchgeführt. Die Änderungen liegen im gemeinsamen Arbeitsverzeichnis; keine automatischen Commits.
@@ -16,7 +18,7 @@ v30 verwendet diesen nativen Generator gezielt bei einem reinen 1:1-Ersatz derse
 
 Nach dem nativen Ersatz werden keine weiteren Bau-/Konfigurationsbefehle gesendet. Die bestehenden Knotenkonfigurations- und verzögerten Anschlussprüfungen halten die Ausführungsquittung weiterhin zurück. Auch eine Ausnahme beim Auslesen der verzögerten Anschlussprüfung führt jetzt zu FAIL; zuvor wurden die Prüfungen dann nur gelöscht und die Aktion fälschlich bestätigt. Der echte 5070-Byte-Datensatz ist zusätzlich als `tests/fixtures/run29-station-extension.b5` gesichert. Run30 bestätigt inzwischen die drei Erweiterungen mit erhaltenem Anschluss und alle 21 Aktionen. DLL war für diesen v30-Test unverändert v10.
 
-`Test-letzte-Aufnahme.bat` öffnet den Launcher mit `-ReplayLog logs/run29-stdout.txt` und wählt Gleiche Stelle vor. Der Starter liest die gesicherten 21 Aktionen, ohne sie neu aufnehmen zu müssen. TF3 vollständig beenden, **Test starten**, den ursprünglichen Spielstand **Det** vor den Änderungen laden, Zeit laufen lassen und **Am selben Ort nachbauen** klicken. Vor dem Senden müssen Host-/Gleiche-Stelle-Konfiguration und laufendes Spiel passen. Der aktuell geladene Spielstand wird aus dem Live-Protokoll gelesen; alte Ladezeilen vor dem aktuellen Prozessstart und abweichende Spielstände werden abgelehnt. Die gespeicherte Aufnahme selbst wird dabei nicht verändert. Normale Launcher-Starts lesen weiterhin die frische Aufnahme aus stdout.
+`Test-letzte-Aufnahme.bat` öffnet den Launcher mit `-ReplayLog tests/fixtures/run29-replay.log` und wählt Gleiche Stelle vor. Der Starter liest die gesicherten 21 Aktionen, ohne sie neu aufnehmen zu müssen. TF3 vollständig beenden, **Test starten**, den ursprünglichen Spielstand **Det** vor den Änderungen laden, Zeit laufen lassen und **Am selben Ort nachbauen** klicken. Vor dem Senden müssen Host-/Gleiche-Stelle-Konfiguration und laufendes Spiel passen. Der aktuell geladene Spielstand wird aus dem Live-Protokoll gelesen; alte Ladezeilen vor dem aktuellen Prozessstart und abweichende Spielstände werden abgelehnt. Die gespeicherte Aufnahme selbst wird dabei nicht verändert. Normale Launcher-Starts lesen weiterhin die frische Aufnahme aus stdout.
 
 ## Run28 und Korrekturen in v29
 

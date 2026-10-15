@@ -1,5 +1,7 @@
 # Übergabe: Probe v31 / Proxy v11
 
+**Historische Übergabe vom 8. Oktober 2026.** Die folgenden Abläufe, Paketangaben und Testgrenzen beschreiben v31. Für den heutigen Start gilt die [Projekt-README](../README.md); weitere Änderungen stehen im [Dokumentationsindex](README.md). Alte `logs/`-Pfade verweisen auf die damaligen Testprotokolle im [Git-Archiv](../logs/README.md).
+
 Stand: 8. Oktober 2026. Der Nutzer hat Run30 im Spiel bestätigt: Alle 21 Aktionen wurden nachgebaut, die Linie wurde erstellt und umbenannt, die Bahnhöfe wurden erweitert und anschließende Gleisarbeiten ausgeführt. Die zugehörigen Protokolle liegen unter `logs/run30-stdout.txt`, `run30-proxy.log` und `run30-proxy.status`; alle 21 Ausführungsquittungen sind OK. Die neuen v31-Funktionen sind offline geprüft. Der gemeinsame VPN-Spieltest steht noch aus.
 
 Die Änderungen liegen ohne neue Commits im gemeinsamen Arbeitsverzeichnis. Grundlage bleibt Claudes Commit `3009beb`. Es wurden weder TF3 gestartet noch Dateien der installierten Spielversion verändert. Das portable Testpaket ist `release/TF3-Multiplayer-v31-Windows.zip`; beide PCs benötigen dasselbe Paket.

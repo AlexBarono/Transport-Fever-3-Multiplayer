@@ -4,3 +4,13 @@ __pycache__/
 Thumbs.db
 tools/fake-partner.log
 release/
+
+# Local diagnostics and generated game/build files.
+/logs/*
+!/logs/README.md
+*.jsonl
+*.sav
+*.sav.*
+*.dmp
+*.obj
+*.pdb

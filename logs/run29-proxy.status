@@ -1,9 +1,0 @@
-pid=15860
-version=10
-mode=client
-connected=0
-outbox=0
-inbox=0
-blocked=1
-error=game rejected fh31660-1.12
-backlog=0

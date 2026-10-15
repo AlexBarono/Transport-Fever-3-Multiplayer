@@ -1,5 +1,7 @@
 # Transport Fever 3 Multiplayer-Mod: Machbarkeit und Umsetzungsplan
 
+**Historischer Forschungsplan, Stand v31 vom 8. Oktober 2026.** Die damaligen Prioritäten und Zeitabschätzungen bleiben als Entwicklungsnachweis erhalten. Aktuelle Bedienung und Paketversion: [Projekt-README](../README.md). Neuere Befunde und Prüfpläne: [Dokumentationsindex](README.md).
+
 Stand der Aufgaben: 8. Oktober 2026. Die ursprüngliche Machbarkeitsrecherche weiter unten stammt vom 6. Oktober.
 
 ## 1. Kurzfazit
