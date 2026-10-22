@@ -125,7 +125,7 @@ function Move-Item {
 '@
     Add-Content -LiteralPath (Join-Path $portable 'tools\update.ps1') -Value $processMock -Encoding UTF8
     [IO.File]::WriteAllText((Join-Path $portable 'personal-note.txt'),'retain in backup')
-    Check ((Assert-LauncherUpdateRoot $portable) -eq $portable) 'Valid portable root rejected'
+    Check ((Assert-LauncherUpdateRoot $portable) -eq [IO.Path]::GetFullPath($portable).TrimEnd('\','/')) 'Valid portable root rejected'
     [void][IO.Directory]::CreateDirectory((Join-Path $portable '.git'))
     Reject {Assert-LauncherUpdateRoot $portable} 'Git checkout can be replaced'
     [IO.Directory]::Delete((Join-Path $portable '.git'))
