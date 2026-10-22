@@ -47,7 +47,7 @@ Der Workflow `.github/workflows/release.yml` übernimmt das für neue Versionsta
 3. Der Windows-Job prüft den Updater, baut die Bridge, erstellt und prüft das Paket und lädt beide Release-Dateien zunächst in einen Entwurf.
 4. Erst nach erfolgreichem Upload wird dieser Entwurf als neuestes Release veröffentlicht.
 
-Quellversion und Tag müssen übereinstimmen. Ein bereits veröffentlichtes Release wird durch den Workflow nicht stillschweigend überschrieben. Benutzer benötigen für den Download keinen GitHub-Account; der Release-Job verwendet den auf GitHub bereitgestellten Repository-Token ausschließlich zur Veröffentlichung.
+Quellversion und Tag müssen übereinstimmen. Ein bereits veröffentlichtes Release wird durch den Workflow nicht stillschweigend überschrieben. Über **Run workflow** lässt sich der aktuelle Quellstand außerdem bauen und prüfen, ohne ein Release zu veröffentlichen. Benutzer benötigen für den Download keinen GitHub-Account; der Release-Job verwendet den auf GitHub bereitgestellten Repository-Token ausschließlich zur Veröffentlichung.
 
 ## Prüfung und Rücknahme
 
@@ -66,4 +66,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_update_ui.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests/run_launcher_view.ps1
 ```
 
-**51 Updateprüfungen**, **9 Prüfungen der Updateoberfläche** und **573 Layoutprüfungen** bei 100 %, 150 % und 200 % Skalierung bestehen. Die Updateprüfung testet vollständigen Paketwechsel, Sicherung, Rücknahme bei einem erzwungenen Ordnerfehler, Elternprozess-Handoff, echten Neustart eines harmlosen Fixture-Launchers, erhaltene Einladung, beschädigte Downloads und manipulierte ZIP-Inhalte. Die UI-Prüfung verwendet echte Hintergrundjobs und simulierte Release-Antworten. Ein öffentlicher GitHub-Download muss nach Veröffentlichung des ersten Release zusätzlich bestätigt werden.
+**51 Updateprüfungen**, **9 Prüfungen der Updateoberfläche** und **573 Layoutprüfungen** bei 100 %, 150 % und 200 % Skalierung bestehen. Die Updateprüfung testet vollständigen Paketwechsel, Sicherung, Rücknahme bei einem erzwungenen Ordnerfehler, Elternprozess-Handoff, echten Neustart eines harmlosen Fixture-Launchers, erhaltene Einladung, beschädigte Downloads und manipulierte ZIP-Inhalte. Die UI-Prüfung verwendet echte Hintergrundjobs und simulierte Release-Antworten.
+
+**Öffentlich bestätigt:** [Release v66](https://github.com/AlexBarono/Transport-Fever-3-Multiplayer/releases/tag/v66) ist veröffentlicht. Die tatsächliche Launcherfunktion erkennt es gegenüber v65, lädt es ohne Anmeldung und prüft alle 106 Paketdateien erfolgreich. Ein bereits aktueller v66-Launcher bietet dieselbe Version nicht noch einmal an. Die veröffentlichte ZIP hat SHA-256 `a316fed04ab80918ec69537e126aff043647761feeaf5c420137d4b48d4e28dc`.

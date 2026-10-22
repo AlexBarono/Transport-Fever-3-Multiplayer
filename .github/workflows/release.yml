@@ -1,6 +1,7 @@
 name: Windows release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -23,7 +24,7 @@ jobs:
           $ErrorActionPreference='Stop'
           . ./tools/update.ps1
           $version=Get-LauncherPackageVersion $PWD.Path
-          if($env:GITHUB_REF_NAME -cne "v$version"){throw 'Tag and source version differ.'}
+          if($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF_NAME -cne "v$version"){throw 'Tag and source version differ.'}
       - name: Test updater
         run: |
           ./tests/run_update.ps1
@@ -42,6 +43,7 @@ jobs:
           Copy-Item -LiteralPath ([IO.Path]::ChangeExtension($package.Path,'.update.json')) -Destination release/update.json
           "Windows-Paket mit Launcher-Updatefunktion. Beide PCs müssen dieselbe Version verwenden." | Set-Content -LiteralPath release/release-notes.txt -Encoding UTF8
       - name: Publish complete release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

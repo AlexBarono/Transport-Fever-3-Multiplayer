@@ -13,7 +13,7 @@ Ziel ist zunächst ein verlässliches gemeinsames Spiel für **zwei Windows-PCs 
 | Gemeinsame Geschwindigkeit und Geldkorrekturen | v64-Lauf ausgewertet: 4×-Auswahl verliert bei Begrenzung auf 3× ihre Markierung. In v65 korrigiert; tatsächliche Geschwindigkeiten und Geld bleiben im Gegentest zu prüfen. |
 | Automatischer Internetstart, temporäre IPv6 als Standard, IPv4-Knopf entfernt | In v64 umgesetzt; Automatik und Layout geprüft. |
 | Dauerhafte IPv6 und Einladungen nach Neustart | v65: Routerfehler 606 nachgestellt und mit passender IPv6-Absenderbindung behoben; echte Freigabe/Verlängerung/Löschung geprüft. Einladungsidentität und verfügbare Adresse werden wiederverwendet. |
-| Updates im Launcher | v66: GitHub-Release-Prüfung, ZIP-Import, geprüfter Paketwechsel, Sicherung, Rücknahme und Neustart implementiert. Öffentliche Release-Verteilung ist nach der Veröffentlichung zu bestätigen. |
+| Updates im Launcher | v66: GitHub-Release-Prüfung, ZIP-Import, geprüfter Paketwechsel, Sicherung, Rücknahme und Neustart implementiert. Release veröffentlicht; Erkennung und Download ohne Anmeldung mit allen 106 Paketdateien bestätigt. |
 | Mitspielerprotokolle beim Gastgeber | Für Internetverbindungen vorhanden. Eigene Gastgeberprotokolle liegen zusätzlich an ihren ursprünglichen Orten; eine vollständige gemeinsame Sitzungsablage fehlt. |
 | Neuabgleich | Auf ausdrücklichen Wunsch des Gastgebers vorhanden. Weltabweichungen lösen keinen automatischen Neuabgleich aus. |
 
@@ -75,7 +75,7 @@ Implementiert bedeutet hier nicht automatisch unter allen Bedingungen im echten 
 ### 6. Verbindung und Wiederverbindung für den Alltag absichern
 
 - [x] Updates im Launcher mit GitHub-Release und örtlichem ZIP-Import implementieren; Hintergrundjobs, Prüfsummen, Sicherung und Rücknahme automatisch prüfen (v66).
-- [ ] Erstes öffentliches Release bereitstellen und Download aus dem Launcher ohne GitHub-Anmeldung bestätigen. [Ablauf](v66-launcher-updates.md).
+- [x] Erstes öffentliches Release bereitstellen und Download aus dem Launcher ohne GitHub-Anmeldung bestätigen (v66, alle 106 Dateien geprüft). [Ablauf](v66-launcher-updates.md).
 - [x] Schlüssel und Zertifikat geschützt speichern; identischen Einladungslink nach Neustart eines eigenen Launcherprozesses per TLS prüfen (v65).
 - [x] Routerfreigabe für temporäre und dauerhafte IPv6 mit passendem Absender, Verlängerung und Löschung am tatsächlichen Router prüfen (v65).
 - [ ] Kurze Internetunterbrechungen, verlorene Diagnosedaten und Abbrüche der Spielstandübertragung im echten Zwei-PC-Lauf prüfen.
