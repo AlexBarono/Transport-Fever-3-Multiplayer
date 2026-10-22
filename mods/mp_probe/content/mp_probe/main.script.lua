@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 62
+main.PROBE_VERSION = 66
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -1625,6 +1625,10 @@ function main.sync_tick(env, s)
 		if k ~= (ss.capture_k or ss.own_k) and not ss.world_pending then
 			local values, failed, job = sync.values(env, gt, true)
 			values.ck = k
+			if getenv("TF3MP_ORDERING") == "1" then
+				values.econseq = s.timeline and s.timeline.last or 0
+				values.econbusy = main.money_busy(s) and 1 or 0
+			end
 			-- Money this game booked to follow the host (the simulated host in tools\fake-partner.ps1
 			-- needs it to keep its own difference).
 			if role == "client" then values.adj = ss.adj or 0 end
@@ -1702,7 +1706,7 @@ function main.sync_compare(env, ss, role, gt)
 					local ok_w, err_w = pcall(main.world_send, env, ss, own, world_fields)
 					if not ok_w then logger.info("world list failed: " .. tostring(err_w):sub(1, 200)) end
 				end
-				main.sync_correct(ss, out.fix, gt)
+				main.sync_correct(ss, out.fix, gt, own)
 			elseif ss.own_k and ss.own_k > p.k then
 				-- This game has no checkpoint with that number (loaded later); it is skipped.
 				ss.compared_k = p.k
@@ -1893,12 +1897,22 @@ end
 -- with a result callback ("Callbacks are currently disallowed"), so the corrections wait in
 -- ss.pending_fix; main.sync_send_fix sends them as a script event and handleEvent books them
 -- (main.sync_apply), like a replayed build.
-function main.sync_correct(ss, fix, gt)
+function main.money_busy(s)
+	local t, a = s.timeline, s.actions
+	return s.action_busy or s.network_work ~= nil or (s.network_handover and s.network_handover.phase ~= "done")
+		or (s.action_work and #s.action_work > 0)
+		or (s.action_inbox and #s.action_inbox > 0)
+		or (a and a.queue and #a.queue > 0)
+		or (t and (t.active or (t.queue and #t.queue > 0) or (t.pending_requests or 0) > 0)) or false
+end
+
+function main.sync_correct(ss, fix, gt, own)
 	if not (fix.loan or fix.money or fix.date) then return end
 	if fix.loan then logger.info("sync: loan differs by " .. fix.loan .. " from the host's, booking it") end
 	if fix.money then logger.info("sync: money differs by " .. fix.money .. " from the host's, booking it") end
 	if fix.date then logger.info("sync: date differs by " .. fix.date .. " day(s) from the host's, moving it") end
-	ss.pending_fix = { loan = fix.loan, money = fix.money, date = fix.date, gt = gt }
+	ss.pending_fix = { loan = fix.loan, money = fix.money, date = fix.date, gt = gt,
+		seq = own and own.econseq, adj = own and own.adj }
 end
 
 --- Stops correcting a field after a correction that could not be made.
@@ -1918,7 +1932,7 @@ function main.sync_send_fix(env, state, s)
 	main.store(state, s)
 	-- Flat, only numbers and a flag, like the other event parameters that are known to arrive.
 	local sent = main.send_replay_event(env, { sync_fix = true, fix_loan = fix.loan, fix_money = fix.money,
-		fix_date = fix.date, fix_gt = fix.gt })
+		fix_date = fix.date, fix_gt = fix.gt, fix_seq = fix.seq, fix_adj = fix.adj })
 	local live = state:get() or s
 	if type(live.sync) == "table" then
 		s.sync = live.sync
@@ -1953,6 +1967,15 @@ function main.sync_apply(env, state, fix)
 		local amount = tonumber(fix["fix_" .. field])
 		if not amount then return end
 		local live = state:get() or {}; local rebased = live.sync and live.sync.money_rebased_gt
+		if field == "money" and live.sync and
+			((fix.fix_seq ~= nil and (main.money_busy(live) or (live.timeline and live.timeline.last or 0) ~= fix.fix_seq))
+			or (fix.fix_adj ~= nil and (live.sync.adj or 0) ~= fix.fix_adj)) then
+			-- Leave correction enabled, but require fresh matching checkpoints.
+			if live.sync.fixes then live.sync.fixes.money = nil end
+			if live.sync.last then live.sync.last.money_compatible = false end
+			state:set(live)
+			logger.info("sync: skipped stale money correction after player action or balance alignment"); return
+		end
 		if field == "money" and rebased and tonumber(fix.fix_gt) and fix.fix_gt <= rebased then
 			logger.info("sync: skipped money correction captured before subsidy balance alignment"); return
 		end

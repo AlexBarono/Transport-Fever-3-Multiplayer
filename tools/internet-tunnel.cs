@@ -45,6 +45,7 @@ namespace TF3MP.Internet {
         public int PublicPort { get { return remotePort==0 ? Port : remotePort; } }
         public string Fingerprint { get { return pin; } }
         public string Key { get { return secret; } }
+        public bool IdentityReused { get; private set; }
         public string LastError { get { lock(gate) return lastError; } }
         public long TcpBytes { get { return Interlocked.Read(ref tcpBytes); } }
         public long UdpPackets { get { return Interlocked.Read(ref udpPackets); } }
@@ -400,15 +401,71 @@ namespace TF3MP.Internet {
             byte[] bytes = new byte[32]; using (RandomNumberGenerator rng = RandomNumberGenerator.Create()) rng.GetBytes(bytes);
             return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
         }
-        private static X509Certificate2 NewCertificate() {
+        private static X509Certificate2 NewCertificate(bool persistent) {
             using (RSA rsa = RSA.Create()) {
                 rsa.KeySize = 2048;
                 CertificateRequest req = new CertificateRequest("CN=TF3MP invitation", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-                using (X509Certificate2 cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(2)))
+                using (X509Certificate2 cert = req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5),
+                    persistent ? DateTimeOffset.UtcNow.AddYears(10) : DateTimeOffset.UtcNow.AddDays(2)))
                     // .NET Framework SChannel cannot authenticate with EphemeralKeySet.
                     // Import a user key without PersistKeySet; Dispose deletes its container.
-                    return new X509Certificate2(cert.Export(X509ContentType.Pfx), "", X509KeyStorageFlags.UserKeySet);
+                    return new X509Certificate2(cert.Export(X509ContentType.Pfx), "", X509KeyStorageFlags.UserKeySet |
+                        (persistent ? X509KeyStorageFlags.Exportable : 0));
             }
+        }
+        // Only the local Windows user can decrypt the stored host identity.
+        // The invitation contains its public pin and shared key, never this PFX.
+        private void ReadIdentity(string path) {
+            FileInfo info = new FileInfo(path);
+            if(info.Length < 32 || info.Length > 65536) throw new IOException("Invalid stored host identity size");
+            byte[] clear = ProtectedData.Unprotect(File.ReadAllBytes(path), null, DataProtectionScope.CurrentUser);
+            try {
+                using(MemoryStream data = new MemoryStream(clear)) using(BinaryReader reader = new BinaryReader(data, Encoding.UTF8)) {
+                    if(reader.ReadInt32()!=1) throw new IOException("Unknown stored host identity version");
+                    string key = reader.ReadString();
+                    if(key.Length!=64) throw new IOException("Invalid stored host key");
+                    foreach(char c in key) if(!((c>='0' && c<='9') || (c>='a' && c<='f'))) throw new IOException("Invalid stored host key");
+                    int size = reader.ReadInt32();
+                    if(size < 1 || size > 60000 || data.Length-data.Position!=size) throw new IOException("Invalid stored host certificate");
+                    X509Certificate2 cert = new X509Certificate2(reader.ReadBytes(size), "", X509KeyStorageFlags.UserKeySet);
+                    if(!cert.HasPrivateKey || cert.NotAfter.ToUniversalTime() <= DateTime.UtcNow || cert.NotBefore.ToUniversalTime() > DateTime.UtcNow) {
+                        cert.Dispose(); throw new IOException("Stored host certificate is not valid");
+                    }
+                    certificate=cert; secret=key; IdentityReused=true;
+                }
+            } finally { Array.Clear(clear,0,clear.Length); }
+        }
+        private void LoadIdentity(string path) {
+            if(String.IsNullOrWhiteSpace(path)) { certificate=NewCertificate(false); secret=NewKey(); return; }
+            path=System.IO.Path.GetFullPath(path);
+            if(File.Exists(path)) {
+                try { ReadIdentity(path); return; }
+                catch(Exception error) { throw new IOException("Stored Internet identity cannot be read; it was not replaced",error); }
+            }
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+            certificate=NewCertificate(true); secret=NewKey();
+            byte[] clear;
+            using(MemoryStream data=new MemoryStream()) {
+                using(BinaryWriter writer=new BinaryWriter(data,Encoding.UTF8,true)) {
+                    byte[] pfx=certificate.Export(X509ContentType.Pfx);
+                    try { writer.Write(1); writer.Write(secret); writer.Write(pfx.Length); writer.Write(pfx); }
+                    finally { Array.Clear(pfx,0,pfx.Length); }
+                }
+                clear=data.ToArray();
+            }
+            string temporary=path+".new-"+Guid.NewGuid().ToString("N");
+            try {
+                byte[] encrypted=ProtectedData.Protect(clear,null,DataProtectionScope.CurrentUser);
+                using(FileStream file=new FileStream(temporary,FileMode.CreateNew,FileAccess.Write,FileShare.None)) {
+                    file.Write(encrypted,0,encrypted.Length); file.Flush(true);
+                }
+                try { File.Move(temporary,path); }
+                catch(IOException) {
+                    if(!File.Exists(path)) throw;
+                    // A concurrent launcher won creation; both must use its identity.
+                    certificate.Dispose(); certificate=null; ReadIdentity(path);
+                }
+            } finally { Array.Clear(clear,0,clear.Length); if(File.Exists(temporary)) File.Delete(temporary); }
         }
         private static void Background(ThreadStart action) { Thread t = new Thread(action); t.IsBackground = true; t.Start(); }
         private void Error(Exception e) { if (!stopped) lock(gate) lastError = e.GetType().Name + ": " + e.Message; }
@@ -423,10 +480,13 @@ namespace TF3MP.Internet {
             l.Start(16); return l;
         }
         public static Tunnel StartHost(int publicPort, int gamePort) {
+            return StartHost(publicPort,gamePort,null);
+        }
+        public static Tunnel StartHost(int publicPort, int gamePort, string identityPath) {
             if(publicPort!=0 && publicPort==gamePort) throw new ArgumentException("Internet and game ports must differ");
             Tunnel t = new Tunnel(); t.localPort = gamePort;
             try {
-                t.certificate = NewCertificate(); t.pin = Hash(t.certificate.RawData); t.secret = NewKey();
+                t.LoadIdentity(identityPath); t.pin = Hash(t.certificate.RawData);
                 try { t.listener = Listen(IPAddress.IPv6Any, publicPort, true); }
                 catch(SocketException e) {
                     if(e.SocketErrorCode!=SocketError.AddressFamilyNotSupported && e.SocketErrorCode!=SocketError.ProtocolNotSupported && e.SocketErrorCode!=SocketError.AddressNotAvailable) throw;

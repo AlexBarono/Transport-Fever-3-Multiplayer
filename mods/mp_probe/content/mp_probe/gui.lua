@@ -172,6 +172,13 @@ function gui.step(env, g, now)
 	local holding = clock and ((clock.phase == "failed" and at and at > 0) or tonumber(clock.hold) == 1 or
 		(at and at > 0 and gt >= at and clock.phase ~= "idle"))
 	holding = holding or menu_hold
+	g.progress = g.progress or {}
+	local measured, elapsed = sync.progress_step(g.progress, now, gt, speed,
+		holding or (clock_ui and clock_ui.hold == 1))
+	if measured then
+		logger.info(string.format("sync simulation progress: set=%s measured=%.2fx over %.1fs; shared=%s",
+			sync.speed_name(speed), measured, elapsed, sync.speed_name(restore and restore.speed or speed)))
+	end
 	if ordered and (speed == 0 or holding) then
 		-- Simulation update() stops at a barrier; script events still run while paused.
 		-- gui.update already throttles this heartbeat to four events per second.

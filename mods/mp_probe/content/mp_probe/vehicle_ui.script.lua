@@ -6,8 +6,10 @@ local entry = ug_require "::/gui/main/mod_entry_point.tl"
 local hooks = ug_require "mp_probe_1::/mp_probe/vehicle_hooks.lua"
 local economy_hooks = ug_require "mp_probe_1::/mp_probe/economy_hooks.lua"
 local menu_hooks = ug_require "mp_probe_1::/mp_probe/menu_hooks.lua"
+local speed_hooks = ug_require "mp_probe_1::/mp_probe/speed_hooks.lua"
 local wire = ug_require "mp_probe_1::/mp_probe/wire.lua"
 local env, memory, economy_memory, menu_memory = { api = api, os = os }, {}, {}, {}
+local speed_memory = {}
 local function get(key)
 	local ok, value = pcall(function() return os.getenv(key) end)
 	return ok and value or ""
@@ -38,6 +40,11 @@ local function vehicle_issue(args, reason)
 	output("[mp_probe]net send " .. issue)
 end
 local function step()
+	speed_hooks.watch(env, speed_memory, { log = note, shared = function() return get("TF3MP_OWN_GUI") end, enabled = function()
+		local role = get("TF3MP_ROLE")
+		return (role == "host" or role == "client") and get("TF3MP_ORDERING") == "1"
+			and get("TF3MP_OWN_GUI"):match("src=gui") ~= nil
+	end })
 	menu_hooks.watch(env, menu_memory, { log = note, enabled = function()
 		local role = get("TF3MP_ROLE")
 		return (role == "host" or role == "client") and get("TF3MP_ORDERING") == "1"

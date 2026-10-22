@@ -2,6 +2,8 @@
 
 **Historischer Forschungsplan, Stand v31 vom 8. Oktober 2026.** Die damaligen Prioritäten und Zeitabschätzungen bleiben als Entwicklungsnachweis erhalten. Aktuelle Bedienung und Paketversion: [Projekt-README](../README.md). Neuere Befunde und Prüfpläne: [Dokumentationsindex](README.md).
 
+**Aktuelle Entwicklungsplanung:** [Roadmap ab v64, Stand 22. Oktober 2026](roadmap.md).
+
 Stand der Aufgaben: 8. Oktober 2026. Die ursprüngliche Machbarkeitsrecherche weiter unten stammt vom 6. Oktober.
 
 ## 1. Kurzfazit

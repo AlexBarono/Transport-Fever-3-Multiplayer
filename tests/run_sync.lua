@@ -1581,5 +1581,71 @@ test("simulation cannot pause ahead of the GUI hold marker and overwrite the use
 	assert(not has(g.logs,"speed changed here: paused"))
 end)
 
+test("different action generations or asset counts never refund a historical purchase delta", function()
+	for _, mismatch in ipairs({"econseq", "econbusy", "veh", "st", "con", "lines", "hveh"}) do
+		local own = {money=10587941, econseq=5, econbusy=0, veh=222, st=295, con=80, lines=50, hveh="h1_1111111111111111"}
+		local peer = copy(own); peer.money=4404624
+		peer[mismatch] = mismatch == "hveh" and "h1_2222222222222222" or own[mismatch]+1
+		local mem = {}
+		for k=1,3 do
+			local out=sync.compare(mem,k,own,peer,"client",k)
+			assert(out.fix.money==nil and has(out.notes,"money comparison deferred"), mismatch)
+		end
+		peer[mismatch]=own[mismatch]
+		assert(not sync.compare(mem,4,own,peer,"client",4).fix.money)
+		assert(sync.compare(mem,5,own,peer,"client",5).fix.money == -6183317)
+	end
+end)
+
+test("ordered checkpoints publish completed sequence and pending action state", function()
+	local g=game("client"); g.vars.TF3MP_ORDERING="1"
+	g.s.timeline={last=8,queue={},active={seq=9}}
+	g.gt=59800; g.tick()
+	local v=sync.decode(g.vars.TF3MP_OWN_SIM)
+	assert(v.econseq==8 and v.econbusy==1)
+end)
+
+test("completed handover does not block subsequent money alignment", function()
+	assert(not main.money_busy({network_handover={phase="done"},timeline={last=4,queue={}}}))
+	assert(main.money_busy({network_handover={phase="queued"}}))
+	assert(main.money_busy({actions={queue={"A1 pending purchase"}}}))
+end)
+
+test("money correction events recheck actions and already applied balance adjustments", function()
+	for _, scenario in ipairs({"sequence", "pending", "adjustment"}) do
+		local g=game("client")
+		g.s.sync={adj=900,fixes={money={amount=-6183317}},last={money_compatible=true}}
+		g.s.timeline={last=5,queue={}}
+		if scenario=="sequence" then g.s.timeline.last=6
+		elseif scenario=="pending" then g.s.actions={queue={"A1 buy"}}
+		else g.s.sync.adj=1000 end
+		g.run(function() main.sync_apply(g.env,g.state,{fix_money=-6183317,fix_seq=5,fix_adj=900,fix_gt=1000}) end)
+		assert(g.balance==1000000 and #g.sent==0,scenario)
+		assert(not g.s.sync.fixes.money and not g.s.sync.last.money_compatible and not g.s.sync.off)
+		assert(has(g.logs,"skipped stale money correction"))
+	end
+end)
+
+test("fresh money correction after matching action generation still books exactly once", function()
+	local g=game("client"); g.s.timeline={last=5,queue={}}
+	g.s.sync={adj=900,fixes={money={amount=1234}},last={money_compatible=true}}
+	g.run(function() main.sync_apply(g.env,g.state,{fix_money=1234,fix_seq=5,fix_adj=900,fix_gt=1000}) end)
+	assert(g.balance==1001234 and #g.sent==1 and g.s.sync.adj==2134)
+end)
+
+test("simulation progress measures time rather than trusting the speed display", function()
+	local m={}
+	assert(not sync.progress_step(m,0,0,3,false))
+	for t=1,9 do assert(not sync.progress_step(m,t,t*1500,3,false)) end
+	local rate,elapsed=sync.progress_step(m,10,15000,3,false)
+	assert(rate==1.5 and elapsed==10)
+	assert(not sync.progress_step(m,11,15000,0,false))
+	assert(not sync.progress_step(m,30,15000,3,true))
+	assert(not sync.progress_step(m,31,15000,3,false))
+	assert(not sync.progress_step(m,32,16000,1,false))
+	assert(not sync.progress_step(m,50,30000,1,false),"long frame gaps restart measurement")
+	assert(not sync.progress_step(m,51,0,1,false),"reloaded game time restarts measurement")
+end)
+
 print(string.format("%d sync tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

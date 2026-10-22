@@ -1,6 +1,6 @@
-﻿# Internet setup is explicit. Merely opening the launcher changes no firewall/router rules.
+﻿# Internet hosting opens automatically in the launcher host Internet mode.
 function Initialize-InternetTransport {
-    if (-not ('TF3MP.Internet.Tunnel' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'internet-tunnel.cs') }
+    if (-not ('TF3MP.Internet.Tunnel' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'internet-tunnel.cs') -ReferencedAssemblies 'System.dll','System.Core.dll','System.Security.dll' }
     if (-not ('TF3MP.Internet.RouterLease' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'internet-router.cs') -ReferencedAssemblies 'System.dll','System.Core.dll','System.Xml.dll' }
 }
 
@@ -20,7 +20,7 @@ function Get-InternetIPv6Addresses {
         @(Get-NetIPAddress -AddressFamily IPv6 -ErrorAction Stop | Where-Object {
             $_.AddressState -eq 'Preferred' -and $_.InterfaceAlias -notmatch 'Teredo|VPN|Radmin|Tailscale|ZeroTier|Hamachi|TAP|TUN|Loopback' -and
             (Test-PublicInternetAddress ([Net.IPAddress]::Parse($_.IPAddress)))
-        } | Sort-Object @{Expression={if($_.SuffixOrigin -eq 'Random'){1}else{0}}}, SkipAsSource, InterfaceMetric | ForEach-Object {
+        } | Sort-Object @{Expression={if($_.SuffixOrigin -eq 'Random'){0}else{1}}}, SkipAsSource, InterfaceMetric | ForEach-Object {
             $kind=if($_.SuffixOrigin -eq 'Random'){'temporär'}else{'dauerhaft'}
             [pscustomobject]@{ Address=$_.IPAddress; Display="$($_.IPAddress) / $($_.InterfaceAlias) ($kind)" }
         })
@@ -36,6 +36,55 @@ function Get-InternetLanIPv4 {
         Where-Object { $_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1
     if (-not $address) { throw 'Keine IPv4-Adresse am Internetadapter gefunden.' }
     return $address.IPAddress
+}
+
+# Router discovery must use the adapter that owns the selected IPv6, rather
+# than an unrelated VPN/Wi-Fi IPv4 default route.
+function Get-InternetIPv6RouterContext([string]$Address) {
+    $selected=Get-NetIPAddress -IPAddress $Address -AddressFamily IPv6 -ErrorAction Stop |
+        Where-Object {$_.AddressState -eq 'Preferred'} | Select-Object -First 1
+    if(-not $selected){throw 'Die gewählte IPv6 ist auf diesem PC nicht mehr verfügbar.'}
+    $lan=Get-NetIPAddress -InterfaceIndex $selected.InterfaceIndex -AddressFamily IPv4 -ErrorAction Stop |
+        Where-Object {$_.AddressState -eq 'Preferred' -and $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike '127.*'} |
+        Sort-Object SkipAsSource | Select-Object -First 1
+    $route=Get-NetRoute -InterfaceIndex $selected.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop |
+        Where-Object {$_.NextHop -ne '0.0.0.0'} | Sort-Object RouteMetric | Select-Object -First 1
+    if(-not $lan -or -not $route){throw 'Am Adapter der gewählten IPv6 fehlt der IPv4-Zugang zur Routerfreigabe.'}
+    $route6=Get-NetRoute -InterfaceIndex $selected.InterfaceIndex -DestinationPrefix '::/0' -ErrorAction SilentlyContinue |
+        Where-Object {$_.NextHop -ne '::' -and $_.NextHop -like '*:*'} | Sort-Object RouteMetric | Select-Object -First 1
+    $gateway6=''
+    if($route6){
+        $nextHop=[Net.IPAddress]::Parse($route6.NextHop)
+        if($nextHop.IsIPv6LinkLocal){$nextHop.ScopeId=$selected.InterfaceIndex}
+        $gateway6=$nextHop.ToString()
+    }
+    return [pscustomobject]@{Lan=$lan.IPAddress;Gateway=$route.NextHop;InterfaceIndex=$selected.InterfaceIndex;
+        GatewayIPv6=$gateway6;
+        Kind=$(if($selected.SuffixOrigin -eq 'Random'){'temporary'}else{'permanent'})}
+}
+
+function Get-InternetHostStatePath {
+    return Join-Path $env:LOCALAPPDATA 'TF3MP\Internet\host-endpoint.json'
+}
+function Get-SavedInternetHostEndpoint {
+    $path=Get-InternetHostStatePath
+    if(Test-Path -LiteralPath $path){
+        try {
+            $saved=Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+            $ip=$null
+            if($saved.Version -eq 1 -and [Net.IPAddress]::TryParse([string]$saved.Address,[ref]$ip) -and
+                (Test-PublicInternetAddress $ip) -and [int]$saved.Port -ge 1024 -and [int]$saved.Port -le 65535){return $saved}
+        }catch{}
+    }
+}
+function Save-InternetHostEndpoint([string]$Address,[int]$Port) {
+    $path=Get-InternetHostStatePath
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $path))
+    $temporary=$path+'.new-'+[guid]::NewGuid().ToString('N')
+    try {
+        @{Version=1;Address=$Address;Port=$Port} | ConvertTo-Json -Compress | Set-Content -LiteralPath $temporary -Encoding UTF8
+        Move-Item -LiteralPath $temporary -Destination $path -Force
+    }finally{if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary}}
 }
 
 function New-InternetInvitation([string]$Address, [int]$Port, [string]$Fingerprint, [string]$Key) {

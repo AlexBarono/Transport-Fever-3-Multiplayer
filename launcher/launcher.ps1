@@ -27,6 +27,8 @@ $ModName = 'mp_probe'
 . (Join-Path $Root 'tools\internet.ps1')
 . (Join-Path $Root 'tools\internet-view.ps1')
 . (Join-Path $Root 'tools\internet-diagnostics.ps1')
+. (Join-Path $Root 'tools\update.ps1')
+. (Join-Path $Root 'tools\update-view.ps1')
 $script:actionIssues = New-ActionIssueReader
 $script:actionLogPath = ''
 $script:actionLogChecked = [datetime]::MinValue
@@ -427,7 +429,14 @@ trap {
 
 function Update-Fields {
     $testMode=$loopRadio.Checked -or $spotRadio.Checked -or $fakeRadio.Checked
-    $locked=$script:transferBusy -or $script:liveBusy -or $script:lobbyPreparing -or $script:lobbyPhase -in 'starting','started'
+    $locked=$script:updateBusy -or $script:transferBusy -or $script:liveBusy -or $script:lobbyPreparing -or $script:lobbyPhase -in 'starting','started'
+    if($updateCheck){
+        $hasUpdate=$script:updatePrepared -or ($script:updateInfo -and $script:updateInfo.Available)
+        $updateCheck.Text=if($hasUpdate){'Update installieren'}else{'Auf Updates prüfen'}
+        $blocked=Get-LauncherCurrentUpdateBlock
+        $updateCheck.Enabled=-not $script:updateBusy -and (-not $hasUpdate -or -not $blocked)
+        $updateZip.Enabled=-not $script:updateBusy -and -not $blocked
+    }
     $ipBox.Enabled=$clientRadio.Checked -and -not $locked
     $portBox.Enabled=-not $loopRadio.Checked -and -not $script:internetTunnel -and -not $locked
     $gameBox.Enabled=-not $locked; $browse.Enabled=-not $locked
@@ -465,9 +474,8 @@ function Update-Fields {
     $recover.Visible=$hostRadio.Checked
     $recover.Enabled=$hostRadio.Checked -and -not $script:transferBusy -and -not $script:liveBusy -and -not $script:lobbyPreparing -and (Test-GameRunning)
     $internetMode=$connectionMode.SelectedIndex -eq 0
-    $internetSetup.Visible=$internetMode; $ipv4Setup.Visible=$internetMode
-    $internetSetup.Enabled=$hostRadio.Checked -and -not $locked
-    $ipv4Setup.Enabled=$internetSetup.Enabled
+    $internetSetup.Visible=$internetMode
+    $internetSetup.Enabled=$hostRadio.Checked -and -not $locked -and -not $script:internetTunnel
     $connectionMode.Enabled=-not $locked
     if($script:internetTunnel -and $script:internetRole -eq 'host'){$internetPortBox.Text="$($script:internetTunnel.Port)"}
     $internetPortBox.Visible=$internetMode; $internetPortBox.Enabled=-not $locked -and -not $script:internetTunnel
@@ -475,7 +483,7 @@ function Update-Fields {
     $portBox.Visible=$testMode; $testPortLabel.Visible=$testMode
     $clearAddress.Enabled=$clientRadio.Checked -and -not $locked
     if(-not $testMode){$gameBox.Width=[int][Math]::Round($settings.Width*510/734)}
-    $connectionStatus.Text=if($hostConnected){'Mitspieler verbunden. Spielstand bereitstellen.'}elseif($script:internetRole -eq 'host'){'Internetzugang offen. Einladung teilen; warte auf Mitspieler.'}elseif(-not $internetMode){"VPN / LAN: TCP + UDP $($portBox.Text). Adresse teilen; warte auf Mitspieler."}else{'IPv6 wählen oder öffentliche IPv4 eingeben. Verbindung öffnen.'}
+    $connectionStatus.Text=if($hostConnected){'Mitspieler verbunden. Spielstand bereitstellen.'}elseif($script:internetRole -eq 'host'){'Internetzugang offen. Einladung teilen; warte auf Mitspieler.'}elseif(-not $internetMode){"VPN / LAN: TCP + UDP $($portBox.Text). Adresse teilen; warte auf Mitspieler."}elseif($script:lobbyError){$script:lobbyError}elseif(-not $hostAddress.Text.Trim()){'Keine öffentliche IPv6 gefunden. Netzwerk prüfen und Neu laden wählen.'}else{'Internetverbindung wird automatisch geöffnet. Danach Einladung kopieren.'}
     if($clientRadio.Checked){$joinConnection.Text=if($script:lobbyPhase -in 'ready','started','starting'){'Verbunden. Spielstand vorbereitet.'}elseif($script:lobbyJob -and $script:lobbyJob.Progress.Snapshot()[0] -like 'Verbunden.*'){'Verbunden. Warte auf den Spielstand.'}else{'Adresse einfügen. Die Verbindung startet automatisch.'}}
     $internetCheck.Enabled=-not $locked -and -not $script:lobbyJob
     $hostAddress.Enabled=-not $locked
@@ -521,11 +529,12 @@ if ($script:replayRecording) {
 	}
 }
 $portBox.Text = $cfg.port
-if($cfg.transport -ne 'internet'){$connectionMode.SelectedIndex=1}
+if($cfg.transport -ne 'internet' -and (Test-Path -LiteralPath (Join-Path $gameBox.Text 'alut_proxy.ini'))){$connectionMode.SelectedIndex=1}
 Refresh-HostAddresses
+if(-not $Preview){Restore-LauncherInternetHostEndpoint}
 Update-Fields
 $out.Text = if ($gameBox.Text) { "Spiel gefunden: $($gameBox.Text)" } else { 'Spielordner nicht gefunden - bitte über "Suchen..." auswählen.' }
-if($script:internetNeedsSetup) { $out.AppendText("`r`nLetzte Sitzung: Internet ohne VPN. Gastgeber: Internetzugang neu einrichten und die neue Einladung teilen. Mitspieler: neue Einladung einfügen.") }
+if($script:internetNeedsSetup) { $out.AppendText("`r`nLetzte Sitzung: Internet ohne VPN. Beim Gastgeber öffnet die Verbindung automatisch. Bei gleicher Adresse und gleichem Port gilt die bisherige Einladung weiter. Mitspieler: gespeicherte Einladung einfügen.") }
 if ($script:replayRecording) {
 	$out.AppendText("`r`nGespeicherte Aufnahme: $($script:replayRecording.Lines.Count) Aktionen aus '$($script:replayRecording.Save)'.`r`nTest starten, diesen ursprünglichen Spielstand laden und 'Am selben Ort nachbauen' klicken. Ohne neue Bauaufnahme.")
 }
@@ -790,9 +799,29 @@ $recover.Add_Click({
 $navHost.Add_Click({ Close-LauncherLobby; if($script:internetRole -eq 'client'){Stop-LauncherInternet}; Refresh-HostAddresses; $hostRadio.Checked=$true; Update-Fields })
 $navJoin.Add_Click({ Close-LauncherLobby; if($script:internetRole -eq 'host'){Stop-LauncherInternet}; if ($fakeRadio.Checked -and $ipBox.Text -eq '127.0.0.1') { $ipBox.Text='' }; $clientRadio.Checked=$true; Update-Fields })
 $navTest.Add_Click({ Close-LauncherLobby; Stop-LauncherInternet; $fakeRadio.Checked=$true; Update-Fields })
+$updateCheck.Add_Click({Start-LauncherUpdateCheck})
+$updateZip.Add_Click({
+    if($script:updatePrepared){
+        try{Remove-LauncherUpdateWork $Root $script:updateWork}catch{Write-LauncherLog $_.Exception.Message;return}
+        $script:updatePrepared=$null;$script:updateWork=''
+    }
+    $dialog=New-Object Windows.Forms.OpenFileDialog
+    $dialog.Title='TF3-Multiplayer-Update auswählen';$dialog.Filter='TF3-Multiplayer-Paket (*.zip)|*.zip'
+    try{if($dialog.ShowDialog($form) -eq 'OK'){Start-LauncherUpdatePreparation $dialog.FileName}}finally{$dialog.Dispose()}
+})
 $hostAddress.Add_SelectedIndexChanged({ if(-not $script:refreshingAddresses -and -not $script:lobbyPreparing -and -not $script:transferBusy -and -not $script:liveBusy){Close-LauncherLobby; if($script:internetRole -eq 'host'){Stop-LauncherInternet}; Update-Fields} })
-$internetSetup.Add_Click({ Start-LauncherInternetHost $false })
-$ipv4Setup.Add_Click({ Start-LauncherInternetHost $true })
+$internetSetup.Add_Click({ Update-AutomaticInternetHost -Retry })
+$refreshAddress.Add_Click({
+    $previous=if($hostAddress.SelectedItem){$hostAddress.SelectedItem.Address}else{$hostAddress.Text.Trim()}
+    Refresh-HostAddresses
+    $selected=if($hostAddress.SelectedItem){$hostAddress.SelectedItem.Address}else{$hostAddress.Text.Trim()}
+    if($previous -ne $selected){
+        Close-LauncherLobby
+        if($script:internetRole -eq 'host'){Stop-LauncherInternet}
+    }
+    if(-not $script:internetTunnel){$script:internetAutoKey=''; $script:internetAutoAttempt=''}
+    Update-Fields
+})
 $clearAddress.Add_Click({ Clear-LauncherJoinAddress })
 $connectionMode.Add_SelectedIndexChanged({ Close-LauncherLobby; Stop-LauncherInternet; $script:internetNeedsSetup=$connectionMode.SelectedIndex -eq 0; Refresh-HostAddresses; Update-Fields })
 $internetCheck.Add_Click({ try { Test-LauncherInternetInvitation } catch { Write-LauncherLog $_.Exception.Message } })
@@ -963,6 +992,9 @@ $script:lastStatusUpdate=[datetime]::MinValue
 $script:lastVisibleStatus=''
 $script:shownActionIssues=@{}
 $timer.Add_Tick({
+    if($script:launcherClosing){return}
+    Update-LauncherUpdateJob
+    if($script:updateBusy){return}
 	Update-InternetDiagnostics
 	if($script:liveBusy -or $script:transferBusy -or $script:lobbyPreparing){return}
 	try {Update-LauncherLobby} catch {Write-LauncherLog "Sitzungssteuerung: $($_.Exception.Message)"}
@@ -1025,7 +1057,7 @@ $timer.Add_Tick({
 $form.Add_Shown({ if($Preview){return}; Write-LauncherLog "Launcher gestartet ($(Split-Path -Leaf $Root))"; $timer.Start() })
 # v34: das normale X schließt den Launcher immer, auch während einer Übertragung. Laufende Schritte
 # werden abgebrochen; danach endet der (versteckte) PowerShell-Prozess sicher.
-$form.Add_FormClosing({ $script:transferCancel = $true; Close-LauncherLobby; if(-not $Preview){Write-LauncherLog 'Launcher geschlossen'}; Stop-LauncherInternet })
+$form.Add_FormClosing({ $script:launcherClosing=$true; $script:transferCancel = $true; Stop-LauncherUpdateJob; Close-LauncherLobby; if(-not $Preview){Write-LauncherLog 'Launcher geschlossen'}; Stop-LauncherInternet })
 $form.Add_FormClosed({
 	$timer.Stop(); $timer.Dispose()
 	if (-not $Preview) { [Environment]::Exit(0) }

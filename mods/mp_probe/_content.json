@@ -15,6 +15,7 @@
         "mp_probe/menu_hooks.lua",
         "mp_probe/nodecfg.lua",
         "mp_probe/probe.lua",
+        "mp_probe/speed_hooks.lua",
         "mp_probe/sync.lua",
         "mp_probe/timeline.lua",
         "mp_probe/transport.lua",

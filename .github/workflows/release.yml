@@ -1,0 +1,54 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check release version
+        run: |
+          $ErrorActionPreference='Stop'
+          . ./tools/update.ps1
+          $version=Get-LauncherPackageVersion $PWD.Path
+          if($env:GITHUB_REF_NAME -cne "v$version"){throw 'Tag and source version differ.'}
+      - name: Test updater
+        run: |
+          ./tests/run_update.ps1
+          ./tests/run_update_ui.ps1
+      - name: Build bridge
+        run: |
+          cmd /c native\alut_proxy\build.bat
+          if($LASTEXITCODE -ne 0){throw 'Native build failed.'}
+          Copy-Item -LiteralPath native/alut_proxy/build/alut.dll -Destination launcher/bin/alut.dll -Force
+      - name: Build and verify package
+        run: |
+          $ErrorActionPreference='Stop'
+          $package=./tools/package.ps1
+          . ./tools/update.ps1
+          $checked=Get-LauncherUpdateArchive $package.Path ($package.ProbeVersion-1) $package.ProbeVersion
+          Copy-Item -LiteralPath ([IO.Path]::ChangeExtension($package.Path,'.update.json')) -Destination release/update.json
+          "Windows-Paket mit Launcher-Updatefunktion. Beide PCs müssen dieselbe Version verwenden." | Set-Content -LiteralPath release/release-notes.txt -Encoding UTF8
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $version=$env:GITHUB_REF_NAME.Substring(1)
+          gh release create $env:GITHUB_REF_NAME "release/TF3-Multiplayer-v$version-Windows.zip" release/update.json --verify-tag --draft --title "TF3 Multiplayer v$version" --notes-file release/release-notes.txt
+          if($LASTEXITCODE -ne 0){throw 'Release upload failed.'}
+          gh release edit $env:GITHUB_REF_NAME --draft=false --latest
+          if($LASTEXITCODE -ne 0){throw 'Release publication failed.'}

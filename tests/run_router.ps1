@@ -24,6 +24,24 @@ try {
     $failed=$false; try { [void][TF3MP.Internet.RouterLease]::Open($router.Url,'127.0.0.1','2001:db8::5',47801,2) } catch { $failed=$_.Exception.GetBaseException().Code -eq '703' }
     Check ($failed -and $router.Adds -eq 1) 'Router permission denial was ignored'
 } finally { if($lease) { $lease.Dispose() }; $router.Dispose() }
+$router=[RouterFixture]::new($true);$router.RequireSameSource=$true;$router.DenyUpdateDelete=$true;$lease=$null
+try{
+    $legacy=[Uri]('http://127.0.0.1:'+$router.Url.Port+'/control')
+    $lease=[TF3MP.Internet.RouterLease]::OpenSelected($legacy,'127.0.0.1','::1','::1',47811,2)
+    Check ($lease.ControlViaIPv6 -and $router.LastSource -eq '::1') 'Router control did not use the selected IPv6 as source'
+    Start-Sleep -Milliseconds 1300
+    Check ($lease.RenewalViaAdd -and $lease.Renewals -ge 1 -and -not $lease.LastError) 'IPv6 606 renewal did not extend the identical pinhole'
+    Check ($router.Adds -ge 2 -and $router.LastLeaseTime -eq 2) 'Renewal changed the pinhole lease or scope'
+    $lease.Dispose()
+    Check (-not $lease.LastError -and $lease.CloseExpiresInSeconds -eq 1 -and $router.LastLeaseTime -eq 1) 'Denied IPv6/IPv4 deletion did not shorten its own pinhole'
+}finally{if($lease){$lease.Dispose()};$router.Dispose()}
+foreach($entry in @(@('http://[::1]:49000/control','::1'),@('http://[fe80::1%7]:49000/control','fe80::1%7'))){
+    $validated=[TF3MP.Internet.RouterLease]::ValidateUrl($entry[0],$entry[1])
+    Check (([Net.IPAddress]::Parse($validated.DnsSafeHost)).Equals([Net.IPAddress]::Parse($entry[1]))) 'IPv6 gateway scope not retained'
+}
+$failed=$false
+try{[void][TF3MP.Internet.RouterLease]::ValidateUrl('http://[fe80::1%8]:49000/control','fe80::1%7')}catch{$failed=$true}
+Check $failed 'Control URL accepted another IPv6 adapter scope'
 $program=(Get-Process -Id $PID).Path
 $hostArgs=Get-GameFirewallArguments 47800 $program host
 $clientArgs=Get-GameFirewallArguments 47800 $program client

@@ -1,21 +1,43 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v62 / DLL v16**. **Beide PCs brauchen das v62-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v66 / DLL v16**. **Beide PCs brauchen das v66-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
 
-[Dokumentation](docs/README.md) · [Versionsverlauf](docs/versionsverlauf.md) · [v62: Gemeinsame Geschwindigkeit](docs/v62-geschwindigkeit.md)
+[Roadmap](docs/roadmap.md) · [Dokumentation](docs/README.md) · [Versionsverlauf](docs/versionsverlauf.md) · [v66: Updates im Launcher](docs/v66-launcher-updates.md)
 
-## Neu in v62
+## Neu in v66
 
-- **Gemeinsames Spieltempo:** In normalen Zwei-PC-Sitzungen beschleunigt oder bremst ein Zeitversatz nicht mehr eigenständig einen PC. Die gewählte Geschwindigkeit bleibt die gemeinsame Vorgabe. Aktions- und Menüpausen bleiben erhalten; Neuabgleich bleibt auf Wunsch.
-- **Gemeinsame Leistungsgrenze:** Beide Spiele teilen ihre von TF3 gemeldete Höchstgeschwindigkeit und berücksichtigen die niedrigere frische Grenze. Die gewünschte Geschwindigkeit bleibt gespeichert, auch wenn TF3 zeitweise nur 3× statt 4× schafft.
-- **Verzögerte Befehlsantworten:** Ausstehende und kürzlich gesendete Geschwindigkeitsbefehle werden mitgeführt. Eine verspätete eigene Antwort erzeugt keine neue Spieleränderung. Nach automatischen Pausen wird die gemeinsame Vorgabe wiederhergestellt.
-- Beide PCs aktualisieren. [Befunde vom 15. Oktober und gezielter Zwei-PC-Test](docs/v62-geschwindigkeit.md).
+- **Updates direkt im Launcher:** Links auf **Auf Updates prüfen** und bei einer neuen Version auf **Update installieren** klicken. Der Launcher lädt das GitHub-Release, prüft es und startet nach dem Paketwechsel neu.
+- **Update aus ZIP** funktioniert zusätzlich ohne GitHub-Anmeldung. ZIP auswählen, prüfen lassen und **Update installieren** klicken.
+- Der vorherige Paketordner bleibt als Sicherung erhalten. Die gespeicherte Interneteinladung bleibt bestehen. Zum Installieren das Spiel und die gemeinsame Sitzung vorher beenden; beide PCs aktualisieren.
+- Für Online-Downloads muss das Repository öffentlich sein und ein veröffentlichtes Release mit `update.json` und dem Windows-Paket enthalten. Der mitgelieferte GitHub-Workflow erstellt diese Dateien bei einem Versionstag automatisch. [Bedienung, Veröffentlichung und Tests](docs/v66-launcher-updates.md).
 
-## Ohne VPN starten (v62)
+## Korrekturen aus v65
 
-1. Beide verwenden dasselbe v62-Windows-Paket und öffnen `Start.bat`.
-2. Gastgeber: Unter **Internet ohne VPN** eine öffentliche IPv6 auswählen und **Verbindung öffnen**. Alternativ öffentliche IPv4 eintragen oder **IPv4 automatisch** für die Routeranfrage wählen. Alles geschieht im Hauptfenster. Der dort angezeigte Internetport ist **TCP 47801**; der interne Spielport wird nicht mehr als freizugebender Internetport angezeigt.
-3. Der Launcher prüft die Windows-Regel und fordert die Routerfreigabe an. Falls Windows Administratorrechte verlangt, bestätigen. **Einladung kopieren** und nur dem Mitspieler geben. Die Einladung gilt für diese laufende Verbindung. Routerfehler stehen im Protokoll. Bei IPv6 müssen beide Anschlüsse IPv6 unterstützen; bei IPv4 kann CGNAT/DS-Lite eine direkte Freigabe verhindern.
+- **4× bleibt ausgewählt**, wenn TF3 das tatsächliche Tempo auf beispielsweise 3× begrenzt. Die native Oberfläche hatte dann keinen passenden Knopf und zeigte keine Auswahl. Die Leistungsgrenze bleibt wirksam.
+- **Dauerhafte IPv6:** Die Routerfreigabe wird mit der ausgewählten IPv6 als Absender angefordert. Damit akzeptiert der hier getestete Router auch die zuvor mit Fehler 606 abgewiesene dauerhafte Adresse. Verlängerung und Schließen sind ebenfalls geprüft.
+- **Einladungen bleiben nach Launcher-Neustarts gültig**, solange öffentliche Adresse und Port gleich bleiben. Der Launcher speichert Schlüssel und Zertifikat mit Windows-Benutzerschutz und verwendet die letzte noch verfügbare Adresse wieder. Beim Umstieg von v64 einmal die neue v65-Einladung teilen. Ändert sich die Internetadresse, muss der Link weiterhin aktualisiert werden.
+- **Weniger fehlgeschlagene Haltestellenaktionen:** Beim Ersetzen einer Straße werden die tatsächlichen Anschlussknoten übertragen. Versetzte Segmentendpunkte hatten im letzten Lauf zwei Baufehler und anschließend fehlende Linienhalte verursacht.
+- [Protokollbefunde, Tests und verbleibende Grenzen](docs/v65-tempo-ipv6-einladung.md). Bereits auseinanderlaufende Karten einmal über den Gastgeber **Neu abgleichen**.
+
+## Korrekturen aus v64
+
+- **Internetverbindung automatisch öffnen:** Beim Gastgeber startet „Internet ohne VPN“ nach Auswahl der Adresse automatisch. Eine verfügbare **temporäre IPv6-Adresse** ist vorausgewählt; ohne diese wird eine dauerhafte öffentliche IPv6 verwendet.
+- Der Knopf **IPv4 automatisch** entfällt. **Einladung kopieren** ist direkt erreichbar; **Erneut verbinden** wiederholt einen fehlgeschlagenen Versuch. Laufende Verbindungen behalten ihre Einladung.
+- Die Korrekturen für Spieltempo, Geld und Haltestellen aus v63 sind enthalten. [Internetstart und Prüfung](docs/v64-internetstart.md).
+
+## Korrekturen aus v63
+
+- **Tempoänderungen werden nicht mehr vom alten TF3-Tempo überschrieben:** Die gemeinsame Mod-Steuerung übernimmt die Leistungsgrenze. TF3s zusätzliche Wiederholung eines gedrosselten 4×-Befehls wird in der normalen Spieloberfläche unterdrückt. Pause und 1×/2× können dadurch auch beim Mitspieler wirksam bleiben.
+- **Tatsächliches Tempo wird gemessen:** Das Protokoll zeigt zusätzlich, wie viel Simulationszeit tatsächlich pro Sekunde vergeht. Eine angezeigte 4×-Vorgabe garantiert auf einer großen Karte weiterhin keine vierfache Rechenleistung.
+- **Geldabgleich:** Unterschiedliche oder noch laufende Spieleraktionen blockieren eine Buchung aus alten Vergleichspunkten. Vor der Buchung wird erneut geprüft, ob inzwischen weitere gemeinsame Aktionen oder Geldkorrekturen erfolgt sind.
+- **Haltestellen:** Ein nicht auslesbarer nativer Baubefehl verursacht keinen Lua-Fehler mehr; TF3 prüft den ursprünglichen Bau. Bereits unterschiedliche Parzellen und fehlende Haltestellen können weiterhin einen bewussten Neuabgleich erfordern.
+- Beide PCs aktualisieren. [Befunde vom 20. Oktober, Grenzen und Zwei-PC-Test](docs/v63-tempo-geld.md).
+
+## Ohne VPN starten (v66)
+
+1. Beide verwenden dasselbe v66-Windows-Paket und öffnen `Start.bat`.
+2. Gastgeber: **Internet ohne VPN** öffnen. Beim ersten Start ist eine temporäre öffentliche IPv6 vorausgewählt, sofern verfügbar. Später wird die letzte noch verfügbare Adresse mit ihrem Internetport wiederhergestellt; die Verbindung öffnet automatisch. Bei Bedarf eine andere Adresse auswählen. Der öffentliche Internetport ist standardmäßig **TCP 47801**.
+3. Der Launcher prüft die Windows-Regel und fordert die Routerfreigabe an. Falls Windows Administratorrechte verlangt, bestätigen. **Einladung kopieren** und nur dem Mitspieler geben. Bei gleicher öffentlicher Adresse und gleichem Port gilt sie auch nach Neustarts weiter. Routerfehler stehen im Protokoll. Bei IPv6 müssen beide Anschlüsse IPv6 unterstützen; bei IPv4 kann CGNAT/DS-Lite eine direkte Freigabe verhindern.
 4. Mitspieler: **Beitreten**, die vollständige Einladung einfügen. Der Launcher verbindet sich automatisch. **Löschen** leert das Feld und beendet eine noch wartende Verbindung.
 5. Erst sobald der andere Launcher verbunden ist, erscheinen beim Gastgeber Spielstandliste und **Spielstand bereitstellen**. Einen Stand auswählen und bereitstellen. Der Mitspieler empfängt und prüft ihn automatisch; alte gleichnamige Dateien bleiben als `.bak` erhalten. Ein noch laufendes TF3 wird für die neue Sitzung beendet.
 6. Nach bestätigtem Empfang und Einrichtung wird **Spiel für beide starten** grün. Beide Spiele starten über Steam und laden den gemeinsamen Stand automatisch, einschließlich Aktivierung der Multiplayer-Mod. Ein bereits laufendes TF3 wird vorher geschlossen. Beide Launcher bleiben geöffnet.
@@ -24,7 +46,7 @@ Der Internetweg benötigt keinen Vermittlungsserver. Er ersetzt jedoch keine feh
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe v62-Windows-Paket auf beiden PCs öffnen und das VPN verbinden.
+1. Dasselbe v66-Windows-Paket auf beiden PCs öffnen und das VPN verbinden.
 2. Gastgeber: **VPN / LAN**, passende Adresse auswählen, **Adresse kopieren**. Der Wartekanal öffnet automatisch. Für VPN/LAN gilt weiter **TCP + UDP 47800**; eine Routerfreigabe ist dafür nicht nötig.
 3. Mitspieler: **Beitreten**, Adresse einfügen (z. B. `100.80.12.4:47800`). Sobald verbunden, wählt und teilt der Gastgeber den Spielstand direkt im Hauptfenster. Beide brauchen dieselbe Paketversion und passende zusätzliche Mods.
 4. Der Gastgeber klickt den grünen Knopf **Spiel für beide starten**. Beide Spiele laden den geteilten Stand automatisch. Sobald beide Karten bereit sind, gemeinsam fortsetzen und bauen.
@@ -44,7 +66,7 @@ Nach einem frischen Git-Checkout zuerst die native DLL wie unter **Entwickeln un
 powershell -NoProfile -File tools/package.ps1
 ```
 
-Ausgabe: `release/TF3-Multiplayer-v62-Windows.zip`. Ein vorhandenes Paket lässt sich mit `-Force` ersetzen. Der Paketbau prüft Versionen, Moddateien und die mitgelieferte DLL; er verändert keine Spielinstallation. Die ZIP-Dateien werden lokal erzeugt und sind nicht im Git-Repository enthalten.
+Ausgabe: `release/TF3-Multiplayer-v66-Windows.zip` sowie die zugehörige `.update.json` mit Version, Größe und Prüfsumme. Die ZIP enthält außerdem eine vollständige Dateiliste mit Prüfsummen. Ein vorhandenes Paket lässt sich mit `-Force` ersetzen. Der Paketbau prüft Versionen, Moddateien und die mitgelieferte DLL; er verändert keine Spielinstallation. Die ZIP-Dateien werden lokal erzeugt und sind nicht im Git-Repository enthalten.
 
 ## Tests auf einem PC
 

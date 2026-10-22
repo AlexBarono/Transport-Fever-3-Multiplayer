@@ -8,6 +8,10 @@ $script:internetLease = $null
 $script:internetRouterStatus = ''
 $script:internetLastStats = ''
 $script:internetNeedsSetup = $false
+$script:internetAutoKey = ''
+$script:internetAutoAttempt = ''
+$script:internetAutoChanged = [DateTime]::UtcNow
+$script:launcherClosing = $false
 
 function Write-InternetLog([string]$Event, $Data = @{}) {
     try {
@@ -22,11 +26,12 @@ function Write-InternetLog([string]$Event, $Data = @{}) {
 }
 
 function Stop-LauncherInternet {
+    $script:internetAutoKey=''; $script:internetAutoAttempt=''
     if ($script:internetTunnel) { $script:internetTunnel.Dispose(); $script:internetTunnel=$null }
     Reset-InternetProtocolSharing
     if ($script:internetLease) {
         $script:internetLease.Dispose()
-        Write-InternetLog 'ipv6_pinhole_closed' @{ error=$script:internetLease.LastError }
+        Write-InternetLog 'ipv6_pinhole_closed' @{ error=$script:internetLease.LastError; expires_in_seconds=$script:internetLease.CloseExpiresInSeconds }
         $script:internetLease=$null
     }
     $script:internetRouterStatus=''
@@ -57,14 +62,14 @@ function Resolve-LauncherEndpoint([string]$Text, [string]$DefaultPort) {
     }
     if ($script:internetTunnel -and $script:internetRole -eq 'client') { throw 'Internetverbindung aktiv. Zum Wechsel auf VPN/LAN den Launcher neu öffnen.' }
     $endpoint=Parse-JoinAddress $Text $DefaultPort
-    if($script:internetNeedsSetup -and $endpoint.Address -eq '127.0.0.1') { throw 'Nach einem Internetlauf die neue Einladung des Gastgebers einfügen. Die alte lokale Tunneladresse genügt nicht.' }
+    if($script:internetNeedsSetup -and $endpoint.Address -eq '127.0.0.1') { throw 'Die gespeicherte Interneteinladung des Gastgebers einfügen. Die lokale Tunneladresse genügt nicht.' }
     $script:internetNeedsSetup=$false
     return $endpoint
 }
 
 function Assert-LauncherInternetMode([string]$Role, [int]$Port, [string]$Test) {
     if(-not $Test -and $Role -eq 'host' -and $script:internetNeedsSetup -and -not $script:internetTunnel) {
-        throw 'Die letzte Sitzung nutzte Internet. Zuerst Internet ohne VPN neu einrichten und die neue Einladung teilen. Für VPN/LAN stattdessen die passende Adresse auswählen und Adresse kopieren klicken.'
+        throw 'Die letzte Sitzung nutzte Internet. Zuerst den Internetzugang im Launcher öffnen. Die bisherige Einladung bleibt bei gleicher Adresse und gleichem Port gültig. Für VPN/LAN die passende Adresse auswählen und Adresse kopieren klicken.'
     }
     if ($script:internetTunnel -and ($Test -or $Role -ne $script:internetRole -or $Port -ne $script:internetLocalPort)) {
         throw 'Internetzugang ist für eine andere Rolle oder einen anderen Spielport aktiv. Verbindungsart wechseln und neu verbinden.'
@@ -84,20 +89,36 @@ function Test-ReuseInternetHost([int]$PublicPort,[int]$LocalPort) {
 
 function Open-LauncherIPv6Pinhole([string]$Address,[int]$Port) {
     try {
-        $lan=Get-InternetLanIPv4
-        $local=Get-NetIPAddress -IPAddress $lan -AddressFamily IPv4 -ErrorAction Stop
-        $gateway=(Get-NetRoute -InterfaceIndex $local.InterfaceIndex -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Sort-Object RouteMetric | Select-Object -First 1).NextHop
-        $task=[TF3MP.Internet.RouterLease]::OpenAsync($lan,$gateway,$Address,$Port)
+        $context=Get-InternetIPv6RouterContext $Address
+        Write-InternetLog 'ipv6_pinhole_requested' @{port=$Port; address_kind=$context.Kind; interface_index=$context.InterfaceIndex}
+        $task=[TF3MP.Internet.RouterLease]::OpenAsync($context.Lan,$context.Gateway,$context.GatewayIPv6,$Address,$Port)
         while(-not $task.IsCompleted) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 50 }
         if($task.IsFaulted) { throw $task.Exception.GetBaseException() }
         $script:internetLease=$task.Result
         $script:internetRouterStatus=if($task.Result.FirewallDisabled) { 'Router meldet keine aktive IPv6-Firewall' } else { "IPv6 TCP $Port vom Router freigegeben (wird automatisch verlängert)" }
-        Write-InternetLog 'ipv6_pinhole_ready' @{ port=$Port; firewall_disabled=$task.Result.FirewallDisabled }
+        Write-InternetLog 'ipv6_pinhole_ready' @{ port=$Port; firewall_disabled=$task.Result.FirewallDisabled; address_kind=$context.Kind; interface_index=$context.InterfaceIndex; control_ipv6=$task.Result.ControlViaIPv6 }
     } catch {
         $code=if($_.Exception.PSObject.Properties['Code']) { $_.Exception.Code } elseif($_.Exception.InnerException -and $_.Exception.InnerException.PSObject.Properties['Code']) { $_.Exception.InnerException.Code } else { $_.Exception.GetType().Name }
         $script:internetRouterStatus="IPv6-Freigabe nicht bestätigt ($code). Im Router für diesen PC / diese IPv6 TCP $Port freigeben. 'Selbstständige Portfreigaben' muss für diesen PC erlaubt sein."
+        if($code -eq '606'){$script:internetRouterStatus="Router verweigert die Freigabe für die gewählte IPv6 (606: nicht autorisiert). Temporäre IPv6 wählen oder im Router diese IPv6 für TCP $Port manuell freigeben."}
         Write-InternetLog 'ipv6_pinhole_failed' @{ code=$code; port=$Port }
     }
+}
+
+# A still-valid saved endpoint takes precedence over today's address sort order.
+# With no previous endpoint, the first choice remains the temporary IPv6.
+function Restore-LauncherInternetHostEndpoint {
+    if($connectionMode.SelectedIndex -ne 0){return}
+    $saved=Get-SavedInternetHostEndpoint
+    if(-not $saved){return}
+    foreach($address in $hostAddress.Items){
+        if(([Net.IPAddress]::Parse($address.Address)).Equals([Net.IPAddress]::Parse($saved.Address))){
+            $hostAddress.SelectedItem=$address; $internetPortBox.Text=[string]$saved.Port
+            return
+        }
+    }
+    Write-InternetLog 'saved_endpoint_unavailable' @{reason='address_no_longer_preferred'}
+    $connectionStatus.Text='Gespeicherte IPv6 nicht mehr verfügbar. Die aktuelle Adresse benötigt eine aktualisierte Einladung.'
 }
 
 function Test-LauncherInternetInvitation {
@@ -136,7 +157,8 @@ function Start-LauncherInternetHost([bool]$UseIPv4 = $false) {
             Close-LauncherLobby
             Stop-LauncherInternet
             Initialize-InternetTransport
-            $script:internetTunnel=[TF3MP.Internet.Tunnel]::StartHost($port,$localPort)
+            $identityPath=Join-Path $env:LOCALAPPDATA 'TF3MP\Internet\host-identity.dat'
+            $script:internetTunnel=[TF3MP.Internet.Tunnel]::StartHost($port,$localPort,$identityPath)
             $script:internetRole='host'; $script:internetLocalPort=$localPort
             Update-InternetProtocolSharing $(if($gameBox){$gameBox.Text}else{''}) $steam
             $connectionStatus.Text='Prüfe Windows-Firewall. Falls Windows fragt, Administratorfreigabe bestätigen ...'; [Windows.Forms.Application]::DoEvents()
@@ -165,12 +187,48 @@ function Start-LauncherInternetHost([bool]$UseIPv4 = $false) {
             }
             $script:lobbyError=''; $script:lobbyPhase='idle'; $script:internetNeedsSetup=$false
             $script:internetInvite=New-InternetInvitation $address $port $script:internetTunnel.Fingerprint $script:internetTunnel.Key
+            $previousEndpoint=Get-SavedInternetHostEndpoint
+            $endpointChanged=$previousEndpoint -and ($previousEndpoint.Port -ne $port -or
+                -not ([Net.IPAddress]::Parse($previousEndpoint.Address)).Equals([Net.IPAddress]::Parse($address)))
+            Save-InternetHostEndpoint $address $port
 
             $connectionStatus.Text="Windows-Regel bestätigt ($firewallResult). $script:internetRouterStatus. Mitspieler prüft die Einladung von seinem PC."
-            Write-LauncherLog "Internet ohne VPN vorbereitet. Öffentlich: TCP $port. Spielstände laufen ohne Verschlüsselung.`r`nLauncher offen lassen. Die aktuelle Einladung beim Mitspieler unter Beitreten einfügen.`r`nSobald der Mitspieler verbunden ist, kannst du den Spielstand bereitstellen. Jede wirklich neu gestartete Internetsitzung braucht ihre neue Einladung."
-            Write-InternetLog 'host_started' @{ method=$(if($UseIPv4){'upnp_ipv4'}else{'direct'}); public_port=$port; local_port=$localPort; save_transport='authenticated_plain_tcp'; invitation_id=$script:internetTunnel.InvitationId }
+            Write-LauncherLog "Internet ohne VPN vorbereitet. Öffentlich: TCP $port. Spielstände laufen ohne Verschlüsselung.`r`nLauncher offen lassen. Die Einladung beim Mitspieler unter Beitreten einfügen.`r`nDie Einladung bleibt über Launcher-Neustarts gültig, solange Adresse und Port gleich bleiben. Bei einer geänderten Internetadresse die aktualisierte Einladung teilen."
+            if($endpointChanged){
+                $connectionStatus.Text='Adresse oder Internetport hat sich geändert. Aktualisierte Einladung kopieren und teilen. '+$script:internetRouterStatus
+                Write-LauncherLog 'Adresse oder Internetport unterscheidet sich von der gespeicherten Einladung. Die aktualisierte Einladung muss erneut mit dem Mitspieler geteilt werden.'
+                Write-InternetLog 'host_endpoint_changed' @{reason='address_or_port_changed'}
+            }
+            Write-InternetLog 'host_started' @{ method=$(if($UseIPv4){'upnp_ipv4'}else{'direct'}); public_port=$port; local_port=$localPort; save_transport='authenticated_plain_tcp'; invitation_id=$script:internetTunnel.InvitationId; identity_reused=$script:internetTunnel.IdentityReused }
         } catch { $script:lobbyError=$_.Exception.Message; Write-LauncherLog "Verbindung fehlgeschlagen: $script:lobbyError"; Stop-LauncherInternet; $connectionStatus.Text=$_.Exception.Message; Write-InternetLog 'setup_failed' @{ type=$_.Exception.GetType().Name; stage='firewall_or_router_setup' } }
     finally { $script:lobbyPreparing=$false; Update-Fields }
+}
+
+# Open once per chosen address/port after the UI settles. Failure stays visible
+# until a deliberate retry or changed settings, so timer ticks cannot repeatedly
+# prompt for administrator access or rotate an already shared invitation.
+function Update-AutomaticInternetHost([switch]$Retry) {
+    if($Preview -or $script:launcherClosing -or $script:updateBusy -or -not $hostRadio.Checked -or $connectionMode.SelectedIndex -ne 0 -or
+        $script:transferBusy -or $script:liveBusy -or $script:lobbyPreparing -or
+        $script:lobbyPhase -in 'starting','started' -or $script:internetTunnel -or
+        $script:lobby -or $script:presence -or $script:lobbyJob -or (Test-GameRunning)){return}
+    $address=if($hostAddress.SelectedItem){$hostAddress.SelectedItem.Address}else{$hostAddress.Text.Trim()}
+    if(-not $address){return}
+    $key="$address|$($internetPortBox.Text.Trim())|$($portBox.Text.Trim())"
+    if(-not $Retry){
+        if($script:internetAutoKey -ne $key){
+            $script:internetAutoKey=$key; $script:internetAutoChanged=[DateTime]::UtcNow; return
+        }
+        if($script:internetAutoAttempt -eq $key -or
+            ([DateTime]::UtcNow-$script:internetAutoChanged).TotalSeconds -lt 1.5){return}
+    }
+    $script:internetAutoAttempt=$key
+    try { Start-LauncherInternetHost }
+    finally {
+        # Setup itself stops an older transport and clears its automatic state.
+        # Restore this attempt even after failure to prevent a timer retry loop.
+        $script:internetAutoKey=$key; $script:internetAutoAttempt=$key
+    }
 }
 
 function Update-InternetDiagnostics {
@@ -183,6 +241,7 @@ function Update-InternetDiagnostics {
     $values.diagnostic_sent=$t.DiagnosticBytesSent; $values.diagnostic_received=$t.DiagnosticBytesReceived; $values.diagnostic_connected=$t.DiagnosticConnected; $values.diagnostic_error=$t.DiagnosticLastError
     if($script:internetLease) {
         $values.router_active=$script:internetLease.Active; $values.router_renewals=$script:internetLease.Renewals; $values.router_error=$script:internetLease.LastError
+        $values.router_renewal_via_add=$script:internetLease.RenewalViaAdd
         $script:internetRouterStatus=if(-not $script:internetLease.Active -or $script:internetLease.LastError) { "IPv6-Freigabe: aktiv=$($script:internetLease.Active), Meldung=$($script:internetLease.LastError)" } elseif($script:internetLease.FirewallDisabled) { 'Router meldet keine aktive IPv6-Firewall' } else { "IPv6 TCP $($t.Port) freigegeben; $($script:internetLease.Renewals) Verlängerungen bestätigt" }
     }
     $snapshot=($values | ConvertTo-Json -Compress)

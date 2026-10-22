@@ -215,6 +215,7 @@ function Update-LauncherLobby {
         Write-LauncherLog 'TF3 wurde beendet. Für die nächste Sitzung stellt der Gastgeber den Spielstand erneut bereit.'
         Close-LauncherLobby
     }
+    Update-AutomaticInternetHost
     if($hostRadio.Checked -and -not $script:presence -and -not $script:lobby -and $script:lobbyPhase -eq 'idle' -and ($connectionMode.SelectedIndex -eq 1 -or $script:internetRole -eq 'host')){
         try {
             $script:lobbyPreparing=$true

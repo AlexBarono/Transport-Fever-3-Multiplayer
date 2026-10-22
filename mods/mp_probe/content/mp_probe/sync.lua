@@ -448,6 +448,20 @@ end
 
 local CORRECTED = { "loan", "money", "date" }
 
+--- Game-time checkpoints can include different player actions when the clocks
+-- drift. Their balance delta must not refund purchases made on only one side
+-- of that checkpoint, or undo a balance already aligned after a shared action.
+function sync.money_compatible(own, peer)
+	if own.econbusy == 1 or peer.econbusy == 1 then return false end
+	for _, field in ipairs({ "econseq", "lines", "veh", "st", "con" }) do
+		if own[field] ~= peer[field] then return false end
+	end
+	for _, field in ipairs({ "hcon", "hedge", "hline", "hveh" }) do
+		if own[field] and peer[field] and own[field] ~= peer[field] then return false end
+	end
+	return true
+end
+
 --- Compares checkpoint k of both games.
 -- @param mem table kept in the script state (last comparison, corrections waiting to show, ...)
 -- @param own table this game's values (money, loan, lines, veh, st, con, date)
@@ -515,6 +529,10 @@ function sync.compare(mem, k, own, peer, role, latest)
 	end
 
 	local prev = mem.last
+	local money_compatible = sync.money_compatible(own, peer)
+	if diffs.money and not money_compatible then
+		out.notes[#out.notes + 1] = "money comparison deferred: checkpoints contain different or unfinished player actions"
+	end
 	local managed_loan = own.loanmanaged == 1 or peer.loanmanaged == 1
 	local function lasting(field)
 		local p = prev and prev.k == k - 1 and prev.diffs[field]
@@ -542,7 +560,8 @@ function sync.compare(mem, k, own, peer, role, latest)
 	if role == "client" then
 		for _, field in ipairs(CORRECTED) do
 			-- A loan booking moves the balance too, so money waits for the next comparison.
-			local blocked = (field == "money" and out.fix.loan ~= nil)
+		local blocked = (field == "money" and (out.fix.loan ~= nil or not money_compatible
+			or not (prev and prev.money_compatible)))
 				-- Native loan schedules can differ with the calendar. Keep those
 				-- diagnostic, but still align spendable money to the host; blocking
 				-- both let the real v54 accounts drift by over twenty million.
@@ -553,8 +572,23 @@ function sync.compare(mem, k, own, peer, role, latest)
 			end
 		end
 	end
-	mem.last = { k = k, diffs = diffs }
+	mem.last = { k = k, diffs = diffs, money_compatible = money_compatible }
 	return out
+end
+
+--- Measure actual simulation progress independently of GAME_SPEED's setting.
+-- Holds, speed changes, clock resets and long gaps start a new sample window.
+function sync.progress_step(mem, now, gt, speed, held)
+	if held or speed == 0 or not mem.at or speed ~= mem.speed or now < mem.at
+		or gt < mem.gt or now - (mem.seen or now) > sync.PEER_STALE_S then
+		mem.at, mem.gt, mem.speed = now, gt, speed
+	end
+	mem.seen = now
+	if held or speed == 0 or now - mem.at < 10 then return nil end
+	local elapsed = now - mem.at
+	local rate = (gt - mem.gt) / (1000 * elapsed)
+	mem.at, mem.gt = now, gt
+	return rate, elapsed
 end
 
 --- Record direct command evidence separately from a later world's balance.

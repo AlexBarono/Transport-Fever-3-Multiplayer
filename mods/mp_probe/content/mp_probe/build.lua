@@ -520,9 +520,12 @@ function build.serialize(proposal, opts)
 	end
 	for _, seg in ipairs(list_items(proposal.removedSegments)) do
 		local comp = seg.comp
-		-- Run 14: an end node can be gone already, but the removed segment keeps position0/1.
-		local p0 = end_position(comp, "position0") or position_of(comp.node0)
-		local p1 = end_position(comp, "position1") or position_of(comp.node1)
+		-- Retained nodes identify the graph connection. Native segment positions
+		-- can be inset/stale at junctions (Lippstadt v64: 12 m from node1), so
+		-- they must not override readable node positions. Removed nodes retain
+		-- their pre-build position; missing nodes still use the segment fallback.
+		local p0 = position_of(comp.node0) or end_position(comp, "position0")
+		local p1 = position_of(comp.node1) or end_position(comp, "position1")
 		if not p0 or not p1 then error("removed segment " .. tostring(seg.entity) .. " has no node positions", 0) end
 		info.removed_segments = info.removed_segments + 1
 		parts[#parts + 1] = "r;" .. vec_to_string(p0) .. ";" .. vec_to_string(p1) .. ";" .. tostring(seg.type)
@@ -1764,7 +1767,14 @@ function build.prepare_stop_parcels(env, source, command, context, log)
 		end
 		assert(lists > 0, "attached street parcel lists unreadable")
 		if #ids == 0 then return command end
-		local proposal = command.proposal
+		-- Command<T> is opaque in the shipped TF3 binding. Only its execution
+		-- callback exposes WorldBuildProposalCommandData. Never assume the test
+		-- model's command.proposal exists, nor execute a demolition to obtain it.
+		local readable, proposal = pcall(function() return command.proposal end)
+		if not readable or not proposal then
+			if log then log("street stop: command preview unavailable; native build validates attached parcels") end
+			return command
+		end
 		local existing, included = proposal.toRemove, {}
 		assert(existing ~= nil and #existing <= 8192, "expanded proposal removals unreadable")
 		for i = 1, #existing do included[existing[i]] = true end

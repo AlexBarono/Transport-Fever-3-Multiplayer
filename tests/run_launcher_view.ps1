@@ -33,6 +33,9 @@ foreach($scale in @(1.0,1.5,2.0)){
             Update-Fields; $form.PerformLayout(); [Windows.Forms.Application]::DoEvents()
             if($role -eq 'host'){
                 Check-Exposed $primary; Check-Exposed $startBoth; Check-Exposed $saveChoice; Check-Exposed $hostAddress; Check-Exposed $internetPortBox
+                Check-Exposed $copyAddress; Check-Exposed $internetSetup
+                Check (-not @($hostPage.Controls | Where-Object {$_.Text -eq 'IPv4 automatisch'}).Count) 'IPv4 setup button still shown'
+                Check (-not $copyAddress.Bounds.IntersectsWith($internetSetup.Bounds)) 'Internet buttons overlap'
                 Check (-not $portBox.Visible) 'Internal port shown in normal host mode'
                 Check (-not $primary.Bounds.IntersectsWith($startBoth.Bounds)) 'Host buttons overlap'
             }elseif($role -eq 'join'){Check-Exposed $joinStatus; Check-Exposed $clearAddress; Check (-not $portBox.Visible) 'Internal port shown when joining'}else{
@@ -40,6 +43,7 @@ foreach($scale in @(1.0,1.5,2.0)){
                 Check ($primary.Width -eq $joinStatus.Width) 'Test button does not fill the scaled workflow row'
             }
             Check-Exposed $workflowHint
+            Check-Exposed $updateCheck;Check-Exposed $updateZip;Check-Exposed $updateStatus
         }
         $script:presence=$null; $hostRadio.Checked=$true; Update-Fields
         Check (-not $primary.Visible -and -not $startBoth.Visible) 'Host can share before a peer connects'

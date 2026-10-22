@@ -1,12 +1,19 @@
 # Dokumentation
 
-Für Installation, gemeinsamen Start, Paketbau und Tests gilt die [Projekt-README](../README.md). Aktuell ist **Probe v62 / DLL v16**. Ältere Dokumente halten den damaligen Stand fest; Bedienung und offene Punkte können inzwischen überholt sein.
+Für Installation, gemeinsamen Start, Paketbau und Tests gilt die [Projekt-README](../README.md). Aktuell ist **Probe v66 / DLL v16**. Ältere Dokumente halten den damaligen Stand fest; Bedienung und offene Punkte können inzwischen überholt sein.
+
+## Aktuelle Planung
+
+Die [Roadmap ab v66](roadmap.md), Stand 22. Oktober 2026, nennt die nächsten Schritte, offene Gegentests und überprüfbare Abschlusskriterien. Der [alte Forschungsplan](plan.md) dokumentiert weiterhin den historischen Stand.
 
 ## Betrieb und Diagnose
 
 | Thema | Einstieg |
 | --- | --- |
-| Gemeinsame Geschwindigkeit und Leistungsgrenze | [v62](v62-geschwindigkeit.md) |
+| Launcher aktualisieren, ZIP-Import und GitHub-Releases | [v66](v66-launcher-updates.md) |
+| 4×-Auswahl, dauerhafte IPv6, beständige Einladungen und Straßenersatz | [v65](v65-tempo-ipv6-einladung.md) |
+| Automatischer Internetstart und temporäre IPv6 | [v64](v64-internetstart.md) |
+| Tempoänderungen, Geld und tatsächlicher Zeitfortschritt | [v63](v63-tempo-geld.md) |
 | Straßenhaltestellen und Linienzuordnung | [v61](v61-strassenhaltestellen.md) |
 | Mitspielerprotokolle beim Gastgeber | [v60](v60-mitspieler-protokolle.md) |
 | Wartende Aktionen und sichere Übergabe | [v59](v59-warteschlange.md) |
@@ -23,6 +30,10 @@ Der [Versionsverlauf bis v61](versionsverlauf.md) bewahrt die früheren Änderun
 
 | Version | Untersuchung |
 | --- | --- |
+| v66 | [Updates im Launcher](v66-launcher-updates.md) |
+| v65 | [Tempo, IPv6 und beständige Einladungen](v65-tempo-ipv6-einladung.md) |
+| v64 | [Automatischer Internetstart](v64-internetstart.md) |
+| v63 | [Tempo und Geld](v63-tempo-geld.md) |
 | v62 | [Gemeinsame Geschwindigkeit](v62-geschwindigkeit.md) |
 | v61 | [Straßenhaltestellen und Linienfehler](v61-strassenhaltestellen.md) |
 | v60 | [Protokolle des Mitspielers](v60-mitspieler-protokolle.md) |

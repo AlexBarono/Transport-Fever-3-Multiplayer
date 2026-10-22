@@ -23,7 +23,7 @@ local function fixture()
 end
 local function mock(options)
 	options = options or {}
-	local m = { sent = {}, constructed = {}, helpers = 0, logs = {} }
+	local m = { sent = {}, constructed = {}, helpers = 0, logs = {}, payloads = {} }
 	local function new() return {} end
 	local types = { SimpleProposal = { new = function() return { streetProposal = {} } end },
 		SimpleStreetProposal = { EdgeObject = { new = new } },
@@ -53,12 +53,18 @@ local function mock(options)
 			} }
 		else full = copy(p) end
 		if options.lose_removal and not p.streetProposal then full.toRemove = {} end
+		if options.opaque then
+			local command = setmetatable({}, {__index=function() if options.throw_on_preview then error("opaque command") end end})
+			m.payloads[command] = full
+			return command
+		end
 		return { proposal = full, context = copy(context) }
 	end
 	function cmd.sendCommand(c, callback)
 		m.sent[#m.sent + 1] = c
 		local included = false
-		for _, id in ipairs(c.proposal.toRemove) do if id == 71042 then included = true end end
+		local full = m.payloads[c] or c.proposal
+		for _, id in ipairs(full.toRemove) do if id == 71042 then included = true end end
 		local critical = not included or options.reject == true
 		if callback then callback({ resultEntities = critical and {} or { 191256 }, resultProposalData = {
 			costs = critical and 0 or 100, errorState = { critical = critical,
@@ -158,6 +164,21 @@ test("ordinary rail and construction commands bypass the stop-only composition",
 		assert(build.prepare_stop_parcels(m.env, source, command, context) == command)
 	end
 	assert(m.helpers == 0 and #m.constructed == 0 and #m.sent == 0)
+end)
+
+test("opaque native commands execute the original build once without a preview nil error", function()
+	for _, throws in ipairs({false,true}) do
+		local m=mock({opaque=true,throw_on_preview=throws,existing={71042}})
+		local ok,message,result=m.run()
+		assert(ok and result.success and result.outcome.built,tostring(message))
+		assert(#m.sent==1 and #m.constructed==1 and m.helpers==0)
+		assert(table.concat(m.logs,"\n"):find("command preview unavailable",1,true))
+	end
+end)
+test("an opaque native rejection remains a rejection without speculative demolition", function()
+	local m=mock({opaque=true}); local ok,message,result=m.run()
+	assert(not ok and result.success==false and #m.sent==1 and m.helpers==0,tostring(message))
+	assert(not tostring(message):find("attempt to index",1,true))
 end)
 
 print(string.format("Street stop regressions: %d passed, %d failed", passed, failures))

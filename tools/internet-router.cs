@@ -16,7 +16,11 @@ namespace TF3MP.Internet {
     public sealed class RouterLease : IDisposable {
         public const string Service = "urn:schemas-upnp-org:service:WANIPv6FirewallControl:1";
         private readonly object gate = new object(), requestGate = new object();
+        private static readonly object soapGate = new object();
         private readonly Uri control;
+        private readonly IPAddress source;
+        private Uri ipv4Control;
+        private string pinholeFields;
         private readonly int seconds;
         private Timer renewal;
         private bool disposed;
@@ -26,15 +30,18 @@ namespace TF3MP.Internet {
         public string LastError { get { lock(gate) return error; } }
         public bool Active { get { lock(gate) return !disposed && (id < 0 || DateTime.UtcNow < expires); } }
         public bool FirewallDisabled { get; private set; }
+        public bool ControlViaIPv6 { get { return source!=null; } }
+        public bool RenewalViaAdd { get; private set; }
+        public int CloseExpiresInSeconds { get; private set; }
         public int Renewals { get; private set; }
-        private RouterLease(Uri uri, int leaseSeconds) { control=uri; seconds=leaseSeconds; }
+        private RouterLease(Uri uri, int leaseSeconds, IPAddress localSource) { control=uri; seconds=leaseSeconds; source=localSource; }
 
         // Only accept discovery/control URLs on the selected LAN's default gateway.
         // Never follow an SSDP response or redirect to an arbitrary LAN/Internet host.
         public static Uri ValidateUrl(string value, string gateway) {
             Uri uri; IPAddress ip;
             if (!Uri.TryCreate(value,UriKind.Absolute,out uri) || uri.Scheme != "http" ||
-                uri.UserInfo.Length != 0 || !IPAddress.TryParse(uri.Host,out ip) ||
+                uri.UserInfo.Length != 0 || !IPAddress.TryParse(uri.DnsSafeHost,out ip) ||
                 !ip.Equals(IPAddress.Parse(gateway))) throw new RouterException("untrusted_endpoint");
             return uri;
         }
@@ -78,9 +85,23 @@ namespace TF3MP.Internet {
             }
             throw new RouterException("discovery_timeout");
         }
-        private static XmlDocument Soap(Uri uri, string action, string fields) {
+        private static XmlDocument Soap(Uri uri, string action, string fields, IPAddress localSource) {
+            // BindIPEndPointDelegate belongs to ServicePoint, not to a single
+            // request. Serialize router SOAP and clear it before releasing the
+            // lock, so concurrent leases cannot select each other's source.
+            lock(soapGate) {
+                HttpWebRequest request=Request(uri);
+                if(localSource!=null) request.ServicePoint.BindIPEndPointDelegate=delegate(ServicePoint point,IPEndPoint remote,int retry) {
+                    if(retry>0) throw new SocketException((int)SocketError.AddressNotAvailable);
+                    return new IPEndPoint(localSource,0);
+                };
+                try { return SoapRequest(request,action,fields); }
+                finally { if(localSource!=null) request.ServicePoint.BindIPEndPointDelegate=null; }
+            }
+        }
+        private static XmlDocument SoapRequest(HttpWebRequest req, string action, string fields) {
             byte[] bytes=Encoding.UTF8.GetBytes("<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:"+action+" xmlns:u=\""+Service+"\">"+fields+"</u:"+action+"></s:Body></s:Envelope>");
-            HttpWebRequest req=Request(uri); req.Method="POST"; req.ContentType="text/xml; charset=utf-8";
+            req.Method="POST"; req.ContentType="text/xml; charset=utf-8";
             req.Headers["SOAPAction"]="\""+Service+"#"+action+"\""; req.ContentLength=bytes.Length;
             using(Stream stream=req.GetRequestStream()) stream.Write(bytes,0,bytes.Length);
             XmlDocument xml;
@@ -101,28 +122,64 @@ namespace TF3MP.Internet {
         public static Task<RouterLease> OpenAsync(string lan, string gateway, string client, int port) {
             return Task.Factory.StartNew(delegate { return Open(Discover(lan,gateway),gateway,client,port,300); },TaskCreationOptions.LongRunning);
         }
+        public static Task<RouterLease> OpenAsync(string lan,string gateway,string gatewayIPv6,string client,int port) {
+            return Task.Factory.StartNew(delegate { return OpenSelected(Discover(lan,gateway),gateway,gatewayIPv6,client,port,300); },TaskCreationOptions.LongRunning);
+        }
+        public static RouterLease OpenSelected(Uri uri,string gateway,string gatewayIPv6,string client,int port,int leaseSeconds) {
+            ValidateUrl(uri.OriginalString,gateway);
+            if(!String.IsNullOrEmpty(gatewayIPv6)) {
+                IPAddress nextHop=IPAddress.Parse(gatewayIPv6);
+                if(nextHop.AddressFamily!=AddressFamily.InterNetworkV6 || nextHop.IsIPv6Multicast || nextHop.Equals(IPAddress.IPv6Any))
+                    throw new ArgumentException("Invalid IPv6 gateway");
+                UriBuilder endpoint=new UriBuilder(uri); endpoint.Host=nextHop.ToString();
+                try {
+                    RouterLease lease=Open(endpoint.Uri,gatewayIPv6,client,port,leaseSeconds,IPAddress.Parse(client));
+                    lease.ipv4Control=uri; return lease;
+                }
+                catch(RouterException e) { if(e.Code!="request_timeout_or_unreachable") throw; }
+                catch(WebException) { }
+                // Some gateways expose their UPnP service over IPv4 only.
+            }
+            return Open(uri,gateway,client,port,leaseSeconds);
+        }
         // Explicit endpoint is also used by the loopback SOAP fixture. No credentials are sent.
         public static RouterLease Open(Uri uri,string gateway,string client,int port,int leaseSeconds) {
-            ValidateUrl(uri.AbsoluteUri,gateway);
+            return Open(uri,gateway,client,port,leaseSeconds,null);
+        }
+        private static RouterLease Open(Uri uri,string gateway,string client,int port,int leaseSeconds,IPAddress localSource) {
+            ValidateUrl(uri.OriginalString,gateway);
             IPAddress address=IPAddress.Parse(client);
             if(address.AddressFamily!=AddressFamily.InterNetworkV6 || address.IsIPv6Multicast || address.IsIPv6LinkLocal ||
                 address.Equals(IPAddress.IPv6Any) || port<1024 || port>65535 || leaseSeconds<2 || leaseSeconds>3600) throw new ArgumentException("Invalid pinhole scope");
-            RouterLease lease=new RouterLease(uri,leaseSeconds);
-            XmlDocument state=Soap(uri,"GetFirewallStatus","");
+            RouterLease lease=new RouterLease(uri,leaseSeconds,localSource);
+            XmlDocument state=Soap(uri,"GetFirewallStatus","",localSource);
             if(Value(state,"FirewallEnabled")=="0") { lease.FirewallDisabled=true; return lease; }
             if(Value(state,"InboundPinholeAllowed")!="1") throw new RouterException("703");
-            XmlDocument created=Soap(uri,"AddPinhole","<RemoteHost></RemoteHost><RemotePort>0</RemotePort><InternalClient>"+address+"</InternalClient><InternalPort>"+port+"</InternalPort><Protocol>6</Protocol><LeaseTime>"+leaseSeconds+"</LeaseTime>");
-            int unique;
-            if(!int.TryParse(Value(created,"UniqueID"),out unique) || unique<0 || unique>65535) throw new RouterException("invalid_id");
-            lease.id=unique; lease.expires=DateTime.UtcNow.AddSeconds(leaseSeconds);
+            lease.pinholeFields="<RemoteHost></RemoteHost><RemotePort>0</RemotePort><InternalClient>"+address+"</InternalClient><InternalPort>"+port+"</InternalPort><Protocol>6</Protocol>";
+            lease.AddPinhole(leaseSeconds);
+            lease.expires=DateTime.UtcNow.AddSeconds(leaseSeconds);
             lease.renewal=new Timer(lease.Renew,null,Math.Max(1000,leaseSeconds*400),Math.Max(1000,leaseSeconds*400));
             return lease;
+        }
+        private void AddPinhole(int lifetime) {
+            XmlDocument created=Soap(control,"AddPinhole",pinholeFields+"<LeaseTime>"+lifetime+"</LeaseTime>",source);
+            int unique;
+            if(!int.TryParse(Value(created,"UniqueID"),out unique) || unique<0 || unique>65535) throw new RouterException("invalid_id");
+            id=unique;
         }
         private void Renew(object ignored) {
             lock(requestGate) {
                 lock(gate) { if(disposed) return; }
                 try {
-                    Soap(control,"UpdatePinhole","<UniqueID>"+id+"</UniqueID><NewLeaseTime>"+seconds+"</NewLeaseTime>");
+                    if(RenewalViaAdd) AddPinhole(seconds);
+                    else try { Soap(control,"UpdatePinhole","<UniqueID>"+id+"</UniqueID><NewLeaseTime>"+seconds+"</NewLeaseTime>",source); }
+                    catch(RouterException e) {
+                        if(e.Code!="606" || source==null) throw;
+                        // Re-adding an identical tuple extends its lease under
+                        // the UPnP specification. Some routers reject Update
+                        // over IPv6 despite accepting the same-source Add.
+                        AddPinhole(seconds); RenewalViaAdd=true;
+                    }
                     lock(gate) { expires=DateTime.UtcNow.AddSeconds(seconds); error=""; Renewals++; }
                 }
                 catch(RouterException e) { lock(gate) error=e.Code; }
@@ -133,7 +190,27 @@ namespace TF3MP.Internet {
             lock(gate) {
                 if(disposed) return; disposed=true; if(renewal!=null) renewal.Dispose();
             }
-            lock(requestGate) if(id>=0) { try { Soap(control,"DeletePinhole","<UniqueID>"+id+"</UniqueID>"); } catch(Exception) { lock(gate) error="cleanup_failed_expires_automatically"; } }
+            lock(requestGate) if(id>=0) {
+                try {
+                    try { Soap(control,"DeletePinhole","<UniqueID>"+id+"</UniqueID>",source); }
+                    catch(RouterException e) {
+                        if(e.Code!="606" || source==null) throw;
+                        try {
+                            if(ipv4Control==null) throw;
+                            Soap(ipv4Control,"DeletePinhole","<UniqueID>"+id+"</UniqueID>",null);
+                        } catch(RouterException legacy) {
+                            if(legacy.Code!="606") throw;
+                            // The router still authorizes the identical Add.
+                            // Shorten this exact lease to one second rather
+                            // than leaving the full five-minute lease behind.
+                            AddPinhole(1); CloseExpiresInSeconds=1;
+                        }
+                    }
+                    lock(gate) error="";
+                }
+                catch(RouterException e) { lock(gate) error="cleanup_failed_"+e.Code+"_expires_automatically"; }
+                catch(Exception) { lock(gate) error="cleanup_failed_expires_automatically"; }
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ local original_require = require
 local hooks = assert(loadfile("mods/mp_probe/content/mp_probe/vehicle_hooks.lua"))()
 local economy_hooks = assert(loadfile("mods/mp_probe/content/mp_probe/economy_hooks.lua"))()
 local menu_hooks = assert(loadfile("mods/mp_probe/content/mp_probe/menu_hooks.lua"))()
+local speed_hooks = assert(loadfile("mods/mp_probe/content/mp_probe/speed_hooks.lua"))()
 local wire = assert(loadfile("mods/mp_probe/content/mp_probe/wire.lua"))()
 local passed, failed = 0, 0
 local function test(name, fn)
@@ -27,9 +28,11 @@ local function gui(role, connected, logging)
 	local react={ RegisterPluginRecipe=function(ep,name,fn)
 		assert(ep=="game-main"); g.registrations=g.registrations+1; return fn
 	end, onStep=function(fn) g.steps[#g.steps+1]=fn end }
-	local game={setInGameMenuPause=function(value) g.menu=value end}
+	local game={setInGameMenuPause=function(value) g.menu=value end,
+		getEstimatedMaximumGameSpeed=function() return g.capacity or 3 end}
 	local env=setmetatable({api={cmd=cmd,gui={game=game},engine={util={getPlayer=function()return 7 end}}},os={clock=function()return g.now end,getenv=function(k)
 		if k=="TF3MP_ROLE" then return g.role end
+		if k=="TF3MP_OWN_GUI" then return g.own_gui or "speed=3 src=gui" end
 		if k=="TF3MP_ORDERING" then return g.connected and "1" or "0" end
 		if k=="TF3MP_PEER_CLOCK" then return g.peer_clock or (g.connected and "gt=1000" or "") end
 		if k=="TF3MP_OWN_CLOCK" then return "phase="..(g.failed and "failed" or "idle") end
@@ -50,6 +53,7 @@ local function gui(role, connected, logging)
 		if path=="mp_probe_1::/mp_probe/vehicle_hooks.lua" then return hooks end
 		if path=="mp_probe_1::/mp_probe/economy_hooks.lua" then return economy_hooks end
 		if path=="mp_probe_1::/mp_probe/menu_hooks.lua" then return menu_hooks end
+		if path=="mp_probe_1::/mp_probe/speed_hooks.lua" then return speed_hooks end
 		if path=="mp_probe_1::/mp_probe/wire.lua" then return wire end
 		error("unexpected GUI module: "..path)
 	end
@@ -65,17 +69,18 @@ end
 
 test("world entry works without log.info and reports installed hooks",function()
 	local g=gui("host",true)
-	assert(#g.logs==4 and g.logs[1]=="[mp_probe]net state menu open=0")
-	assert(g.logs[2]=="[mp_probe]vehicle UI: menu pause hook installed")
-	assert(g.logs[3]=="[mp_probe]vehicle UI: vehicle hooks: 6 of 6 installed")
-	assert(g.logs[4]=="[mp_probe]vehicle UI: economy hooks: 3 of 3 installed")
+	assert(#g.logs==5 and g.logs[1]=="[mp_probe]vehicle UI: speed capacity retry guard installed")
+	assert(g.logs[2]=="[mp_probe]net state menu open=0")
+	assert(g.logs[3]=="[mp_probe]vehicle UI: menu pause hook installed")
+	assert(g.logs[4]=="[mp_probe]vehicle UI: vehicle hooks: 6 of 6 installed")
+	assert(g.logs[5]=="[mp_probe]vehicle UI: economy hooks: 3 of 3 installed")
 	assert(#g.steps==1 and #g.sent==0, "entering the world must not send vehicle commands")
 end)
 
 test("missing or failing diagnostic output cannot abort entry or lose held commands",function()
 	for _, logging in ipairs({"no-debug-print","broken"}) do
 		local g=gui("client",true,logging)
-		if logging=="no-debug-print" then assert(#g.logs==4, "use print when debugPrint is unavailable") end
+		if logging=="no-debug-print" then assert(#g.logs==5, "use print when debugPrint is unavailable") end
 		local cb=0
 		g.cmd.sendCommand(g.cmd.makeVehicleSetStoppedByUserCmd(7,true),function(_,ok)assert(ok); cb=cb+1 end)
 		assert(#g.sent==0 and cb==0)
@@ -288,6 +293,17 @@ test("a failed timeline cannot bypass shared planning for financial clicks",func
 	local g=gui("host",true);g.failed=true
 	g.cmd.sendCommand(g.cmd.makeScriptingSendEventCmd("","Subvention","onAccept",{uid=123}))
 	assert(#g.sent==1 and g.sent[1].name=="mp_probe_economy")
+end)
+
+test("capacity has one controller only while the ordered GUI is active", function()
+	for _, role in ipairs({"host","client","off"}) do
+		local g=gui(role,role~="off")
+		assert(g.game.getEstimatedMaximumGameSpeed()==(role=="off" and 3 or 4))
+		g.own_gui=""; assert(g.game.getEstimatedMaximumGameSpeed()==3,"startup keeps native behavior")
+		g.own_gui="src=gui speed=4"; g.capacity=2
+		assert(g.game.getEstimatedMaximumGameSpeed()==(role=="off" and 2 or 4))
+		g.connected=false; assert(g.game.getEstimatedMaximumGameSpeed()==2)
+	end
 end)
 
 print(string.format("%d main-GUI vehicle tests passed, %d failed",passed,failed))

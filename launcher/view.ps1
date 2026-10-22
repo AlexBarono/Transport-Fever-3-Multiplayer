@@ -56,9 +56,12 @@ New-Label $side "Gemeinsam bauen.`r`nGemeinsam verbinden." 24 77 177 60 12 | Out
 $navHost=New-Button $side 'Gastgeber' 16 176 186 46
 $navJoin=New-Button $side 'Beitreten' 16 232 186 46
 $navTest=New-Button $side 'Testlabor' 16 288 186 46
+$updateCheck=New-Button $side 'Auf Updates prüfen' 16 370 186 44
+$updateZip=New-Button $side 'Update aus ZIP' 16 424 186 36
+$updateStatus=New-Label $side 'Neue Versionen direkt im Launcher installieren.' 24 476 176 134 9 $Muted
 New-Label $side "VPN ODER INTERNET" 24 650 180 24 9 $Accent | Out-Null
 New-Label $side "Ohne VPN: Internetzugang`r`neinrichten und Einladung`r`nbeim Mitspieler einfügen." 24 684 176 75 10 $Muted | Out-Null
-New-Label $side 'Probe v62  /  Bridge v16' 24 856 185 22 9 $Muted | Out-Null
+New-Label $side 'Probe v66  /  Bridge v16' 24 856 185 22 9 $Muted | Out-Null
 New-Label $form 'Gemeinsam auf derselben Karte.' 250 28 734 44 23 | Out-Null
 New-Label $form 'Ein gemeinsamer Spielstand. Ein Start für beide. Platz für eure Ideen.' 252 77 734 28 11 $Muted | Out-Null
 $statusLabel=New-Label $form 'Bereit zum Einrichten' 252 110 734 40 9 $Accent
@@ -96,10 +99,9 @@ function Refresh-HostAddresses {
 }
 Refresh-HostAddresses
 $refreshAddress=New-Button $hostPage 'Neu laden' 610 90 102 30
-$internetSetup=New-Button $hostPage 'Verbindung öffnen' 22 132 220 36 $true
-$ipv4Setup=New-Button $hostPage 'IPv4 automatisch' 252 132 200 36
-$copyAddress=New-Button $hostPage 'Einladung kopieren' 462 132 250 36
-$connectionStatus=New-Label $hostPage 'Verbindung öffnen und Einladung teilen.' 22 178 690 32 10 $Muted
+$internetSetup=New-Button $hostPage 'Erneut verbinden' 22 132 220 36
+$copyAddress=New-Button $hostPage 'Einladung kopieren' 252 132 460 36 $true
+$connectionStatus=New-Label $hostPage 'Internetverbindung wird automatisch geöffnet.' 22 178 690 32 10 $Muted
 
 $joinPage=New-Panel $form 250 155 734 220
 New-Label $joinPage '01  Beim Gastgeber verbinden' 22 12 690 32 17 | Out-Null

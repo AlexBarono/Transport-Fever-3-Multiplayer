@@ -290,5 +290,30 @@ test("losing a tunnel type in the finished proposal remains an incomplete propos
 	assert(not check.complete and check.text:find("bridge/tunnel fields lost on edge 1", 1, true), check.text)
 end)
 
+test("Lippstadt retained junction nodes override inset removed-segment positions", function()
+	local a = {x=2969.286,y=561.986,z=2.25}
+	local b = {x=3052.6,y=563.196,z=1.445}
+	local inset = {x=3046.51,y=552.683,z=1.445}
+	local line = build.serialize({removedSegments={{entity=20,type=0,comp={node0=1,node1=2,position0=a,position1=inset}}}}, {
+		node_position=function(id) return id==1 and a or b end,
+	})
+	local data=assert(build.deserialize(line))
+	assert(data.removed_segments[1].p1.x==b.x and data.removed_segments[1].p1.y==b.y)
+	local g=graph(); g.node(1,0);g.node(2,100);g.edge(20,1,2)
+	local finder=g.finder()
+	finder.find_node=function(p) if p.x==a.x then return 1 elseif p.x==b.x then return 2 end end
+	assert(build.resolve(data,finder))
+	assert(data.removed_segments[1].entity==20)
+end)
+
+test("removed node snapshots precede live positions and unavailable nodes keep native fallback", function()
+	local a,b=point(0),point(100)
+	local proposal={removedNodes={{entity=1,comp={position=a}}},
+		removedSegments={{entity=20,type=0,comp={node0=1,node1=2,position0=point(10),position1=b}}}}
+	local line=build.serialize(proposal,{node_position=function(id)if id==1 then return point(50) end end})
+	local data=assert(build.deserialize(line))
+	assert(data.removed_segments[1].p0.x==0 and data.removed_segments[1].p1.x==100)
+end)
+
 print(string.format("Build regressions: %d passed, %d failed", passed, failures))
 if failures > 0 then os.exit(1) end

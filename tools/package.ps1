@@ -130,6 +130,14 @@ try {
 					try { $input.CopyTo($output) } finally { $output.Dispose() }
 				} finally { $input.Dispose() }
 			}
+			$inventory=[ordered]@{ schema=1; version=[int]$probeVersion; bridge=[int]$bridgeVersion; files=@($names | ForEach-Object {[ordered]@{path=$_;sha256=$expected[$_]}}) }
+			$inventoryBytes=[Text.Encoding]::UTF8.GetBytes(($inventory | ConvertTo-Json -Depth 5 -Compress))
+			$entry=$archive.CreateEntry('package-manifest.json',[IO.Compression.CompressionLevel]::Optimal)
+			$entry.LastWriteTime=[DateTimeOffset]'2020-01-01T00:00:00+00:00'
+			$output=$entry.Open()
+			try{$output.Write($inventoryBytes,0,$inventoryBytes.Length)}finally{$output.Dispose()}
+			$sha=[Security.Cryptography.SHA256]::Create()
+			try{$expected['package-manifest.json']=([BitConverter]::ToString($sha.ComputeHash($inventoryBytes))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
 		} finally { $archive.Dispose() }
 	} finally { $stream.Dispose() }
 
@@ -138,7 +146,7 @@ try {
 	try {
 		$archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Read, $true)
 		try {
-			if ($archive.Entries.Count -ne $names.Count) { throw 'Archive entry count differs from the allowlist.' }
+			if ($archive.Entries.Count -ne $expected.Count) { throw 'Archive entry count differs from the allowlist.' }
 			$seen = @{}
 			foreach ($entry in $archive.Entries) {
 				$name = $entry.FullName
@@ -155,11 +163,13 @@ try {
 
 	if (Test-Path -LiteralPath $target) { Move-Item -LiteralPath $temporary -Destination $target -Force }
 	else { [IO.File]::Move($temporary, $target) }
+	$releaseManifest=[ordered]@{schema=1;version=[int]$probeVersion;bytes=(Get-Item -LiteralPath $target).Length;sha256=(Get-PackageHash $target)}
+	$releaseManifest | ConvertTo-Json | Set-Content -LiteralPath ([IO.Path]::ChangeExtension($target,'.update.json')) -Encoding UTF8
 	[pscustomobject]@{
 		Path = $target
 		ProbeVersion = $probeVersion
 		BridgeVersion = $bridgeVersion
-		FileCount = $names.Count
+		FileCount = $expected.Count
 		Bytes = (Get-Item -LiteralPath $target).Length
 		SHA256 = Get-PackageHash $target
 		ProxySHA256 = $proxyHash
