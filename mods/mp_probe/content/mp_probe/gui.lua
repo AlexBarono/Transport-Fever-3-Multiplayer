@@ -1,6 +1,6 @@
 --- The GUI side of the game script (probe v24, resync save v32). TF3 calls main.guiUpdate in the GUI's Lua state on
 -- every frame, also while the game is paused, so the shared game speed lives here (sync.speed_step):
--- pause, speed changes and common capacity. The simulation scripts stop while the game is paused and
+-- pause and speed changes. The simulation scripts stop while the game is paused and
 -- could neither notice a pause of this game nor lift one of the other game.
 -- @module mp_probe.gui
 local logger = require("/mp_probe/logger.lua")
@@ -218,7 +218,7 @@ function gui.step(env, g, now)
 		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
 		max_speed = sync.maximum_speed(env), ordered = ordered,
 		intent = sync.decode(getenv("TF3MP_OWN_SPEEDUI")),
-		-- Ordered sessions share the requested speed and both capacity limits.
+		-- Ordered sessions send the full requested speed, retaining capacity as telemetry.
 		-- Time differences remain diagnostic; action/menu holds still pause both.
 		hold = not ordered, src = "gui", restore = restore,
 	})

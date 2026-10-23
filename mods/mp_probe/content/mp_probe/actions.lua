@@ -293,6 +293,10 @@ local function vehicle_config(env, config)
 		out.vehicles[i] = { model = model, reversed = part.reversed,
 			compartment2loadConfig = plain(part.compartment2loadConfig), color = vec(part.color),
 			autoLoadConfig = plain(v.autoLoadConfig) }
+		local acquired = field(v, "purchaseTime")
+		if type(acquired) == "number" and acquired >= 0 and acquired < 2^53 and acquired % 1 == 0 then
+			out.vehicles[i].purchaseTime = acquired
+		end
 	end
 	return out
 end
@@ -475,6 +479,8 @@ function actions.config_key(config)
 		for i, v in ipairs(config.vehicles) do
 			local part = {}
 			for k, x in pairs(v) do part[k] = x end
+			-- Acquisition times differ between worlds and are not vehicle identity.
+			part.purchaseTime = nil
 			local auto, loads = v.autoLoadConfig, v.compartment2loadConfig
 			if type(auto) == "table" and type(loads) == "table" then
 				local kept = {}
@@ -490,11 +496,35 @@ function actions.config_key(config)
 end
 local function same_config(a, b) return same(actions.config_key(a), actions.config_key(b)) end
 
+-- Match retained parts one-to-one in the source world. The receiver substitutes
+-- its own acquisition time and maintenance; foreign game times are never applied.
+local function retained_parts(config, previous)
+	local kept, used = {}, {}
+	for i, part in ipairs(config.vehicles or {}) do
+		if part.purchaseTime ~= nil then
+			for j, old in ipairs(previous.vehicles or {}) do
+				if not used[j] and part.model == old.model and part.purchaseTime == old.purchaseTime then
+					kept[i], used[j] = j, true; break
+				end
+			end
+		end
+	end
+	return kept
+end
+
+local function acquired_parts(config, previous)
+	local kept = retained_parts(config, previous)
+	for i, part in ipairs(config.vehicles or {}) do
+		if part.purchaseTime ~= nil and not kept[i] then return true end
+	end
+	return false
+end
+
 local function changed(kind, r, old)
 	if kind == "vehicle" then
 		-- Depot presence and stopIndex change during ordinary travel, not just UI actions.
 		return r.name ~= old.name or r.userStopped ~= old.userStopped or r.autoDeparture ~= old.autoDeparture
-			or not same_config(r.config, old.config) or line_key(r) ~= line_key(old)
+			or not same_config(r.config, old.config) or acquired_parts(r.config, old.config) or line_key(r) ~= line_key(old)
 	end
 	if kind == "account" then return not r.managed and r.loan ~= old.loan end
 	if kind == "line" then
@@ -510,7 +540,8 @@ end
 -- along, configuration included).
 function actions.vehicle_previous(r, old)
 	return { name = old.name, line = old.line, userStopped = old.userStopped, autoDeparture = old.autoDeparture,
-		config_changed = not same_config(r.config, old.config) }
+		config_changed = not same_config(r.config, old.config) or acquired_parts(r.config, old.config),
+		kept_parts = retained_parts(r.config, old.config) }
 end
 
 --- Polls after the receiver reversed a train in which its own direction change is not sent back.
@@ -948,7 +979,7 @@ local function make_line(env, value, s, peer, offset, current)
 	return line
 end
 
-local function make_vehicle(env, value, purchase)
+local function make_vehicle(env, value, purchase, kept, existing)
 	local config = env.api.type.TransportVehicleConfig.new()
 	local vehicles = {}
 	local purchase_time
@@ -959,6 +990,7 @@ local function make_vehicle(env, value, purchase)
 			return component(env, env.api.engine.util.getWorld(), "GAME_TIME").gameTime
 		end)
 		if ok and type(gt) == "number" and gt >= 0 and gt % 1 == 0 then purchase_time = gt end
+		assert(purchase_time ~= nil and purchase_time < 2^53, "vehicle acquisition time unreadable; purchase not submitted")
 	end
 	for i, v in ipairs(value.vehicles) do
 		local model_id = env.api.res.modelRep.find(v.model)
@@ -979,7 +1011,14 @@ local function make_vehicle(env, value, purchase)
 		part.color = env.api.type.Vec3f.new(v.color.x, v.color.y, v.color.z)
 		local tv = env.api.type.TransportVehiclePart.new()
 		tv.part, tv.autoLoadConfig = part, v.autoLoadConfig
-		if purchase_time ~= nil then tv.purchaseTime = purchase_time end
+		local old = kept and kept[i] and existing and existing.vehicles[kept[i]]
+		if old then
+			assert(old.part.modelId == model_id, "retained vehicle part model differs")
+			for _, key in ipairs({ "purchaseTime", "maintenanceState", "maintenanceChange" }) do
+				local x = field(old, key)
+				if type(x) == "number" then tv[key] = x end
+			end
+		elseif purchase_time ~= nil then tv.purchaseTime = purchase_time end
 		vehicles[i] = tv
 	end
 	config.vehicles, config.vehicleGroups, config.muFileNames = vehicles, value.vehicleGroups, value.muFileNames
@@ -1156,9 +1195,21 @@ function actions.replay(env, action, state, peer, offset, log)
 	local s = state:get() or {}
 	local cmd, value, op = env.api.cmd, action.value, action.op
 	local function updated(kind, id, ref, remove) refresh(env, state, peer, kind, id, ref, remove) end
+	local function vehicle_balance()
+		local ok, amount = pcall(function() return component(env, env.api.engine.util.getPlayer(), "ACCOUNT").balance end)
+		if ok and type(amount) == "number" then return amount end
+	end
+	local function vehicle_receipt(kind, before)
+		local after = vehicle_balance()
+		log("action " .. kind .. " native account: before=" .. tostring(before) .. " after=" .. tostring(after) ..
+			" delta=" .. tostring(before and after and after - before or "unreadable"))
+	end
 	local function send(command, done, rejection_context)
 		busy(state, true)
+		local settled = false
 		local sent, send_error = pcall(cmd.sendCommand, command, function(result, success)
+			if settled then return end
+			settled = true
 			busy(state, false)
 			local errors = field(field(result, "resultProposalData"), "errorState")
 			if success == false or (errors and field(errors, "critical") == true) then
@@ -1283,7 +1334,9 @@ function actions.replay(env, action, state, peer, offset, log)
 		end)
 		diagnostic[#diagnostic + 1] = "model=" .. tostring(value.config.vehicles[1] and value.config.vehicles[1].model)
 		log("action vehicle_create purchase: " .. table.concat(diagnostic, ", "), true)
+		local before = vehicle_balance()
 		send(cmd.makeVehicleBuyCmd(env.api.engine.util.getPlayer(), depot, config), function(result)
+			vehicle_receipt("vehicle_create", before)
 			local id = assert(result_id(result, "resultVehicleEntity"), "vehicle result id missing")
 			updated("vehicle", id, value.ref)
 			-- Read the confirmed purchase, never assume the engine's defaults. Re-sending
@@ -1298,7 +1351,20 @@ function actions.replay(env, action, state, peer, offset, log)
 		local config_changed = action.previous.config_changed
 		if config_changed == nil then config_changed = not same_config(value.config, action.previous.config) end
 		if config_changed then
-			send(cmd.makeVehicleReplaceCmd(id, make_vehicle(env, value.config)), function()
+			local existing = component(env, id, "TRANSPORT_VEHICLE").transportVehicleConfig
+			local kept, used = action.previous.kept_parts, {}
+			if kept then
+				for i, j in pairs(kept) do
+					assert(type(i) == "number" and i % 1 == 0 and value.config.vehicles[i] and
+						type(j) == "number" and j % 1 == 0 and j >= 1 and existing.vehicles[j] and not used[j],
+						"invalid retained vehicle part")
+					used[j] = true
+				end
+			end
+			local config = make_vehicle(env, value.config, true, kept, existing)
+			local before = vehicle_balance()
+			send(cmd.makeVehicleReplaceCmd(id, config), function()
+				vehicle_receipt("vehicle_update", before)
 				updated("vehicle", id, value.ref)
 				vehicle_settings(id, value, action.previous)
 			end)

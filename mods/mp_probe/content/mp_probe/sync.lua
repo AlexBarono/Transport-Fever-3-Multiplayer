@@ -180,11 +180,14 @@ local function speed_limit(value)
 	return value
 end
 
---- Keep the requested register separate from both PCs' current capacity.
--- Older peers without max still work using the local estimate.
+--- Ordered sessions send the shared requested multiplier. Nonordered catchup
+-- retains its local estimate; both modes still publish measured capacity.
 function sync.effective_speed_limit(local_max, peer, ordered)
+	-- An estimate is a performance measurement, not a supported command range.
+	-- Applying it as another multiplier made 4x requests run at only 2x, on top
+	-- of the simulation's own load-dependent slowdown. Send the shared choice.
+	if ordered then return sync.MAX_SPEED end
 	local limit = speed_limit(local_max)
-	if ordered and peer then limit = math.min(limit, speed_limit(peer.max)) end
 	return limit
 end
 
@@ -307,6 +310,7 @@ function sync.speed_step(mem, input)
 	end
 	local capacity_echo = mem.target and mem.target > limit and
 		(own == mem.target or own == limit)
+	if input.ordered and mem.speed == 4 and (own == 3 or own == local_limit) then capacity_echo = true end
 	if input.ordered and own == math.min(mem.speed, limit) then
 		-- Includes a restored v61 catchup target or a confirmed hold release:
 		-- observing the already selected common speed is never a new choice.
@@ -831,7 +835,7 @@ end
 --- Without callback the command goes out alone: the simulation's update() may not pass one (run 25).
 function sync.set_speed(env, speed, callback)
 	local cmd = env.api.cmd
-	speed = math.min(speed, sync.maximum_speed(env))
+	assert(type(speed) == "number" and speed >= 0 and speed <= sync.MAX_SPEED and speed % 1 == 0, "invalid game speed")
 	if callback then
 		cmd.sendCommand(cmd.makeGameSetSpeedCmd(speed), callback)
 	else

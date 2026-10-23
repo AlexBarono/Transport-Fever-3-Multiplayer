@@ -3,16 +3,16 @@
 -- remote pause/1x/2x can consequently be overwritten by its old 4x request.
 local hooks = {}
 
--- Native buttons expose 0/1/2/4 only. Keep a settled capacity-limited engine
--- speed tied to the shared user request in the main GUI's readback. Simulation
+-- Native buttons expose 0/1/2/4 only. Keep their selection tied to the shared
+-- user request, including while an older engine command is pending. Simulation
 -- and game-script GUI states continue to read the real component unchanged.
 function hooks.display_speed(actual, text)
 	if type(text) ~= "string" or actual == 0 then return actual end
 	local fields = {}
 	for key, value in text:gmatch("(%w+)=(%S+)") do fields[key] = tonumber(value) or value end
-	local requested, target = fields.speed, fields.tg
+	local requested = fields.speed
 	if fields.src ~= "gui" or type(requested) ~= "number" or requested < 0 or requested > 4
-		or requested ~= math.floor(requested) or (actual ~= target and actual ~= 3) then return actual end
+		or requested ~= math.floor(requested) then return actual end
 	return requested == 3 and 4 or requested
 end
 

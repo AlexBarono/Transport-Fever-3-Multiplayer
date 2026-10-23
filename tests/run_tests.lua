@@ -2104,7 +2104,9 @@ local function native_station_env(opts)
 		sent[#sent + 1] = cmd
 		local function execute()
 			local result = { resultEntities = opts.reject and {} or { 700 }, resultProposalData = {
-				costs = opts.reject and 0 or 30232, errorState = { critical = opts.reject == true } } }
+				costs = opts.costs or (opts.reject and 0 or 30232), errorState = {
+					critical = opts.reject == true and not opts.noncritical,
+					messages = opts.messages or {}, warnings = {} } } }
 			assert(callback(result, not opts.reject) == true, "native callback owns the transport verdict")
 		end
 		if opts.deferred then deferred = execute else execute() end
@@ -2177,6 +2179,20 @@ test("asynchronous native replacement rejection is reported without resending th
 	assert(ok and data.native_replacement and not rejected and #sent == 1, message)
 	finish()
 	assert(rejected:find("native construction replacement was rejected", 1, true) and calls.simple == 0 and #sent == 1)
+end)
+
+test("warehouse and station collision receipts preserve the native reason despite positive quoted costs",function()
+	for _, deferred in ipairs({false,true})do
+		for _, costs in ipairs({301682,60126})do
+			local env,data,sent,calls,finish=native_station_env({reject=true,noncritical=true,costs=costs,
+				messages={"Kollision"},deferred=deferred})
+			local rejected
+			local ok,why=build.replay(env,data,{on_rejected=function(text)rejected=text end})
+			if deferred then assert(ok);finish();why=rejected else assert(not ok)end
+			assert(why:find("Kollision",1,true),why)
+			assert(#sent==1 and calls.simple==0,"a quoted price is not evidence of a completed build; never duplicate the failed station")
+		end
+	end
 end)
 
 test("missing replacement helper and actual construction moves keep the general build path", function()

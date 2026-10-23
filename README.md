@@ -1,8 +1,16 @@
 # Transport Fever 3 Multiplayer
 
-Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v69 / DLL v16**. **Beide PCs brauchen das v69-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
+Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots, Abriss, Linien, Fahrzeuge und Unternehmensänderungen werden zwischen zwei Spielen übertragen. Aktueller Stand: **Probe v70 / DLL v16**. **Beide PCs brauchen das v70-Paket.** Der Mitspieler empfängt den gemeinsamen Spielstand automatisch; der Gastgeber startet danach beide Spiele. Abweichungen bleiben Hinweise. Ein Neuabgleich erfolgt auf Wunsch des Gastgebers.
 
-[Roadmap](docs/roadmap.md) · [Dokumentation](docs/README.md) · [Versionsverlauf](docs/versionsverlauf.md) · [v69: Tempo und Stabilität](docs/v69-tempo-stabilitaet.md)
+[Roadmap](docs/roadmap.md) · [Dokumentation](docs/README.md) · [Versionsverlauf](docs/versionsverlauf.md) · [v70: Zugersatz und Spieltempo](docs/v70-fahrzeugkosten-tempo.md)
+
+## Neu in v70
+
+- **Zugersatz mit nativen Kaufdaten:** Neue Teile erhalten den Kaufzeitpunkt des empfangenden Spiels. Weiterverwendete Wagen behalten ihren dortigen Kaufzeitpunkt und Wartungszustand. Auch eine Erneuerung mit demselben Modell wird erkannt. TF3 führt die Geldbuchung aus; Kontostände vorher/nachher werden protokolliert.
+- **4× wird als 4× an beide Spiele gesendet.** Die Mod senkt diese Vorgabe nicht mehr zusätzlich auf die geschätzten 2×/3× eines PCs. Pause, 1× und 2× bleiben ausdrücklich übertragene Einstellungen. Die tatsächliche Rechenleistung kann den Zeitfortschritt weiterhin begrenzen.
+- **Auswahl bleibt bei verzögerten Rückmeldungen markiert.** Die normale Oberfläche zeigt die gemeinsame Auswahl; automatische Menü-/Aktionspausen bleiben wirksam.
+- **Bauablehnungen nennen den Spielgrund:** Beispielsweise „Kollision“ bei den untersuchten Lager-/Bahnhofsumbauten. Bestehende Kollisionen und fehlende Wege erfordern weiterhin einen passenden Kartenstand.
+- **20 Lua-Suiten, 658 Prüfungen je Laufzeit:** Zusätzliche Kauf-/Erneuerungsfälle, doppelte Rückmeldungen sowie native Tempoauswahl mit verzögertem Bridge-Echo und geprüftem Simulationszeitfortschritt. [Befunde und Grenzen](docs/v70-fahrzeugkosten-tempo.md).
 
 ## Neu in v69
 
@@ -49,9 +57,9 @@ Experimenteller Community-Mod für zwei PCs: Straßen, Gleise, Bahnhöfe, Depots
 - **Haltestellen:** Ein nicht auslesbarer nativer Baubefehl verursacht keinen Lua-Fehler mehr; TF3 prüft den ursprünglichen Bau. Bereits unterschiedliche Parzellen und fehlende Haltestellen können weiterhin einen bewussten Neuabgleich erfordern.
 - Beide PCs aktualisieren. [Befunde vom 20. Oktober, Grenzen und Zwei-PC-Test](docs/v63-tempo-geld.md).
 
-## Ohne VPN starten (v69)
+## Ohne VPN starten (v70)
 
-1. Beide verwenden dasselbe v69-Windows-Paket und öffnen `Start.bat`.
+1. Beide verwenden dasselbe v70-Windows-Paket und öffnen `Start.bat`.
 2. Gastgeber: **Internet ohne VPN** öffnen. Beim ersten Start ist eine temporäre öffentliche IPv6 vorausgewählt, sofern verfügbar. Später wird die letzte noch verfügbare Adresse mit ihrem Internetport wiederhergestellt; die Verbindung öffnet automatisch. Bei Bedarf eine andere Adresse auswählen. Der öffentliche Internetport ist standardmäßig **TCP 47801**.
 3. Der Launcher prüft die Windows-Regel und fordert die Routerfreigabe an. Falls Windows Administratorrechte verlangt, bestätigen. **Einladung kopieren** und nur dem Mitspieler geben. Bei gleicher öffentlicher Adresse und gleichem Port gilt sie auch nach Neustarts weiter. Routerfehler stehen im Protokoll. Bei IPv6 müssen beide Anschlüsse IPv6 unterstützen; bei IPv4 kann CGNAT/DS-Lite eine direkte Freigabe verhindern.
 4. Mitspieler: **Beitreten**, die vollständige Einladung einfügen. Der Launcher verbindet sich automatisch. **Löschen** leert das Feld und beendet eine noch wartende Verbindung.
@@ -62,7 +70,7 @@ Der Internetweg benötigt keinen Vermittlungsserver. Er ersetzt jedoch keine feh
 
 ## Starten über euer gemeinsames VPN
 
-1. Dasselbe v69-Windows-Paket auf beiden PCs öffnen und das VPN verbinden.
+1. Dasselbe v70-Windows-Paket auf beiden PCs öffnen und das VPN verbinden.
 2. Gastgeber: **VPN / LAN**, passende Adresse auswählen, **Adresse kopieren**. Der Wartekanal öffnet automatisch. Für VPN/LAN gilt weiter **TCP + UDP 47800**; eine Routerfreigabe ist dafür nicht nötig.
 3. Mitspieler: **Beitreten**, Adresse einfügen (z. B. `100.80.12.4:47800`). Sobald verbunden, wählt und teilt der Gastgeber den Spielstand direkt im Hauptfenster. Beide brauchen dieselbe Paketversion und passende zusätzliche Mods.
 4. Der Gastgeber klickt den grünen Knopf **Spiel für beide starten**. Beide Spiele laden den geteilten Stand automatisch. Sobald beide Karten bereit sind, gemeinsam fortsetzen und bauen.
@@ -82,7 +90,7 @@ Nach einem frischen Git-Checkout zuerst die native DLL wie unter **Entwickeln un
 powershell -NoProfile -File tools/package.ps1
 ```
 
-Ausgabe: `release/TF3-Multiplayer-v69-Windows.zip` sowie die zugehörige `.update.json` mit Version, Größe und Prüfsumme. Die ZIP enthält außerdem eine vollständige Dateiliste mit Prüfsummen. Ein vorhandenes Paket lässt sich mit `-Force` ersetzen. Der Paketbau prüft Versionen, Moddateien und die mitgelieferte DLL; er verändert keine Spielinstallation. Die ZIP-Dateien werden lokal erzeugt und sind nicht im Git-Repository enthalten.
+Ausgabe: `release/TF3-Multiplayer-v70-Windows.zip` sowie die zugehörige `.update.json` mit Version, Größe und Prüfsumme. Die ZIP enthält außerdem eine vollständige Dateiliste mit Prüfsummen. Ein vorhandenes Paket lässt sich mit `-Force` ersetzen. Der Paketbau prüft Versionen, Moddateien und die mitgelieferte DLL; er verändert keine Spielinstallation. Die ZIP-Dateien werden lokal erzeugt und sind nicht im Git-Repository enthalten.
 
 ## Tests auf einem PC
 

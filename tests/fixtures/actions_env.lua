@@ -9,10 +9,10 @@ local function transform(x, y)
 		{ x = 0, y = 0, z = 1, w = 0 }, { x = x or 0, y = y or 0, z = 0, w = 1 } }
 end
 local function mock()
-	local m = { entities = { [7] = { NAME = { name = "Transport AG" } } }, sent = {}, next_id = 1000, logs = {} }
+	local m = { entities = { [1] = { GAME_TIME = {gameTime=8200600} }, [7] = { NAME = { name = "Transport AG" } } }, sent = {}, next_id = 1000, logs = {} }
 	local ct = {}; for _, k in ipairs({ "NAME", "COLOR", "PLAYER_OWNED", "CONSTRUCTION", "LINE",
 		"TRANSPORT_VEHICLE", "STATION_GROUP", "BASE_EDGE", "EDGE_OBJECT", "STATION", "CARRIAGE_LIST", "CARRIAGE",
-		"ACCOUNT" }) do ct[k] = k end
+		"ACCOUNT", "GAME_TIME" }) do ct[k] = k end
 	local function new() return {} end
 	local function proposal() return { streetProposal = {} } end
 	local t = { ComponentType = ct, Context = { new = new },
@@ -27,7 +27,7 @@ local function mock()
 			new = function(a, b, c, d) return { a, b, c, d } end },
 		enum = { TransportVehicleState = { IN_DEPOT = 0, EN_ROUTE = 1, AT_TERMINAL = 2, GOING_TO_DEPOT = 3 } },
 		JournalEntry = { new = function() return { category = {} } end, Type = { LOAN = 4, OTHER = 9 } } }
-	local engine = { util = { getPlayer = function() return 7 end }, system = {} }
+	local engine = { util = { getPlayer = function() return 7 end, getWorld = function() return 1 end }, system = {} }
 	function engine.getComponent(id, c)
 		assert(m.entities[id], "entity missing")
 		-- Copy-on-read like the C++ bindings; a nested assignment must be written back.

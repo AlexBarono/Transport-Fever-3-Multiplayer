@@ -74,7 +74,7 @@ test("shared 4x stays selected when capacity changes to 3x or 2x", function()
 		assert(hooks.display_speed(actual,"src=gui speed=4 tg="..actual)==4)
 	end
 	assert(hooks.display_speed(0,"src=gui speed=4 tg=0")==0)
-	assert(hooks.display_speed(1,"src=gui speed=4 tg=3")==1,"new user click must remain visible")
+	assert(hooks.display_speed(1,"src=gui speed=4 tg=3")==4,"selection follows the shared request while native readback lags")
 	assert(hooks.display_speed(2,"src=sim speed=4 tg=2")==2)
 	assert(hooks.display_speed(3,"src=gui speed=3 tg=3")==4)
 end)
@@ -94,7 +94,7 @@ test("internal 3x readback never clears the selected button while a newer target
 	for _,requested in ipairs({0,1,2,4})do
 		assert(hooks.display_speed(3,"src=gui speed="..requested.." tg="..requested)==requested)
 	end
-	assert(hooks.display_speed(2,"src=gui speed=4 tg=3")==2,"a distinct valid user click must remain observable")
+	assert(hooks.display_speed(2,"src=gui speed=4 tg=3")==4,"explicit factory requests carry clicks independently of readback")
 end)
 test("failed native component hook rolls back the capacity hook", function()
 	local estimate=function()return 3 end

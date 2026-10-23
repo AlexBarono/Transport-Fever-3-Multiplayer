@@ -1,6 +1,6 @@
 # Roadmap: Transport Fever 3 Multiplayer
 
-Stand: **23. Oktober 2026**, aktueller Stand **Probe v69 / Bridge v16**.
+Stand: **23. Oktober 2026**, aktueller Stand **Probe v70 / Bridge v16**.
 
 Ziel ist zunächst ein verlässliches gemeinsames Spiel für **zwei Windows-PCs mit einer Firma**. Die Reihenfolge unten richtet sich nach den beobachteten Problemen. Versionsnummern und Termine für kommende Schritte werden erst bei der Umsetzung festgelegt.
 
@@ -8,6 +8,7 @@ Ziel ist zunächst ein verlässliches gemeinsames Spiel für **zwei Windows-PCs 
 
 | Bereich | Stand |
 | --- | --- |
+| Zugersatz, Kosten und voller Tempobefehl | v70: Kaufzeitpunkte und weiterverwendete Wagen berücksichtigt; vollständige 4×-Vorgabe an beide Spiele; Kontobelege, verzögerte GUI-Rückmeldungen und Simulationszeit geprüft. 658 Prüfungen je Lua-Laufzeit. [Befunde und Grenzen](v70-fahrzeugkosten-tempo.md). |
 | Tempoauswahl und sichere Knotensuche | v69: native Auswahl ausdrücklich erfasst, 3× als interner Leistungswert behandelt, Knotensuche ergänzt und aufgezeichnete Straßenfehler als Regressionen hinterlegt. 16.000 GUI-Schritte und 10.000 Aktionsabschlüsse in der Releaseprüfung. [Befunde und Grenzen](v69-tempo-stabilitaet.md). |
 | Fenstergröße, Oberfläche, Anleitung und Freundeliste | v68: Maximieren/F11, scrollbare Seiten, verständlicher Ladestatus, freier Updateknopf sowie lokal geschützte Freunde mit Ein-Klick-Beitritt implementiert und geprüft. [Details](v68-launcher-freunde.md). |
 | Internet/VPN, Einladung, gemeinsamer Spielstand und Start | Implementiert; automatische Prüfungen und frühere Zwei-PC-Läufe vorhanden. |
@@ -28,6 +29,8 @@ Implementiert bedeutet hier nicht automatisch unter allen Bedingungen im echten 
 - [x] Den v64-Lauf vom 22. Oktober mit beiden Protokollen auswerten; leere 4×-Auswahl und falschen Straßenendpunkt bei Lippstadt nachstellen und als Regressionen absichern. [Befunde und Korrekturen](v65-tempo-ipv6-einladung.md).
 - [ ] Mit demselben frischen Gastgeberstand beginnen und automatische Internetverbindung sowie vorausgewählte temporäre IPv6 prüfen.
 - [ ] Auf beiden PCs abwechselnd Pause, 1×, 2× und 4× wählen. Tatsächlichen Zeitfortschritt und Fahrzeugbewegung mit den Protokollen vergleichen.
+- [x] v69-Lauf auswerten: Zugersatz ohne Kaufdaten, zusätzliche Tempobegrenzung der Mod, zwei Kollisionen und beidseitig abgelehnte Zugzuweisung. Gezielte Finanz-/Tempotests und konkrete native Baufehlermeldungen ergänzen (v70).
+- [ ] v70 auf beiden PCs: Zug kaufen, gleiches Modell erneuern, einzelne Wagen ergänzen/weiterverwenden, Kontoänderungen beider PCs vergleichen. Pause/1×/2×/4× einschließlich Anzeige, tatsächlichem Zeitfortschritt und Menüpausen prüfen; anschließend mindestens 60 Minuten spielen.
 - [x] v68-Lauf vom 23. Oktober auswerten; zwei fehlende Straßenanschlüsse und die als 3× erkannte Wiederaufnahme nachstellen. Explizite Tempoauswahl, begrenzte Ergänzung des Knotenindexes und längere simulierte Testfolgen ergänzen (v69).
 - [ ] v69 auf beiden PCs prüfen, insbesondere Klick auf 2× bei bereits auf 2× begrenzter 4×-Vorgabe, schnelle Auswahlwechsel und die beiden Straßenverlängerungen nach einem frischen gemeinsamen Stand.
 - [ ] Menü- und Aktionspausen einschließlich überlappender Vorgänge prüfen: Beide Spiele halten an und übernehmen anschließend wieder die gemeinsame Vorgabe.

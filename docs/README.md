@@ -1,15 +1,16 @@
 # Dokumentation
 
-Für Installation, gemeinsamen Start, Paketbau und Tests gilt die [Projekt-README](../README.md). Aktuell ist **Probe v69 / DLL v16**. Ältere Dokumente halten den damaligen Stand fest; Bedienung und offene Punkte können inzwischen überholt sein.
+Für Installation, gemeinsamen Start, Paketbau und Tests gilt die [Projekt-README](../README.md). Aktuell ist **Probe v70 / DLL v16**. Ältere Dokumente halten den damaligen Stand fest; Bedienung und offene Punkte können inzwischen überholt sein.
 
 ## Aktuelle Planung
 
-Die [Roadmap ab v69](roadmap.md), Stand 23. Oktober 2026, nennt die nächsten Schritte, offene Gegentests und überprüfbare Abschlusskriterien. Der [alte Forschungsplan](plan.md) dokumentiert weiterhin den historischen Stand.
+Die [Roadmap ab v70](roadmap.md), Stand 23. Oktober 2026, nennt die nächsten Schritte, offene Gegentests und überprüfbare Abschlusskriterien. Der [alte Forschungsplan](plan.md) dokumentiert weiterhin den historischen Stand.
 
 ## Betrieb und Diagnose
 
 | Thema | Einstieg |
 | --- | --- |
+| Zugersatz, Kaufkosten und tatsächlich angefordertes Spieltempo | [v70](v70-fahrzeugkosten-tempo.md) |
 | Aufgezeichnete Straßenfehler, Tempoauswahl und längere Testfolgen | [v69](v69-tempo-stabilitaet.md) |
 | Fenstergröße, neue Oberfläche, Anleitung und Freundeliste | [v68](v68-launcher-freunde.md) |
 | Launcher aktualisieren, ZIP-Import und GitHub-Releases | [v66](v66-launcher-updates.md) |

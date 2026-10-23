@@ -2126,18 +2126,23 @@ local function replay_replacement(env, data, opts)
 	end)
 	if not valid then return failed("invalid helper proposal: " .. tostring(err):sub(1, 200)) end
 	data.native_replacement = true
-	local label, nothing, returned = "native construction replacement", false, false
+	local label, nothing, returned, rejection = "native construction replacement", false, false, nil
 	local function on_result(result, success)
 		local outcome = build.outcome(result)
 		if success == false or outcome.critical == true then outcome.built = false end
 		if opts.on_result then opts.on_result(result, success, label, outcome) end
 		nothing = success == false or outcome.critical == true or outcome.built == false
-		if nothing and returned and opts.on_rejected then opts.on_rejected(label .. " was rejected after execution") end
+		if nothing then
+			local details = {}
+			for i = 1, math.min(#outcome.messages, 3) do details[i] = tostring(outcome.messages[i]):sub(1, 120) end
+			rejection = "game rejected the proposal" .. (#details > 0 and (": " .. table.concat(details, "; ")) or "")
+		end
+		if nothing and returned and opts.on_rejected then opts.on_rejected(label .. " was rejected after execution: " .. rejection) end
 		return true -- The managed callback owns this result, like replay_once's retry contract.
 	end
 	local sent, message = build.send(env, proposal, opts.log, on_result, opts.player, opts.prepare, true)
 	returned = true
-	if not sent or nothing then return failed(nothing and "game rejected the proposal" or message) end
+	if not sent or nothing then return failed(nothing and rejection or message) end
 	return true, label .. ": " .. message
 end
 

@@ -361,13 +361,13 @@ test("ordered sessions keep the same speed even when their simulation times diff
 	assert(p.host.speed == 2 and p.client.speed == 2, "time drift must not override the common speed")
 end)
 
-test("ordered sessions use the slower PC's capacity without changing the requested register", function()
+test("ordered sessions send the full choice despite a slower PC's capacity estimate", function()
 	for _, slower in ipairs({ "host", "client" }) do
 		local p = speed_pair(); p.ordered = true; p.both(2)
 		p.host.speed = 4; p.both(3)
 		local version = p.host.mem.ver
 		p[slower].max_speed = 3; p.both(4)
-		assert(p.host.speed == 3 and p.client.speed == 3, slower)
+		assert(p.host.speed == 4 and p.client.speed == 4, slower)
 		assert(p.host.mem.speed == 4 and p.client.mem.speed == 4 and p.host.mem.ver == version and p.client.mem.ver == version)
 		assert(p[slower].state.max == 3)
 		p[slower].max_speed = 4; p.both(4)
@@ -376,17 +376,17 @@ test("ordered sessions use the slower PC's capacity without changing the request
 	end
 end)
 
-test("an expired peer capacity cannot leave the connected PC permanently throttled", function()
+test("fresh and expired peer estimates cannot throttle the connected PC", function()
 	local mem, peer = {}, { speed = 4, ver = 1, by = "host", hb = 1, gt = 0, run = 3, max = 3 }
 	local function step(own, now)
 		return sync.speed_step(mem, { own = own, role = "client", peer = peer, now = now, src = "gui", ordered = true, max_speed = 4 })
 	end
-	local out = step(1, 0); assert(out.command == 3)
-	step(3, 1)
-	out = step(3, sync.PEER_STALE_S + 1); assert(out.command == 4 and mem.ver == 1 and mem.speed == 4)
+	local out = step(1, 0); assert(out.command == 4)
+	step(4, 1)
+	out = step(4, sync.PEER_STALE_S + 1); assert(out.command == nil and mem.ver == 1 and mem.speed == 4)
 	step(4, sync.PEER_STALE_S + 1.3)
 	peer.hb = 2; out = step(4, sync.PEER_STALE_S + 2)
-	assert(out.command == 3 and mem.ver == 1 and mem.speed == 4, "fresh lower capacity must apply again")
+	assert(out.command == nil and mem.ver == 1 and mem.speed == 4, "fresh estimate must not reduce the command")
 end)
 
 test("late speed readbacks after a capacity change do not become new player versions", function()
@@ -398,11 +398,11 @@ test("late speed readbacks after a capacity change do not become new player vers
 				src = "gui", ordered = true, max_speed = limit })
 		end
 		assert(step(1, 0, 4).command == 4)
-		assert(step(1, 0.3, 3).command == 3)
+		assert(step(1, 0.3, 3).command == nil)
 		step(3, 0.6, 3)
 		local out = step(4, 0.9, 3) -- Earlier 4x native command arrives late.
-		assert(out.command == 3 and mem.ver == 1 and mem.speed == 4 and not has(out.logs, "changed here"), role)
-		step(3, 1.2, 3)
+		assert(out.command == nil and mem.ver == 1 and mem.speed == 4 and not has(out.logs, "changed here"), role)
+		step(4, 1.2, 3)
 		assert(mem.ver == 1 and not mem.broken and not mem.pending)
 	end
 end)
@@ -531,13 +531,13 @@ test("lost GUI memory retains the pending command and cannot publish its old rea
 		return sync.speed_step(mem, { own = own, role = "client", peer = peer, now = now, src = "gui",
 			ordered = true, max_speed = 4, restore = restore })
 	end
-	local out = step(1, 0); assert(out.command == 3)
+	local out = step(1, 0); assert(out.command == 4)
 	local restore = sync.decode(out.publish); mem = {}
 	out = step(1, 1, restore)
-	assert(mem.speed == 4 and mem.ver == 1 and mem.pending == 3 and not has(out.logs, "changed here"))
+	assert(mem.speed == 4 and mem.ver == 1 and mem.pending == 4 and not has(out.logs, "changed here"))
 	assert(out.command == nil, "lost memory must not flood the native command queue")
 	restore = sync.decode(out.publish); mem = {}
-	out = step(3, 1.3, restore)
+	out = step(4, 1.3, restore)
 	assert(mem.speed == 4 and mem.ver == 1 and mem.pending == nil)
 end)
 
@@ -554,13 +554,13 @@ test("lost GUI memory retains the late command guard across a newer local pause"
 	assert(mem.ver == 2 and mem.speed == 0 and out.command == 0 and not has(out.logs, "changed here"))
 end)
 
-test("native speed capacity also bounds direct commands and menu release", function()
+test("direct commands and menu release retain the full supported request", function()
 	local g=game("client"); g.max_speed=3; g.speed=3; g.vars.TF3MP_ORDERING="1"; g.gui()
-	g.run(function() sync.set_speed(g.env,4) end); assert(g.speed==3)
+	g.run(function() sync.set_speed(g.env,4) end); assert(g.speed==4)
 	g.vars.TF3MP_OWN_GUI="speed=4 ver=8 by=host run=3 tg=3 src=gui hb=9"
 	g.vars.TF3MP_OWN_CLOCKUI="hold=1 run=4"
 	g.speed=0; g.gui(); g.gui(); g.gui()
-	assert(g.speed==3 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).hold==0)
+	assert(g.speed==4 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).hold==0)
 	assert(not has(g.logs,"could not be set"))
 end)
 
@@ -1227,7 +1227,7 @@ test("delayed barrier release never publishes the automatic pause as a user spee
 		assert(not has(g.logs, "speed changed here: paused"))
 		g.apply_speed_commands(); g.gui(); g.gui()
 		local after = sync.decode(g.vars.TF3MP_OWN_GUI)
-		assert(g.speed == 3 and after.speed == 4 and after.ver == 8)
+		assert(g.speed == 4 and after.speed == 4 and after.ver == 8)
 	end
 end)
 
@@ -1259,7 +1259,7 @@ test("both ordered GUI scripts share every speed despite a large simulation gap"
 	end
 end)
 
-test("ordered menu and action holds preserve a common capacity limit and the requested version", function()
+test("ordered menu and action holds preserve the full request and its version", function()
 	for _, opener in ipairs({ "host", "client" }) do
 		local h, c = pair(); h.gt, c.gt, c.max_speed = 120000, 0, 3
 		h.vars.TF3MP_ORDERING, c.vars.TF3MP_ORDERING = "1", "1"
@@ -1267,13 +1267,13 @@ test("ordered menu and action holds preserve a common capacity limit and the req
 		h.speed = 4
 		for _ = 1, 8 do h.gui(); c.gui() end
 		local version = sync.decode(h.vars.TF3MP_OWN_GUI).ver
-		assert(h.speed == 3 and c.speed == 3)
+		assert(h.speed == 4 and c.speed == 4)
 		local first = opener == "host" and h or c
 		first.run(function() first.print("net state menu open=1") end)
 		for _ = 1, 3 do h.gui(); c.gui() end
 		assert(h.speed == 0 and c.speed == 0)
 		assert(sync.decode(h.vars.TF3MP_OWN_CLOCKUI).run == 4 and sync.decode(c.vars.TF3MP_OWN_CLOCKUI).run == 4,
-			"holds remember the shared request, then apply the common effective capacity")
+			"holds remember the shared request")
 		-- A scheduled vehicle/subvention action overlaps the open menu.
 		for _, g in ipairs({ h, c }) do g.vars.TF3MP_OWN_CLOCK = "at=1 phase=committed hold=1" end
 		first.run(function() first.print("net state menu open=0") end)
@@ -1283,7 +1283,7 @@ test("ordered menu and action holds preserve a common capacity limit and the req
 		for _ = 1, 3 do h.gui(); c.gui() end
 		h.apply_speed_commands(); c.apply_speed_commands(); h.delay_speed, c.delay_speed = false, false
 		for _ = 1, 8 do h.gui(); c.gui() end
-		assert(h.speed == 3 and c.speed == 3)
+		assert(h.speed == 4 and c.speed == 4)
 		for _, g in ipairs({ h, c }) do
 			local state = sync.decode(g.vars.TF3MP_OWN_GUI)
 			assert(state.speed == 4 and state.ver == version and not has(g.logs, "speed changed here: paused"))
@@ -1302,7 +1302,7 @@ test("a new ordered hold remembers the shared choice instead of an older catchup
 		g.vars.TF3MP_OWN_CLOCK = "at=0 phase=idle hold=0"
 		for _ = 1, 5 do g.gui() end
 		local state = sync.decode(g.vars.TF3MP_OWN_GUI)
-		assert(g.speed == 3 and state.speed == 4 and state.ver == 8, "the hold must not invent a user edit")
+		assert(g.speed == 4 and state.speed == 4 and state.ver == 8, "the hold must not invent a user edit")
 	end
 end)
 
@@ -1315,7 +1315,7 @@ test("the simulation fallback also preserves a common ordered speed despite time
 	g.vars.TF3MP_PEER_GUI = "speed=4 ver=2 by=host run=3 max=3 gt=120000 hb=2 src=sim"
 	g.clock = 1
 	g.run(function() main.sync_speed_fallback(g.env, ss, "client", 0, g.os.getenv) end)
-	assert(g.speed == 3 and ss.speed_mem.speed == 4 and ss.speed_mem.ver == 2)
+	assert(g.speed == 4 and ss.speed_mem.speed == 4 and ss.speed_mem.ver == 2)
 end)
 
 test("automatic pause release survives lost GUI memory and preserves a later real pause", function()
@@ -1576,7 +1576,7 @@ test("simulation cannot pause ahead of the GUI hold marker and overwrite the use
 	m.active={seq=1,at=1200,line="A1 vehicle",origin="host",phase="committed",barrier=true}
 	g.s.timeline=m; g.vars.TF3MP_PEER_CLOCK="gt=1200"
 	g.run(function()main.timeline_tick(g.env,g.state)end)
-	assert(g.speed==3 and not g.s.timeline.active.arrived, "GUI must record the hold before changing the engine speed")
+	assert(g.speed==4 and not g.s.timeline.active.arrived, "GUI must record the hold before pausing the engine")
 	g.gui(); assert(g.speed==0 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).run==4)
 	g.run(function()main.timeline_tick(g.env,g.state)end)
 	assert(g.s.timeline.active.arrived)
@@ -1675,7 +1675,7 @@ test("ordered 3x native resume and legacy peer state normalize to the 4x button"
 	for _, role in ipairs({"host","client"}) do
 		local mem={};sync.speed_step(mem,{own=0,role=role,now=0,src="gui",ordered=true,max_speed=3})
 		local out=sync.speed_step(mem,{own=3,role=role,now=1,src="gui",ordered=true,max_speed=3})
-		assert(mem.speed==4 and mem.target==3 and sync.decode(out.publish).speed==4)
+		assert(mem.speed==4 and mem.target==4 and sync.decode(out.publish).speed==4)
 		local peer={speed=3,ver=5,by="host",hb=1,max=3}
 		out=sync.speed_step(mem,{own=3,role=role,now=2,src="gui",ordered=true,max_speed=3,peer=peer})
 		assert(mem.speed==4 and mem.ver==5 and peer.speed==3,"peer input must remain untouched")
@@ -1705,8 +1705,74 @@ test("two ordered GUIs survive 16000 frames of capacity changes, explicit select
 		for _=1,8 do h.gui();c.gui() end
 		for _,g in ipairs({h,c}) do
 			local shared=sync.decode(g.vars.TF3MP_OWN_GUI)
-			assert(shared.speed==speed and g.speed==math.min(speed,h.max_speed,c.max_speed),"cycle "..cycle.." "..g.role)
+			assert(shared.speed==speed and g.speed==speed,"cycle "..cycle.." "..g.role)
 			assert(not has(g.logs,"could not be set"),"capacity changes exhausted speed commands")
+		end
+	end
+end)
+
+test("native button selection and real simulation time follow every shared request with delayed bridge echoes",function()
+	local hooks=require("/mp_probe/speed_hooks.lua")
+	for _, setter_role in ipairs({"host","client"}) do
+		local h,c=pair();local pending={}
+		for _,g in ipairs({h,c})do
+			g.vars.TF3MP_ORDERING="1";g.max_speed=g==h and 3 or 2
+			for _=1,3 do g.gui()end
+			-- The native GUI has separate API tables from game-script guiUpdate.
+			local native={engine={getComponent=g.api.engine.getComponent,util=g.api.engine.util},
+				type=g.api.type,gui={game={getEstimatedMaximumGameSpeed=function()return g.max_speed end}},
+				cmd={makeGameSetSpeedCmd=g.api.cmd.makeGameSetSpeedCmd,sendCommand=g.api.cmd.sendCommand}}
+			g.selected,g.native_paused,g.native_pending=1,false,0
+			g.run(function()
+				hooks.watch({api=native},{},{enabled=function()return true end,held=function()return false end,
+					shared=function()return g.vars.TF3MP_OWN_GUI or "" end,
+					intent=function()return g.vars.TF3MP_OWN_SPEEDUI or "" end,
+					publish=function(text)pending[#pending+1]={game=g,text=text,delay=3}end,log=function()end})
+			end)
+			function g.click(value)
+				g.run(function()
+					g.selected,g.native_paused=value,value==0;g.native_pending=g.native_pending+1
+					native.cmd.sendCommand(native.cmd.makeGameSetSpeedCmd(value),function()
+						g.native_pending=g.native_pending-1
+					end)
+				end)
+			end
+			function g.native_frame()
+				if g.native_pending==0 then
+					local shown=native.engine.getComponent(1,"GAME_SPEED").speedup
+					g.native_paused=shown==0
+					if shown>0 then g.selected=shown end
+				end
+				-- Native GameSpeedHelper would retry its previous capped selection
+				-- every frame. The installed guard must prevent those extra requests.
+				if g.selected>native.gui.game.getEstimatedMaximumGameSpeed()then g.click(g.selected)end
+			end
+		end
+		local function frame()
+			for i=#pending,1,-1 do
+				local p=pending[i];p.delay=p.delay-1
+				if p.delay==0 then
+					p.game.vars.TF3MP_OWN_SPEEDUI=p.text;table.remove(pending,i)
+				end
+			end
+			for _,g in ipairs({h,c})do
+				g.native_frame();g.gt=g.gt+g.speed*300;g.gui()
+			end
+		end
+		for _,speed in ipairs({4,2,1,0,4,0,1,2,4})do
+			local setter=setter_role=="host" and h or c
+			setter.delay_speed=true;setter.click(speed)
+			for _=1,4 do frame()end
+			setter.apply_speed_commands();setter.delay_speed=false
+			for _=1,12 do frame()end
+			local oldh,oldc=h.gt,c.gt
+			for _=1,40 do frame()end
+			for _,g in ipairs({h,c})do
+				assert(g.speed==speed and (g.native_paused and 0 or g.selected)==speed,setter_role.." -> "..speed.." "..g.role)
+				assert(sync.decode(g.vars.TF3MP_OWN_GUI).speed==speed)
+			end
+			assert(math.abs((h.gt-oldh)-12000*speed)<0.01 and math.abs((c.gt-oldc)-12000*speed)<0.01,
+				"actual simulation time must change, not just the buttons")
 		end
 	end
 end)
