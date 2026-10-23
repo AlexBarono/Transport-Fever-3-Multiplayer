@@ -9,6 +9,7 @@ function Test-GameRunning {return $false}
 function Test-LobbyCanStart {return $false}
 function Get-LauncherWorkingArea {return New-Object Drawing.Rectangle(0,0,$desktopWidth,$desktopHeight)}
 $passed=0
+$physicalArea=[Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 function Check($ok,$message){if(-not $ok){throw $message};$script:passed++}
 function Check-Exposed($control){
     Check $control.Visible "Hidden control: $($control.Text)"
@@ -39,11 +40,19 @@ foreach($scale in @(1.0,1.5,2.0)){
     . (Join-Path $root 'launcher\view.ps1')
     try{
         $script:presence=[pscustomobject]@{Connected=$true};$hostRadio.Checked=$true;Update-Fields
+        $maxBounds=New-Object Drawing.Rectangle($physicalArea.X,$physicalArea.Y,([Math]::Min($desktopWidth,$physicalArea.Width)),([Math]::Min($desktopHeight,$physicalArea.Height)))
+        [Windows.Forms.Form].GetProperty('MaximizedBounds',[Reflection.BindingFlags]'Instance,NonPublic').SetValue($form,$maxBounds.PSObject.BaseObject,$null)
         $form.Show();[Windows.Forms.Application]::DoEvents();$form.AutoScaleMode='None';$form.Scale((New-Object Drawing.SizeF($scale,$scale)))
         foreach($window in @('normal','compact','narrow','maximized')){
             if($window -eq 'compact'){$form.WindowState='Normal';$form.ClientSize=New-Object Drawing.Size([int](980*$scale),[int](720*$scale))}
             if($window -eq 'narrow'){$form.WindowState='Normal';$form.ClientSize=New-Object Drawing.Size(980,720)}
             if($window -eq 'maximized'){$form.WindowState='Maximized'}
+            else{
+                # Native hit testing cannot reach pixels outside the physical desktop.
+                # Manual DPI scaling may otherwise create oversized test windows on CI.
+                $form.ClientSize=New-Object Drawing.Size(([Math]::Min($form.ClientSize.Width,$physicalArea.Width-32)),([Math]::Min($form.ClientSize.Height,$physicalArea.Height-72)))
+                $form.Location=New-Object Drawing.Point(($physicalArea.X+8),($physicalArea.Y+8))
+            }
             Resize-LauncherPages;[Windows.Forms.Application]::DoEvents()
             Check ($form.MaximizeBox -and $form.FormBorderStyle -eq 'Sizable') 'Launcher cannot be resized/maximized'
             foreach($role in @('host','join','test')){
