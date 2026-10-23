@@ -29,7 +29,7 @@ function Check-Exposed($control){
         $point=$parent.PointToClient($screen)
         Check ($parent.ClientRectangle.Contains($point)) "Control cannot be scrolled into view: $($control.Text), $scale/$window/$role, parent=$($parent.GetType().Name), point=$point, bounds=$($parent.ClientRectangle), child=$($child.Bounds), scroll=$($sessionPage.AutoScrollPosition)"
         $hit=$parent.GetChildAtPoint($point,[Windows.Forms.GetChildAtPointSkip]::Invisible)
-        Check ([object]::ReferenceEquals($hit,$child)) "Covered control: $($control.Text), hit=$($hit.Text)"
+        Check ([object]::ReferenceEquals($hit,$child)) "Covered control: $($control.Text), $desktopWidth/$scale/$window/$role, parent=$($parent.GetType().Name), parentBounds=$($parent.ClientRectangle), point=$point, child=$($child.Bounds), exposed=$visible, hit=$($hit.Text)"
         $child=$parent
     }
 }
