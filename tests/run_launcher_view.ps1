@@ -7,6 +7,7 @@ $fn=$ast.Find({param($node)$node -is [Management.Automation.Language.FunctionDef
 Invoke-Expression $fn.Extent.Text
 function Test-GameRunning {return $false}
 function Test-LobbyCanStart {return $false}
+function Get-LauncherWorkingArea {return New-Object Drawing.Rectangle(0,0,$desktopWidth,$desktopHeight)}
 $passed=0
 function Check($ok,$message){if(-not $ok){throw $message};$script:passed++}
 function Check-Exposed($control){
@@ -32,6 +33,8 @@ function Check-Exposed($control){
         $child=$parent
     }
 }
+foreach($desktop in @(@(1024,768),@(2560,1440))){
+$desktopWidth=$desktop[0];$desktopHeight=$desktop[1]
 foreach($scale in @(1.0,1.5,2.0)){
     . (Join-Path $root 'launcher\view.ps1')
     try{
@@ -66,4 +69,5 @@ foreach($scale in @(1.0,1.5,2.0)){
         }
     }finally{$form.Dispose()}
 }
-Write-Output "$passed launcher layout checks passed (four window sizes, real maximization, 100/150/200 percent)."
+}
+Write-Output "$passed launcher layout checks passed (two initial desktop sizes, four window sizes, real maximization, 100/150/200 percent)."

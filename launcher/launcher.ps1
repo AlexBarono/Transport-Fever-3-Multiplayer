@@ -44,6 +44,8 @@ function Update-LauncherActionIssues($steam, $gameDir) {
 	Update-ActionIssues $script:actionIssues $script:actionLogPath ([string]$values.pid)
 }
 
+function Get-LauncherWorkingArea {return [Windows.Forms.Screen]::PrimaryScreen.WorkingArea}
+
 function Get-SteamRoot {
 	foreach ($key in 'HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam') {
 		try {

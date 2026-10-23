@@ -7,7 +7,7 @@ $Muted=[Drawing.ColorTranslator]::FromHtml('#AFBDCF');$Accent=[Drawing.ColorTran
 $script:launcherPage='session';$script:layoutBusy=$false
 $form=New-Object Windows.Forms.Form
 $form.Text='Transport Fever 3 | Multiplayer'
-$area=[Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$area=Get-LauncherWorkingArea
 $form.ClientSize=New-Object Drawing.Size([Math]::Min(1160,$area.Width-60),[Math]::Min(1000,$area.Height-80))
 $form.MinimumSize=New-Object Drawing.Size(980,700)
 $form.StartPosition='CenterScreen';$form.FormBorderStyle='Sizable';$form.MaximizeBox=$true
@@ -40,7 +40,7 @@ $workspace=New-Panel $form 232 0 ($form.ClientSize.Width-232) $form.ClientSize.H
 $workspace.Dock='Fill';$workspace.Padding=New-Object Windows.Forms.Padding(24)
 $side=New-Panel $form 0 0 232 $form.ClientSize.Height $Sidebar;$side.Dock='Left'
 $sideFooter=New-Panel $side 0 0 232 44 $Sidebar;$sideFooter.Dock='Bottom'
-New-Label $sideFooter 'Probe v67  /  Bridge v16' 24 12 184 22 9 $Muted|Out-Null
+New-Label $sideFooter 'Probe v68  /  Bridge v16' 24 12 184 22 9 $Muted|Out-Null
 $sideBody=New-Panel $side 0 0 232 650 $Sidebar;$sideBody.Dock='Fill';$sideBody.AutoScroll=$true
 $sideBody.AutoScrollMinSize=New-Object Drawing.Size(210,636)
 $sideBody.BringToFront()
@@ -182,9 +182,10 @@ $friendRemove=New-Button $friendsBody 'Aus Liste entfernen' 218 756 206 40;$frie
 $friendHint=New-Label $friendsBody 'Name anklicken: beitreten. Über … rechts am Namen den Eintrag bearbeiten.' 0 816 840 34 10 $Muted;$friendHint.Anchor='Bottom, Left, Right'
 
 $guidePage=New-Panel $workspace 0 0 880 850 $Background;$guidePage.Dock='Fill';$guidePage.Visible=$false
-New-Label $guidePage 'So spielt ihr zusammen' 0 0 760 44 25|Out-Null
-New-Label $guidePage 'Die wichtigsten Schritte – direkt im Launcher.' 2 54 760 28 11 $Muted|Out-Null
-$guideText=New-Object Windows.Forms.TextBox;$guideText.Multiline=$true;$guideText.ScrollBars='Vertical';$guideText.SetBounds(0,112,880,700);$guideText.Anchor='Top, Bottom, Left, Right'
+New-Label $guidePage 'So spielt ihr zusammen' 0 0 $guidePage.ClientSize.Width 44 25|Out-Null
+New-Label $guidePage 'Die wichtigsten Schritte – direkt im Launcher.' 2 54 ($guidePage.ClientSize.Width-2) 28 11 $Muted|Out-Null
+$guideText=New-Object Windows.Forms.TextBox;$guideText.Multiline=$true;$guideText.ScrollBars='Vertical'
+$guideText.SetBounds(0,112,$guidePage.ClientSize.Width,([Math]::Max(120,$guidePage.ClientSize.Height-150)));$guideText.Anchor='Top, Bottom, Left, Right'
 $guideText.ReadOnly=$true;$guideText.BorderStyle='None';$guideText.BackColor=$Background;$guideText.ForeColor=$TextColor
 $guideText.Font=New-Object Drawing.Font('Segoe UI',12);$guidePage.Controls.Add($guideText)
 $guideText.Text=@'

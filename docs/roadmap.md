@@ -1,6 +1,6 @@
 # Roadmap: Transport Fever 3 Multiplayer
 
-Stand: **23. Oktober 2026**, aktueller Stand **Probe v67 / Bridge v16**.
+Stand: **23. Oktober 2026**, aktueller Stand **Probe v68 / Bridge v16**.
 
 Ziel ist zunächst ein verlässliches gemeinsames Spiel für **zwei Windows-PCs mit einer Firma**. Die Reihenfolge unten richtet sich nach den beobachteten Problemen. Versionsnummern und Termine für kommende Schritte werden erst bei der Umsetzung festgelegt.
 
@@ -8,7 +8,7 @@ Ziel ist zunächst ein verlässliches gemeinsames Spiel für **zwei Windows-PCs 
 
 | Bereich | Stand |
 | --- | --- |
-| Fenstergröße, Oberfläche, Anleitung und Freundeliste | v67: Maximieren/F11, scrollbare Seiten, verständlicher Ladestatus, freier Updateknopf sowie lokal geschützte Freunde mit Ein-Klick-Beitritt implementiert und geprüft. [Details](v67-launcher-freunde.md). |
+| Fenstergröße, Oberfläche, Anleitung und Freundeliste | v68: Maximieren/F11, scrollbare Seiten, verständlicher Ladestatus, freier Updateknopf sowie lokal geschützte Freunde mit Ein-Klick-Beitritt implementiert und geprüft. [Details](v68-launcher-freunde.md). |
 | Internet/VPN, Einladung, gemeinsamer Spielstand und Start | Implementiert; automatische Prüfungen und frühere Zwei-PC-Läufe vorhanden. |
 | Straßen, Gleise, Stationen, Linien, Fahrzeuge und Unternehmensaktionen | Implementiert; einzelne Baufehler und daraus folgende Weltabweichungen bleiben offen. |
 | Gemeinsame Geschwindigkeit und Geldkorrekturen | v64-Lauf ausgewertet: 4×-Auswahl verliert bei Begrenzung auf 3× ihre Markierung. In v65 korrigiert; tatsächliche Geschwindigkeiten und Geld bleiben im Gegentest zu prüfen. |
@@ -31,7 +31,7 @@ Implementiert bedeutet hier nicht automatisch unter allen Bedingungen im echten 
 - [ ] Auf beiden Seiten bauen, eine Linie erstellen, Fahrzeuge kaufen und zuweisen; Geld und Aktionsbestätigungen vergleichen.
 - [ ] Einen ausdrücklichen Neuabgleich durchführen und prüfen, dass frühere ausstehende Vorgänge danach nicht erneut ausgeführt werden.
 - [ ] Dauerhafte IPv6 von außen prüfen, beide Launcher neu starten und denselben v65-Einladungslink erneut verwenden.
-- [ ] Mit v67 die Einladung einmal unter einem Namen speichern und nach Launcher-Neustart über die Freundeliste auf dem zweiten PC beitreten.
+- [ ] Mit v68 die Einladung einmal unter einem Namen speichern und nach Launcher-Neustart über die Freundeliste auf dem zweiten PC beitreten.
 
 **Erledigt, wenn:** Ein dokumentierter Lauf mit beiden Rollen und den zugehörigen Protokollen vorliegt. Tempoänderungen dürfen nach ihrer Übernahme nicht wieder vom alten Tempo überschrieben werden. Die tatsächliche Beschleunigung wird unter Berücksichtigung der gemeldeten Leistungsgrenze bewertet. Neue Fehler werden mit Zeitpunkt, Aktion und Ergebnis auf beiden PCs festgehalten.
 

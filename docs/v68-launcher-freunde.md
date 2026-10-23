@@ -1,6 +1,6 @@
-# v67: Launcher, Anleitung und Freunde
+# v68: Launcher, Anleitung und Freunde
 
-Stand: 23. Oktober 2026. Probe v67 / Bridge v16.
+Stand: 23. Oktober 2026. Probe v68 / Bridge v16.
 
 ## Bedienung
 
@@ -31,7 +31,7 @@ Die Schaltflächen werden vollständig in einem Durchgang gezeichnet. Dadurch li
 
 - `tests/run_friends.ps1`: 26 Prüfungen zu Speichern, Laden, Aktualisieren, Umbenennen, Entfernen, ungültigen Eingaben, geschützter Ablage, beschädigten Dateien und Verbindungszuständen.
 - `tests/run_friends_ui.ps1`: 20 Prüfungen mit echten Windows-Forms-Steuerelementen und Ereignissen: Namen anklicken, über **…** bearbeiten, Schnellauswahl, Internet/VPN-Wechsel, Schutz laufender Vorgänge, Navigation und Rückkehr ohne Sitzungsabbruch sowie F11. Netzwerk und Spielstart sind isoliert bzw. ersetzt.
-- `tests/run_launcher_view.ps1`: 7.704 Sichtbarkeits-, Treffer- und Layoutprüfungen bei 100/150/200 %, vier Fenstergrößen einschließlich Maximieren sowie scrollbaren schmalen Ansichten.
+- `tests/run_launcher_view.ps1`: 15.408 Sichtbarkeits-, Treffer- und Layoutprüfungen bei 100/150/200 %, zwei anfänglichen Bildschirmgrößen und vier Fenstergrößen einschließlich Maximieren sowie scrollbaren schmalen Ansichten.
 - Bestehende Launcher-, Internet- und Updatetests bleiben Bestandteil der Releaseprüfung. Der Updatetest übt Paketwechsel, Sicherung und Rücknahme mit einem eigenen Helferprozess.
 - Gerenderte Gastgeber-, Freunde- und Anleitungsansichten wurden visuell kontrolliert. Die native Computer-Use-Schnittstelle konnte das isolierte Testfenster nicht erreichen; F11 und Maximieren wurden deshalb über die echten Form-Ereignisse geprüft.
 

@@ -1,16 +1,16 @@
 # Dokumentation
 
-Für Installation, gemeinsamen Start, Paketbau und Tests gilt die [Projekt-README](../README.md). Aktuell ist **Probe v67 / DLL v16**. Ältere Dokumente halten den damaligen Stand fest; Bedienung und offene Punkte können inzwischen überholt sein.
+Für Installation, gemeinsamen Start, Paketbau und Tests gilt die [Projekt-README](../README.md). Aktuell ist **Probe v68 / DLL v16**. Ältere Dokumente halten den damaligen Stand fest; Bedienung und offene Punkte können inzwischen überholt sein.
 
 ## Aktuelle Planung
 
-Die [Roadmap ab v67](roadmap.md), Stand 23. Oktober 2026, nennt die nächsten Schritte, offene Gegentests und überprüfbare Abschlusskriterien. Der [alte Forschungsplan](plan.md) dokumentiert weiterhin den historischen Stand.
+Die [Roadmap ab v68](roadmap.md), Stand 23. Oktober 2026, nennt die nächsten Schritte, offene Gegentests und überprüfbare Abschlusskriterien. Der [alte Forschungsplan](plan.md) dokumentiert weiterhin den historischen Stand.
 
 ## Betrieb und Diagnose
 
 | Thema | Einstieg |
 | --- | --- |
-| Fenstergröße, neue Oberfläche, Anleitung und Freundeliste | [v67](v67-launcher-freunde.md) |
+| Fenstergröße, neue Oberfläche, Anleitung und Freundeliste | [v68](v68-launcher-freunde.md) |
 | Launcher aktualisieren, ZIP-Import und GitHub-Releases | [v66](v66-launcher-updates.md) |
 | 4×-Auswahl, dauerhafte IPv6, beständige Einladungen und Straßenersatz | [v65](v65-tempo-ipv6-einladung.md) |
 | Automatischer Internetstart und temporäre IPv6 | [v64](v64-internetstart.md) |
@@ -31,7 +31,7 @@ Der [Versionsverlauf bis v61](versionsverlauf.md) bewahrt die früheren Änderun
 
 | Version | Untersuchung |
 | --- | --- |
-| v67 | [Launcher und Freunde](v67-launcher-freunde.md) |
+| v68 | [Launcher und Freunde](v68-launcher-freunde.md) |
 | v66 | [Updates im Launcher](v66-launcher-updates.md) |
 | v65 | [Tempo, IPv6 und beständige Einladungen](v65-tempo-ipv6-einladung.md) |
 | v64 | [Automatischer Internetstart](v64-internetstart.md) |
