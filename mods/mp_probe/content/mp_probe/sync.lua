@@ -17,6 +17,12 @@ local sync = {}
 --- Game speed. The speed is a register both games can change; the change with the higher version
 -- wins, and on a tie the host's value.
 sync.MAX_SPEED = 4
+-- Buttons are pause/1x/2x/4x. 3x is an engine capacity readback, never a
+-- distinct user choice in an ordered multiplayer session (including resume).
+function sync.requested_speed(value, ordered)
+	if ordered and value == 3 then return 4 end
+	return value
+end
 --- TF3 may throttle a requested 4x to 3x on a busy world. Its own GUI clamps
 -- requests to this estimate; that is capacity feedback, not a failed command.
 function sync.maximum_speed(env)
@@ -249,6 +255,11 @@ function sync.speed_step(mem, input)
 	local out = { logs = {} }
 	local function log(text) out.logs[#out.logs + 1] = text end
 	local own, role, peer, now = input.own, input.role, input.peer, input.now
+	if input.ordered and peer and peer.speed == 3 then
+		local normalized = {}
+		for key, value in pairs(peer) do normalized[key] = value end
+		normalized.speed = 4; peer = normalized
+	end
 	local local_limit = speed_limit(input.max_speed)
 	if mem.speed == nil then
 		local o = input.restore
@@ -256,6 +267,7 @@ function sync.speed_step(mem, input)
 			mem.speed, mem.ver, mem.by = tonumber(o.speed), tonumber(o.ver), tostring(o.by)
 			mem.target, mem.hb, mem.restores = tonumber(o.tg) or own, tonumber(o.hb) or 0, (tonumber(o.rs) or 0) + 1
 			mem.run, mem.requested, mem.limit = tonumber(o.run), tonumber(o.rq), tonumber(o.lm)
+			mem.intent_seq = tonumber(o.ui) or 0
 			if tonumber(o.sp) ~= nil and tonumber(o.sf) ~= nil and tonumber(o.sa) ~= nil then
 				mem.pending, mem.pending_from, mem.pending_at, mem.tries = tonumber(o.sp), tonumber(o.sf), tonumber(o.sa), tonumber(o.sn) or 0
 			end
@@ -266,8 +278,10 @@ function sync.speed_step(mem, input)
 			end
 		else
 			mem.speed, mem.ver, mem.by, mem.target, mem.hb = own, 0, role, own, 0
+			mem.intent_seq = input.intent and tonumber(input.intent.seq) or 0
 		end
 	end
+	mem.speed = sync.requested_speed(mem.speed, input.ordered)
 	if peer and peer.hb ~= nil and peer.hb ~= mem.peer_hb then
 		mem.peer_hb, mem.peer_seen = peer.hb, now
 		mem.peer_t, mem.peer_run = tonumber(peer.gt), tonumber(peer.run) or 0
@@ -330,11 +344,20 @@ function sync.speed_step(mem, input)
 		end
 	end
 	-- The player changed the speed in this game.
-	if mem.pending == nil and own ~= mem.target and not capacity_echo and not late_echo then
+	local intent = input.ordered and input.intent
+	local explicit = intent and type(intent.seq) == "number" and intent.seq >= 1 and intent.seq < 2 ^ 53 and
+		intent.seq == math.floor(intent.seq) and intent.seq > (mem.intent_seq or 0) and
+		(intent.speed == 0 or intent.speed == 1 or intent.speed == 2 or intent.speed == 4)
+	-- Once the native UI supplies explicit requests, an unannounced readback
+	-- may be a delayed native callback, not another click. Older/no-hook peers
+	-- retain component-based detection until the first local explicit request.
+	local infer_click = not input.ordered or (mem.intent_seq or 0) == 0
+	if explicit or (infer_click and mem.pending == nil and own ~= mem.target and not capacity_echo and not late_echo) then
 		mem.ver = math.max(mem.ver, peer and tonumber(peer.ver) or 0) + 1
-		mem.speed, mem.by, mem.catchup = own, role, nil
+		mem.speed, mem.by, mem.catchup = explicit and intent.speed or sync.requested_speed(own, input.ordered), role, nil
+		if explicit then mem.intent_seq, mem.pending = intent.seq, nil end
 		mem.broken, out.command = nil, nil
-		log(string.format("speed changed here: %s (version %d)", sync.speed_name(own), mem.ver))
+		log(string.format("speed changed here: %s (version %d)", sync.speed_name(mem.speed), mem.ver))
 	end
 	if peer and newer(peer, mem, role) then
 		mem.speed, mem.ver, mem.by, mem.catchup = tonumber(peer.speed), tonumber(peer.ver), tostring(peer.by), nil
@@ -363,7 +386,7 @@ function sync.speed_step(mem, input)
 	end
 	mem.run, mem.limit, mem.requested = own, limit, requested
 	local state = { speed = mem.speed, ver = mem.ver, by = mem.by, run = own, tg = mem.target, max = local_limit, src = input.src,
-		rq = requested, lm = limit }
+		rq = requested, lm = limit, ui = mem.intent_seq or 0 }
 	if mem.pending ~= nil then
 		state.sp, state.sf, state.sa, state.sn = mem.pending, mem.pending_from, mem.pending_at, mem.tries
 	end

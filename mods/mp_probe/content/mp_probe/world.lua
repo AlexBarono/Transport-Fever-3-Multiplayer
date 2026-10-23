@@ -96,28 +96,53 @@ function world.node_position(env, id)
 		local v = node.position
 		return { x = v.x, y = v.y, z = v.z }
 	end)
-	return ok and p or nil
+	if not ok then return nil end
+	for _, key in ipairs({ "x", "y", "z" }) do
+		local value = p[key]
+		if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then return nil end
+	end
+	return p
 end
 
 --- See build.read_transf.
 world.read_transf = build.read_transf
 
 --- Index of all nodes for repeated searches within one replay. Built on first use.
+local function index_node(env, index, id)
+	if index.ids[id] then return false end
+	local p = world.node_position(env, id)
+	if p then
+		local key = math.floor(p.x / index.size) .. ":" .. math.floor(p.y / index.size)
+		local cell = index.cells[key]
+		if not cell then cell = {}; index.cells[key] = cell end
+		cell[#cell + 1] = { id = id, p = p }
+		index.ids[id] = true
+		return true
+	end
+	return false
+end
+
 function world.node_index(env)
-	local index = { cells = {}, size = 16 }
-	each_node(env, function(id)
-		local p = world.node_position(env, id)
-		if p then
-			local key = math.floor(p.x / index.size) .. ":" .. math.floor(p.y / index.size)
-			local cell = index.cells[key]
-			if not cell then
-				cell = {}
-				index.cells[key] = cell
-			end
-			cell[#cell + 1] = { id = id, p = p }
+	local index = { cells = {}, ids = {}, size = 16 }
+	each_node(env, function(id) index_node(env, index, id) end)
+	return index
+end
+
+-- The street incidence map may lag a completed native command. Only on a
+-- miss, supplement it once with directly readable BASE_NODE entities. Keep
+-- the exact same spatial radius; never create or guess a missing junction.
+function world.complete_node_index(env, index)
+	if index.completed then return 0 end
+	index.completed = true
+	local added = 0
+	pcall(function()
+		local ids = build.list_items(env.api.engine.getEntitiesWithComponent(env.api.type.ComponentType.BASE_NODE))
+		if #ids > 500000 then return end
+		for _, id in ipairs(ids) do
+			if type(id) == "number" and id >= 0 and id % 1 == 0 and index_node(env, index, id) then added = added + 1 end
 		end
 	end)
-	return index
+	return added
 end
 
 --- The node closest to `pos` within `radius` metres (horizontally), or nil. With several close

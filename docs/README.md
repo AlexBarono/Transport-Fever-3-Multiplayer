@@ -1,15 +1,16 @@
 # Dokumentation
 
-Für Installation, gemeinsamen Start, Paketbau und Tests gilt die [Projekt-README](../README.md). Aktuell ist **Probe v68 / DLL v16**. Ältere Dokumente halten den damaligen Stand fest; Bedienung und offene Punkte können inzwischen überholt sein.
+Für Installation, gemeinsamen Start, Paketbau und Tests gilt die [Projekt-README](../README.md). Aktuell ist **Probe v69 / DLL v16**. Ältere Dokumente halten den damaligen Stand fest; Bedienung und offene Punkte können inzwischen überholt sein.
 
 ## Aktuelle Planung
 
-Die [Roadmap ab v68](roadmap.md), Stand 23. Oktober 2026, nennt die nächsten Schritte, offene Gegentests und überprüfbare Abschlusskriterien. Der [alte Forschungsplan](plan.md) dokumentiert weiterhin den historischen Stand.
+Die [Roadmap ab v69](roadmap.md), Stand 23. Oktober 2026, nennt die nächsten Schritte, offene Gegentests und überprüfbare Abschlusskriterien. Der [alte Forschungsplan](plan.md) dokumentiert weiterhin den historischen Stand.
 
 ## Betrieb und Diagnose
 
 | Thema | Einstieg |
 | --- | --- |
+| Aufgezeichnete Straßenfehler, Tempoauswahl und längere Testfolgen | [v69](v69-tempo-stabilitaet.md) |
 | Fenstergröße, neue Oberfläche, Anleitung und Freundeliste | [v68](v68-launcher-freunde.md) |
 | Launcher aktualisieren, ZIP-Import und GitHub-Releases | [v66](v66-launcher-updates.md) |
 | 4×-Auswahl, dauerhafte IPv6, beständige Einladungen und Straßenersatz | [v65](v65-tempo-ipv6-einladung.md) |
@@ -31,6 +32,7 @@ Der [Versionsverlauf bis v61](versionsverlauf.md) bewahrt die früheren Änderun
 
 | Version | Untersuchung |
 | --- | --- |
+| v69 | [Tempo und Stabilität](v69-tempo-stabilitaet.md) |
 | v68 | [Launcher und Freunde](v68-launcher-freunde.md) |
 | v66 | [Updates im Launcher](v66-launcher-updates.md) |
 | v65 | [Tempo, IPv6 und beständige Einladungen](v65-tempo-ipv6-einladung.md) |

@@ -17,7 +17,7 @@ local function graph()
 	local comps, segments = {}, {}
 	local g = {}
 	function g.node(id, x, z)
-		comps[id] = { BASE_NODE = { position = point(x, z) } }; segments[id] = {}
+		comps[id] = { BASE_NODE = { position = type(x)=="table" and x or point(x, z) } }; segments[id] = {}
 	end
 	function g.edge(id, a, b, road)
 		comps[id] = { BASE_EDGE = { node0 = a, node1 = b, roadType = road or 1 } }
@@ -315,5 +315,61 @@ test("removed node snapshots precede live positions and unavailable nodes keep n
 	assert(data.removed_segments[1].p0.x==0 and data.removed_segments[1].p1.x==100)
 end)
 
+local function recording(name)
+	local file=assert(io.open("tests/fixtures/"..name,"r"));local line=file:read("*l");file:close()
+	return assert(build.deserialize(line))
+end
+local function real_finder(g)
+	assert(loadfile(MOD_ROOT.."/mp_probe/main.script.lua"))()
+	return data().finder(g.env)
+end
+test("recorded v68 road extension resolves a real node omitted by a stale incidence map", function()
+	local data=recording("road-extension-v68.b5")
+	local g=graph();g.node(1,data.foreign.f1);g.node(2,{x=-465.096,y=1729.708,z=0.903});g.edge(20,2,1)
+	g.env.api.engine.system.streetSystem.getNode2SegmentMap=function()return {[2]={20}}end
+	local calls=0
+	g.env.api.engine.getEntitiesWithComponent=function(kind)assert(kind=="BASE_NODE");calls=calls+1;return {1,2}end
+	local finder=real_finder(g)
+	assert(build.resolve(data,finder));assert(data.segments[1].node0==1)
+	assert(not finder.find_node({x=9999,y=9999,z=0}) and not finder.find_node({x=9998,y=9998,z=0}))
+	assert(calls==1,"supplementing the node map must be bounded to once per replay")
+end)
+test("recorded v68 failures stay explicit when the required street actually is absent", function()
+	for _,name in ipairs({"road-extension-v68.b5","road-dependent-v68.b5"})do
+		local data=recording(name);local g=graph();g.node(1,9999)
+		g.env.api.engine.getEntitiesWithComponent=function()return {1}end
+		local ok,why=build.resolve(data,real_finder(g))
+		assert(not ok and why:find("does not exist here",1,true),tostring(why))
+	end
+end)
+test("recorded dependent extension resolves after its predecessor and shared baseline exist", function()
+	local first=recording("road-extension-v68.b5");local second=recording("road-dependent-v68.b5")
+	local g=graph();g.node(1,first.foreign.f1);g.node(2,{x=-465.096,y=1729.708,z=0.903});g.edge(20,2,1)
+	assert(build.resolve(first,g.finder()))
+	local ids={};for _,n in ipairs(first.nodes)do ids[n.id]=100-n.id;g.node(ids[n.id],n.position)end
+	for i,edge in ipairs(first.segments)do g.edge(200+i,ids[edge.node0]or edge.node0,ids[edge.node1]or edge.node1)end
+	g.node(300,second.foreign.f2);g.node(301,second.foreign.f3);g.node(302,second.removed_nodes[1])
+	g.edge(500,302,300);g.edge(501,301,302)
+	assert(build.resolve(second,g.finder()))
+	assert(second.segments[1].node0==ids[-3] and #second.removed_segments==2)
+end)
+test("confirmed connected removal endpoints can rescue missing independent node lookup", function()
+	local data=replacement()
+	local finder={find_node=function()return nil end,find_edge=function()return nil end,
+		find_edge_at=function()return 20,3,4 end}
+	assert(build.resolve(data,finder))
+	assert(data.segments[1].node0==3 and data.segments[1].node1==4)
+end)
+test("bad native node positions cannot poison all graph lookups", function()
+	local g=graph();g.node(1,10);g.node(2,{x=0/0,y=0,z=0});g.node(3,{x=1,y=nil,z=0});g.node(4,{x=1,y=2,z=math.huge})
+	local index=g.index()
+	assert(world.find_node(index,point(10))==1 and not world.node_position(g.env,2) and not world.node_position(g.env,3))
+	g.env.api.engine.getEntitiesWithComponent=function()return {1,2,3,4}end
+	assert(world.complete_node_index(g.env,index)==0)
+end)
+test("missing optional native node enumeration leaves the original safe lookup available", function()
+	local g=graph();g.node(1,10);local finder=real_finder(g)
+	assert(not finder.find_node(point(1000)) and finder.find_node(point(10))==1)
+end)
 print(string.format("Build regressions: %d passed, %d failed", passed, failures))
 if failures > 0 then os.exit(1) end

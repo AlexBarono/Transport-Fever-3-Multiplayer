@@ -184,5 +184,30 @@ test("pre-dispatch failure is distinguished from a possibly partial build", func
 	assert(logs[3]:match("^action issue local I1 peer%.1 none %x+ %x+$"))
 end)
 
+test("10000 sequential actions keep duplicate and late callbacks isolated after expected failures", function()
+	local s=state();local callbacks={};local results,issues,sent=0,0,0
+	local base={api={cmd={sendCommand=function(_,cb)sent=sent+1;callbacks[#callbacks+1]=cb end}}}
+	local function log(text)
+		if text:match("^net result ")then results=results+1 end
+		if text:match("^action issue ")then issues=issues+1 end
+	end
+	local old
+	for i=1,10000 do
+		assert(t.begin(s,"soak."..i));t.describe(s,"Straße "..i)
+		local env=t.env(base,s)
+		callbacks={};env.api.cmd.sendCommand({});env.api.cmd.sendCommand({});t.dispatched(s)
+		if old then old({},false)end
+		assert(s:get().network_work.pending==2 and not s:get().network_work.error,"stale result affected a newer action")
+		callbacks[1]({},true);callbacks[1]({},false)
+		assert(s:get().network_work.pending==1 and not s:get().network_work.error,"duplicate consumed another callback")
+		local failed=i%97==0
+		callbacks[2]({},not failed);t.check(s,log,true);t.check(s,log,true)
+		assert(not s:get().network_work and s:get().network_done.token=="soak."..i)
+		assert((s:get().network_done.skipped==true)==failed)
+		old=callbacks[2]
+	end
+	assert(results==10000 and sent==20000 and issues==math.floor(10000/97))
+	assert(s:get().skipped==issues,"failures were lost or counted more than once")
+end)
 print(string.format("%d transport tests passed, %d failed",passed,failed))
 if failed>0 then os.exit(1) end

@@ -1,6 +1,6 @@
 # Roadmap: Transport Fever 3 Multiplayer
 
-Stand: **23. Oktober 2026**, aktueller Stand **Probe v68 / Bridge v16**.
+Stand: **23. Oktober 2026**, aktueller Stand **Probe v69 / Bridge v16**.
 
 Ziel ist zunächst ein verlässliches gemeinsames Spiel für **zwei Windows-PCs mit einer Firma**. Die Reihenfolge unten richtet sich nach den beobachteten Problemen. Versionsnummern und Termine für kommende Schritte werden erst bei der Umsetzung festgelegt.
 
@@ -8,6 +8,7 @@ Ziel ist zunächst ein verlässliches gemeinsames Spiel für **zwei Windows-PCs 
 
 | Bereich | Stand |
 | --- | --- |
+| Tempoauswahl und sichere Knotensuche | v69: native Auswahl ausdrücklich erfasst, 3× als interner Leistungswert behandelt, Knotensuche ergänzt und aufgezeichnete Straßenfehler als Regressionen hinterlegt. 16.000 GUI-Schritte und 10.000 Aktionsabschlüsse in der Releaseprüfung. [Befunde und Grenzen](v69-tempo-stabilitaet.md). |
 | Fenstergröße, Oberfläche, Anleitung und Freundeliste | v68: Maximieren/F11, scrollbare Seiten, verständlicher Ladestatus, freier Updateknopf sowie lokal geschützte Freunde mit Ein-Klick-Beitritt implementiert und geprüft. [Details](v68-launcher-freunde.md). |
 | Internet/VPN, Einladung, gemeinsamer Spielstand und Start | Implementiert; automatische Prüfungen und frühere Zwei-PC-Läufe vorhanden. |
 | Straßen, Gleise, Stationen, Linien, Fahrzeuge und Unternehmensaktionen | Implementiert; einzelne Baufehler und daraus folgende Weltabweichungen bleiben offen. |
@@ -27,6 +28,8 @@ Implementiert bedeutet hier nicht automatisch unter allen Bedingungen im echten 
 - [x] Den v64-Lauf vom 22. Oktober mit beiden Protokollen auswerten; leere 4×-Auswahl und falschen Straßenendpunkt bei Lippstadt nachstellen und als Regressionen absichern. [Befunde und Korrekturen](v65-tempo-ipv6-einladung.md).
 - [ ] Mit demselben frischen Gastgeberstand beginnen und automatische Internetverbindung sowie vorausgewählte temporäre IPv6 prüfen.
 - [ ] Auf beiden PCs abwechselnd Pause, 1×, 2× und 4× wählen. Tatsächlichen Zeitfortschritt und Fahrzeugbewegung mit den Protokollen vergleichen.
+- [x] v68-Lauf vom 23. Oktober auswerten; zwei fehlende Straßenanschlüsse und die als 3× erkannte Wiederaufnahme nachstellen. Explizite Tempoauswahl, begrenzte Ergänzung des Knotenindexes und längere simulierte Testfolgen ergänzen (v69).
+- [ ] v69 auf beiden PCs prüfen, insbesondere Klick auf 2× bei bereits auf 2× begrenzter 4×-Vorgabe, schnelle Auswahlwechsel und die beiden Straßenverlängerungen nach einem frischen gemeinsamen Stand.
 - [ ] Menü- und Aktionspausen einschließlich überlappender Vorgänge prüfen: Beide Spiele halten an und übernehmen anschließend wieder die gemeinsame Vorgabe.
 - [ ] Auf beiden Seiten bauen, eine Linie erstellen, Fahrzeuge kaufen und zuweisen; Geld und Aktionsbestätigungen vergleichen.
 - [ ] Einen ausdrücklichen Neuabgleich durchführen und prüfen, dass frühere ausstehende Vorgänge danach nicht erneut ausgeführt werden.
@@ -50,6 +53,7 @@ Implementiert bedeutet hier nicht automatisch unter allen Bedingungen im echten 
 - [x] Lippstadt-Aufnahme korrigieren: behaltene Anschlussknoten vor versetzten Segmentendpunkten verwenden; entfernte Knoten und native Ersatzpositionen weiter unterstützen. Regressionstests bestehen in v65.
 - [ ] Lippstadt-Haltestelle und anschließende Linienänderung mit v65 in beiden Baurichtungen im echten Spiel bestätigen.
 - [ ] Den Fall „Bus Lychen“ mit Haltestelle nahe einer Kreuzung erneut prüfen.
+- [ ] Bei tatsächlich fehlenden Straßenknoten die Entwicklung der Stadtstraßen auf beiden PCs erfassen. Eine sichere Reparatur muss übereinstimmende Nachbarsegmente und native Aufteilungen belegen; die Suchentfernung nur zu vergrößern reicht nicht.
 - [ ] Die Parzellenbehandlung an der tatsächlichen nativen API ausrichten. Der in v63 entfernte Zugriff auf eine fehlende Befehlsvorschau löst noch nicht jeden echten Parzellenkonflikt.
 - [ ] Freie und besetzte Parzellen, beide Straßenseiten und Straßenumbauten unterscheiden; keine unkontrollierten Abrisse als Ersatzlösung verwenden.
 - [ ] Abhängige Linien- und Fahrzeugaktionen bei fehlgeschlagenen Voraussetzungen gezielt zurückstellen oder verständlich ablehnen, statt eine Folge unklarer Zuordnungsfehler zu erzeugen.

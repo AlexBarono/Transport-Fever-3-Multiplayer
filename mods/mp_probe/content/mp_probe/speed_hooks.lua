@@ -52,6 +52,29 @@ function hooks.watch(env, memory, options)
 			engine.getComponent = read
 			assert(engine.getComponent == read, "speed display hook not retained")
 		end
+		-- Capture the native GUI's explicit request, even when its numeric
+		-- readback already equals a throttled target (4x capped to 2x -> click 2x).
+		-- The separate game-script GUI sends controller commands in another Lua
+		-- state, so those commands cannot be mistaken for clicks here.
+		if options.publish and env.api.cmd and env.api.cmd.makeGameSetSpeedCmd then
+			local cmd = env.api.cmd
+			local make = cmd.makeGameSetSpeedCmd
+			local request = function(value, ...)
+				local command = make(value, ...)
+				if options.enabled() and (not options.held or not options.held()) then
+					local speed = value == 3 and 4 or value
+					if speed == 0 or speed == 1 or speed == 2 or speed == 4 then
+						local seq = options.intent and tonumber((options.intent() or ""):match("seq=(%d+)")) or 0
+						memory.intent_seq = math.max(memory.intent_seq or 0, seq or 0) + 1
+						pcall(options.publish, "seq=" .. memory.intent_seq .. " speed=" .. speed)
+					end
+				end
+				return command
+			end
+			undo[#undo + 1] = function() cmd.makeGameSetSpeedCmd = make end
+			cmd.makeGameSetSpeedCmd = request
+			assert(cmd.makeGameSetSpeedCmd == request, "speed request hook not retained")
+		end
 		memory.installed = true
 	end)
 	if not ok then for i = #undo, 1, -1 do pcall(undo[i]) end end

@@ -66,7 +66,7 @@ end
 function gui.release_hold(env, g, clock_ui, speed, now, getenv)
 	local limit = sync.effective_speed_limit(sync.maximum_speed(env),
 		sync.decode(getenv("TF3MP_PEER_GUI")), getenv("TF3MP_ORDERING") == "1")
-	local run = math.min(tonumber(clock_ui.run) or 0, limit)
+	local run = math.min(sync.requested_speed(tonumber(clock_ui.run) or 0, getenv("TF3MP_ORDERING") == "1"), limit)
 	local releasing = tonumber(clock_ui.release) == 1
 	-- Seeing the old positive speed is not proof of a resume: a quick menu
 	-- close may leave its earlier pause command queued. Wait for our resume
@@ -200,7 +200,7 @@ function gui.step(env, g, now)
 			if ordered and not (clock_ui and clock_ui.hold == 1) then
 				-- Preserve the user's shared request, not an old local catch-up
 				-- target or temporary capacity limit. Release applies the common cap.
-				local requested = tonumber(g.speed.speed) or (restore and tonumber(restore.speed))
+				local requested = sync.requested_speed(tonumber(g.speed.speed) or (restore and tonumber(restore.speed)), true)
 				if requested and requested >= 0 and requested <= sync.MAX_SPEED and requested == math.floor(requested) then
 					run = requested
 				end
@@ -217,6 +217,7 @@ function gui.step(env, g, now)
 	local out = sync.speed_step(g.speed, {
 		own = speed, calendar = calendar, own_t = gt, role = role, peer = sync.decode(getenv("TF3MP_PEER_GUI")), now = now,
 		max_speed = sync.maximum_speed(env), ordered = ordered,
+		intent = sync.decode(getenv("TF3MP_OWN_SPEEDUI")),
 		-- Ordered sessions share the requested speed and both capacity limits.
 		-- Time differences remain diagnostic; action/menu holds still pause both.
 		hold = not ordered, src = "gui", restore = restore,

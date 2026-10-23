@@ -13,7 +13,13 @@ function hooks.watch(env, memory, options)
 			options.publish("open=" .. (open and "1" or "0"))
 		end
 		local hook = function(open, ...)
-			local result = original(open, ...)
+			-- Native menu transitions can synchronously issue a speed command
+			-- before the bridge has echoed open=1 into the environment.
+			local changing = memory.changing
+			memory.changing = true
+			local ok, result = pcall(original, open, ...)
+			memory.changing = changing
+			if not ok then error(result, 0) end
 			memory.open = open == true
 			publish(memory.open)
 			return result

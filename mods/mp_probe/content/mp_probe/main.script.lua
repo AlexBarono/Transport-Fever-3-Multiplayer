@@ -23,7 +23,7 @@ local economy = require("/mp_probe/economy.lua")
 local main = {}
 
 --- Bump to re-run the one-time probe in a savegame that already ran it.
-main.PROBE_VERSION = 68
+main.PROBE_VERSION = 69
 main.SNAPSHOT_EVERY = 300
 --- Depth and line budget for the structure dump of the first event of each kind.
 main.EVENT_PARAM_DEPTH = 7
@@ -400,7 +400,14 @@ function main.finder(env)
 		return index
 	end
 	return {
-		find_node = function(position) return world.find_node(nodes(), position) end,
+		find_node = function(position)
+			local index = nodes()
+			local id = world.find_node(index, position)
+			if not id and world.complete_node_index(env, index) > 0 then
+				id = world.find_node(index, position)
+			end
+			return id
+		end,
 		find_edge = function(a, b) return world.find_edge(env, a, b) end,
 		find_edge_at = function(a, b, kind) return world.find_edge_at(env, nodes(), a, b, kind) end,
 		node_construction = function(node) return world.node_construction(env, node) end,

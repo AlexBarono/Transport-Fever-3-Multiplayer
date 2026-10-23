@@ -25,14 +25,21 @@ local function gui(role, connected, logging)
 	end
 	cmd.makeScriptingSendEventCmd=function(src,id,name,p) return {kind="event",name=name,param=p} end
 	cmd.makeEntitySetNameCmd=function(id,name) return {kind="name",entity=id,name=name} end
+	cmd.makeGameSetSpeedCmd=function(speed)return {kind="speed",speed=speed}end
 	local react={ RegisterPluginRecipe=function(ep,name,fn)
 		assert(ep=="game-main"); g.registrations=g.registrations+1; return fn
 	end, onStep=function(fn) g.steps[#g.steps+1]=fn end }
-	local game={setInGameMenuPause=function(value) g.menu=value end,
+	local game={setInGameMenuPause=function(value)
+		if g.native_menu_speed then cmd.sendCommand(cmd.makeGameSetSpeedCmd(value and 0 or 1))end
+		g.menu=value
+	end,
 		getEstimatedMaximumGameSpeed=function() return g.capacity or 3 end}
 	local env=setmetatable({api={cmd=cmd,gui={game=game},engine={util={getPlayer=function()return 7 end}}},os={clock=function()return g.now end,getenv=function(k)
 		if k=="TF3MP_ROLE" then return g.role end
 		if k=="TF3MP_OWN_GUI" then return g.own_gui or "speed=3 src=gui" end
+		if k=="TF3MP_OWN_SPEEDUI" then return g.speedui end
+		if k=="TF3MP_OWN_MENU" then return g.menu and "open=1" or "open=0" end
+		if k=="TF3MP_OWN_CLOCKUI" then return g.clock_ui end
 		if k=="TF3MP_ORDERING" then return g.connected and "1" or "0" end
 		if k=="TF3MP_PEER_CLOCK" then return g.peer_clock or (g.connected and "gt=1000" or "") end
 		if k=="TF3MP_OWN_CLOCK" then return "phase="..(g.failed and "failed" or "idle") end
@@ -40,6 +47,7 @@ local function gui(role, connected, logging)
 	debugPrint=function(s)
 		if logging=="broken" then error("diagnostic output unavailable") end
 		g.logs[#g.logs+1]=s
+		local text=s:match("^%[mp_probe%]net state speedui (.+)$");if text then g.speedui=text end
 	end,
 	print=function(s)
 		if logging=="broken" then error("fallback output unavailable") end
@@ -306,5 +314,27 @@ test("capacity has one controller only while the ordered GUI is active", functio
 	end
 end)
 
+test("actual GUI entry publishes valid native speed choices on the bridge-sized state key",function()
+	for _,role in ipairs({"host","client"})do
+		local g=gui(role,true)
+		for _,speed in ipairs({0,1,2,4})do g.cmd.sendCommand(g.cmd.makeGameSetSpeedCmd(speed))end
+		assert(g.speedui=="seq=4 speed=4" and #g.sent==4)
+		local count=0
+		for _,line in ipairs(g.logs)do
+			local key=line:match("^%[mp_probe%]net state (speedui) ")
+			if key then count=count+1;assert(#key<=8,"native bridge state parser accepts at most eight letters")end
+		end
+		assert(count==4)
+		g.menu=true;g.cmd.sendCommand(g.cmd.makeGameSetSpeedCmd(0));assert(g.speedui=="seq=4 speed=4")
+		g.menu=false;g.clock_ui="hold=1 run=4";g.cmd.sendCommand(g.cmd.makeGameSetSpeedCmd(0))
+		assert(g.speedui=="seq=4 speed=4","automatic action pause published as a click")
+	end
+end)
+test("synchronous native menu speed commands are ignored before the bridge menu echo arrives",function()
+	local g=gui("host",true);g.native_menu_speed=true
+	g.game.setInGameMenuPause(true);assert(not g.speedui and #g.sent==1)
+	g.game.setInGameMenuPause(false);assert(not g.speedui and #g.sent==2)
+	g.cmd.sendCommand(g.cmd.makeGameSetSpeedCmd(2));assert(g.speedui=="seq=1 speed=2")
+end)
 print(string.format("%d main-GUI vehicle tests passed, %d failed",passed,failed))
 if failed>0 then os.exit(1) end

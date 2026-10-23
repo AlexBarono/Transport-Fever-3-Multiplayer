@@ -930,10 +930,6 @@ function build.resolve(data, finder)
 	local ids = {}
 	for ref, position in pairs(data.foreign) do
 		local id = finder.find_node(position)
-		if not id then
-			return false, string.format("joins a road or track that does not exist here (node near %.1f,%.1f)",
-				position.x, position.y), notes
-		end
 		ids[ref] = id
 	end
 	-- Demolished constructions first: the game removes their own connecting segments itself, and
@@ -1007,6 +1003,14 @@ function build.resolve(data, finder)
 		end
 	end
 	data.removed_segments = kept_removed
+	-- A unique confirmed removed edge can identify an endpoint that the
+	-- independent node lookup omitted. Reject only after that evidence exists.
+	for ref, position in pairs(data.foreign) do
+		if not ids[ref] then
+			return false, string.format("joins a road or track that does not exist here (node near %.1f,%.1f)",
+				position.x, position.y), notes
+		end
+	end
 	data.positions_of = {}
 	for ref, id in pairs(ids) do data.positions_of[id] = data.foreign[ref] end
 	for _, seg in ipairs(data.segments) do

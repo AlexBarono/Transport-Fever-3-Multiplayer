@@ -99,5 +99,23 @@ test("failed native component hook rolls back the capacity hook", function()
 	hooks.watch({api=api},memory,{enabled=function()return true end,shared=function()return "" end,log=function()end})
 	assert(not memory.installed and api.gui.game.getEstimatedMaximumGameSpeed==estimate and engine.getComponent==read)
 end)
+test("native explicit 2x click is published even when the engine already runs at capped 2x", function()
+	local sent, held, enabled = {}, false, true
+	local original = function(speed) return { speed = speed } end
+	local env = {api={gui={game={getEstimatedMaximumGameSpeed=function()return 2 end}},cmd={makeGameSetSpeedCmd=original}}}
+	hooks.watch(env,{}, {log=function()end,enabled=function()return enabled end,held=function()return held end,
+		intent=function()return "seq=41 speed=4" end,publish=function(text)sent[#sent+1]=text end})
+	assert(env.api.cmd.makeGameSetSpeedCmd(2).speed==2 and sent[1]=="seq=42 speed=2")
+	assert(env.api.cmd.makeGameSetSpeedCmd(0).speed==0 and sent[2]=="seq=43 speed=0")
+	env.api.cmd.makeGameSetSpeedCmd(3);assert(sent[3]=="seq=44 speed=4","legacy resume is not a 3x choice")
+	held=true;env.api.cmd.makeGameSetSpeedCmd(0);assert(#sent==3,"automatic menu/action pause is not a click")
+	held=false;enabled=false;env.api.cmd.makeGameSetSpeedCmd(1);assert(#sent==3)
+	assert(original(4).speed==4,"original command remains callable")
+end)
+test("failed intent publication cannot suppress the native command", function()
+	local env={api={gui={game={getEstimatedMaximumGameSpeed=function()return 3 end}},cmd={makeGameSetSpeedCmd=function(speed)return speed end}}}
+	hooks.watch(env,{}, {log=function()end,enabled=function()return true end,publish=function()error("unavailable stdout")end})
+	assert(env.api.cmd.makeGameSetSpeedCmd(4)==4)
+end)
 print(string.format("Speed hooks: %d passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

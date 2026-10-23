@@ -40,7 +40,7 @@ $workspace=New-Panel $form 232 0 ($form.ClientSize.Width-232) $form.ClientSize.H
 $workspace.Dock='Fill';$workspace.Padding=New-Object Windows.Forms.Padding(24)
 $side=New-Panel $form 0 0 232 $form.ClientSize.Height $Sidebar;$side.Dock='Left'
 $sideFooter=New-Panel $side 0 0 232 44 $Sidebar;$sideFooter.Dock='Bottom'
-New-Label $sideFooter 'Probe v68  /  Bridge v16' 24 12 184 22 9 $Muted|Out-Null
+New-Label $sideFooter 'Probe v69  /  Bridge v16' 24 12 184 22 9 $Muted|Out-Null
 $sideBody=New-Panel $side 0 0 232 650 $Sidebar;$sideBody.Dock='Fill';$sideBody.AutoScroll=$true
 $sideBody.AutoScrollMinSize=New-Object Drawing.Size(210,636)
 $sideBody.BringToFront()

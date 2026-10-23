@@ -1215,6 +1215,7 @@ end)
 test("delayed barrier release never publishes the automatic pause as a user speed change", function()
 	for _, role in ipairs({ "host", "client" }) do
 		local g = game(role); g.speed, g.gt, g.delay_speed = 0, 1200, true
+		g.max_speed = 3
 		g.vars.TF3MP_ORDERING = "1"
 		g.vars.TF3MP_OWN_HEALTH = "ck=258 fields=hcon,hedge status=diff"
 		g.vars.TF3MP_OWN_GUI = "speed=3 ver=8 by=host run=3 tg=3 src=gui hb=9"
@@ -1226,7 +1227,7 @@ test("delayed barrier release never publishes the automatic pause as a user spee
 		assert(not has(g.logs, "speed changed here: paused"))
 		g.apply_speed_commands(); g.gui(); g.gui()
 		local after = sync.decode(g.vars.TF3MP_OWN_GUI)
-		assert(g.speed == 3 and after.speed == 3 and after.ver == 8)
+		assert(g.speed == 3 and after.speed == 4 and after.ver == 8)
 	end
 end)
 
@@ -1239,9 +1240,9 @@ test("an ordered session with world and time differences never pauses just to ca
 	end
 	for _ = 1, 20 do host.gui(); client.gui() end
 	assert(host.speed == 1 and client.speed == 1, table.concat(host.logs, "\n"))
-	host.speed = 3
+	host.speed = 4
 	for _ = 1, 20 do host.gui(); client.gui() end
-	assert(host.speed == 3 and client.speed == 3 and sync.decode(host.vars.TF3MP_OWN_GUI).speed == 3)
+	assert(host.speed == 4 and client.speed == 4 and sync.decode(host.vars.TF3MP_OWN_GUI).speed == 4)
 end)
 
 test("both ordered GUI scripts share every speed despite a large simulation gap", function()
@@ -1249,7 +1250,7 @@ test("both ordered GUI scripts share every speed despite a large simulation gap"
 		local h, c = pair(); h.gt, c.gt = 120000, 0
 		h.vars.TF3MP_ORDERING, c.vars.TF3MP_ORDERING = "1", "1"
 		for _ = 1, 4 do h.gui(); c.gui() end
-		for _, speed in ipairs({ 2, 4, 1, 0, 3 }) do
+		for _, speed in ipairs({ 2, 4, 1, 0, 4 }) do
 			(setter == "host" and h or c).speed = speed
 			for _ = 1, 8 do h.gui(); c.gui() end
 			assert(h.speed == speed and c.speed == speed, setter .. " requested " .. speed)
@@ -1293,14 +1294,15 @@ end)
 test("a new ordered hold remembers the shared choice instead of an older catchup target", function()
 	for _, role in ipairs({ "host", "client" }) do
 		local g = game(role); g.speed = 4; g.vars.TF3MP_ORDERING = "1"
+		g.max_speed = 3
 		g.vars.TF3MP_OWN_GUI = "speed=3 ver=8 by=host run=4 tg=4 src=gui hb=9"
 		g.vars.TF3MP_OWN_CLOCK = "at=1 phase=committed hold=1"
 		g.gt = 1; g.gui()
-		assert(g.speed == 0 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).run == 3)
+		assert(g.speed == 0 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).run == 4)
 		g.vars.TF3MP_OWN_CLOCK = "at=0 phase=idle hold=0"
 		for _ = 1, 5 do g.gui() end
 		local state = sync.decode(g.vars.TF3MP_OWN_GUI)
-		assert(g.speed == 3 and state.speed == 3 and state.ver == 8, "the hold must not invent a user edit")
+		assert(g.speed == 3 and state.speed == 4 and state.ver == 8, "the hold must not invent a user edit")
 	end
 end)
 
@@ -1569,13 +1571,13 @@ end)
 
 test("simulation cannot pause ahead of the GUI hold marker and overwrite the user's speed", function()
 	local timeline = require("/mp_probe/timeline.lua")
-	local g=game("host"); g.gt,g.speed=1200,3; g.vars.TF3MP_ORDERING="1"; g.gui()
+	local g=game("host"); g.gt,g.speed,g.max_speed=1200,3,3; g.vars.TF3MP_ORDERING="1"; g.gui()
 	local m=timeline.new("host")
 	m.active={seq=1,at=1200,line="A1 vehicle",origin="host",phase="committed",barrier=true}
 	g.s.timeline=m; g.vars.TF3MP_PEER_CLOCK="gt=1200"
 	g.run(function()main.timeline_tick(g.env,g.state)end)
 	assert(g.speed==3 and not g.s.timeline.active.arrived, "GUI must record the hold before changing the engine speed")
-	g.gui(); assert(g.speed==0 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).run==3)
+	g.gui(); assert(g.speed==0 and sync.decode(g.vars.TF3MP_OWN_CLOCKUI).run==4)
 	g.run(function()main.timeline_tick(g.env,g.state)end)
 	assert(g.s.timeline.active.arrived)
 	assert(not has(g.logs,"speed changed here: paused"))
@@ -1647,5 +1649,66 @@ test("simulation progress measures time rather than trusting the speed display",
 	assert(not sync.progress_step(m,51,0,1,false),"reloaded game time restarts measurement")
 end)
 
+test("explicit selection survives unchanged throttled readback, delayed commands and GUI restoration", function()
+	for _, role in ipairs({"host","client"}) do
+		local mem, now, own, seq = {}, 0, 2, 10
+		local function step(intent)
+			now=now+0.3
+			local out=sync.speed_step(mem,{own=own,role=role,now=now,src="gui",ordered=true,max_speed=2,intent=intent})
+			return out
+		end
+		step();mem.speed=4;mem.target=2
+		local out=step({seq=seq,speed=2})
+		assert(mem.speed==2 and mem.ver==1 and out.command==nil,"a 2x click must not require a changed engine component")
+		out=step({seq=seq,speed=2});assert(mem.ver==1,"same intent replayed")
+		seq=seq+1;out=step({seq=seq,speed=0});assert(out.command==0 and mem.speed==0 and mem.ver==2)
+		own=0;out=step({seq=seq,speed=0})
+		local restore=sync.decode(out.publish or sync.encode({src="gui",speed=mem.speed,ver=mem.ver,by=role,tg=mem.target,run=0,ui=seq}))
+		mem={};now=now+0.3
+		sync.speed_step(mem,{own=0,role=role,now=now,src="gui",ordered=true,max_speed=3,restore=restore,intent={seq=seq,speed=0}})
+		assert(mem.speed==0 and mem.ver==2,"restored GUI replays its last click")
+		own=3;out=step({seq=seq+1,speed=4})
+		assert(mem.speed==4 and mem.ver==3,"resume from internal 3x must retain valid requested 4x")
+	end
+end)
+test("ordered 3x native resume and legacy peer state normalize to the 4x button", function()
+	for _, role in ipairs({"host","client"}) do
+		local mem={};sync.speed_step(mem,{own=0,role=role,now=0,src="gui",ordered=true,max_speed=3})
+		local out=sync.speed_step(mem,{own=3,role=role,now=1,src="gui",ordered=true,max_speed=3})
+		assert(mem.speed==4 and mem.target==3 and sync.decode(out.publish).speed==4)
+		local peer={speed=3,ver=5,by="host",hb=1,max=3}
+		out=sync.speed_step(mem,{own=3,role=role,now=2,src="gui",ordered=true,max_speed=3,peer=peer})
+		assert(mem.speed==4 and mem.ver==5 and peer.speed==3,"peer input must remain untouched")
+	end
+end)
+test("late native callbacks cannot replace a newer explicit user choice", function()
+	local mem={};local function step(own,now,intent)
+		return sync.speed_step(mem,{own=own,now=now,role="client",src="gui",ordered=true,max_speed=4,intent=intent})
+	end
+	step(2,0);step(2,1,{seq=1,speed=1})
+	local version=mem.ver
+	local out=step(4,2,{seq=1,speed=1})
+	assert(mem.speed==1 and mem.ver==version and mem.target==1,"old native 4x callback became a fresh user request")
+	out=step(1,3,{seq=1,speed=1});assert(mem.speed==1 and mem.ver==version and not mem.pending)
+	out=step(1,4,{seq=2,speed=2});assert(mem.speed==2 and mem.ver==version+1,"new real click must still win")
+end)
+test("two ordered GUIs survive 16000 frames of capacity changes, explicit selections and pauses", function()
+	local h,c=pair();h.vars.TF3MP_ORDERING,c.vars.TF3MP_ORDERING="1","1"
+	for _=1,4 do h.gui();c.gui() end
+	local seq={host=0,client=0}
+	for cycle=1,1000 do
+		local setter=cycle%2==0 and h or c
+		h.max_speed,c.max_speed=1+(cycle%4),1+((cycle+2)%4)
+		local speed=({0,1,2,4})[1+(cycle%4)]
+		seq[setter.role]=seq[setter.role]+1
+		setter.vars.TF3MP_OWN_SPEEDUI="seq="..seq[setter.role].." speed="..speed
+		for _=1,8 do h.gui();c.gui() end
+		for _,g in ipairs({h,c}) do
+			local shared=sync.decode(g.vars.TF3MP_OWN_GUI)
+			assert(shared.speed==speed and g.speed==math.min(speed,h.max_speed,c.max_speed),"cycle "..cycle.." "..g.role)
+			assert(not has(g.logs,"could not be set"),"capacity changes exhausted speed commands")
+		end
+	end
+end)
 print(string.format("%d sync tests passed, %d failed", passed, failed))
 if failed > 0 then os.exit(1) end

@@ -40,7 +40,13 @@ local function vehicle_issue(args, reason)
 	output("[mp_probe]net send " .. issue)
 end
 local function step()
-	speed_hooks.watch(env, speed_memory, { log = note, shared = function() return get("TF3MP_OWN_GUI") end, enabled = function()
+	speed_hooks.watch(env, speed_memory, { log = note, shared = function() return get("TF3MP_OWN_GUI") end,
+		intent = function() return get("TF3MP_OWN_SPEEDUI") end,
+		publish = function(text) output("[mp_probe]net state speedui " .. text) end,
+		held = function()
+			return menu_memory.open or menu_memory.changing or get("TF3MP_OWN_MENU"):match("open=1") ~= nil or get("TF3MP_PEER_MENU"):match("open=1") ~= nil
+				or get("TF3MP_OWN_CLOCKUI"):match("hold=1") ~= nil or get("TF3MP_OWN_CLOCK"):match("hold=1") ~= nil
+		end, enabled = function()
 		local role = get("TF3MP_ROLE")
 		return (role == "host" or role == "client") and get("TF3MP_ORDERING") == "1"
 			and get("TF3MP_OWN_GUI"):match("src=gui") ~= nil
