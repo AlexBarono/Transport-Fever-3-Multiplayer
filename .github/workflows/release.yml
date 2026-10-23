@@ -29,6 +29,13 @@ jobs:
         run: |
           ./tests/run_update.ps1
           ./tests/run_update_ui.ps1
+      - name: Test launcher and friends
+        run: |
+          ./tests/run_launcher.ps1
+          ./tests/run_internet_launcher.ps1
+          ./tests/run_friends.ps1
+          ./tests/run_friends_ui.ps1
+          ./tests/run_launcher_view.ps1
       - name: Build bridge
         run: |
           cmd /c native\alut_proxy\build.bat

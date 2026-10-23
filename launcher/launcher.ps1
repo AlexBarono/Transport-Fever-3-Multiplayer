@@ -29,6 +29,8 @@ $ModName = 'mp_probe'
 . (Join-Path $Root 'tools\internet-diagnostics.ps1')
 . (Join-Path $Root 'tools\update.ps1')
 . (Join-Path $Root 'tools\update-view.ps1')
+. (Join-Path $Root 'tools\friends.ps1')
+. (Join-Path $Root 'tools\friends-view.ps1')
 $script:actionIssues = New-ActionIssueReader
 $script:actionLogPath = ''
 $script:actionLogChecked = [datetime]::MinValue
@@ -448,7 +450,7 @@ function Update-Fields {
     $primary.Text=if($hostRadio.Checked){'Spielstand bereitstellen'}else{'Test starten'}
     $primary.Enabled=-not $locked -and ($testMode -or ($script:presence -and $script:presence.Connected -and $saveChoice.SelectedItem))
     # Use the already scaled row width when switching roles after WinForms DPI scaling.
-    $primary.Width=if($hostRadio.Checked){[int][Math]::Round($joinStatus.Width*336/694)}else{$joinStatus.Width}
+    Update-LauncherActionRows
     $flowTitle.Text=if($testMode){'LOKAL TESTEN  /  ERGEBNIS PRÜFEN'}else{'02  SPIELSTAND  /  GEMEINSAMER START'}
     $remove.Enabled=-not $locked -and -not (Test-GameRunning)
     $startBoth.Visible=$hostRadio.Checked -and $hostConnected
@@ -482,19 +484,23 @@ function Update-Fields {
     $connectionPortLabel.Visible=$internetMode
     $portBox.Visible=$testMode; $testPortLabel.Visible=$testMode
     $clearAddress.Enabled=$clientRadio.Checked -and -not $locked
-    if(-not $testMode){$gameBox.Width=[int][Math]::Round($settings.Width*510/734)}
     $connectionStatus.Text=if($hostConnected){'Mitspieler verbunden. Spielstand bereitstellen.'}elseif($script:internetRole -eq 'host'){'Internetzugang offen. Einladung teilen; warte auf Mitspieler.'}elseif(-not $internetMode){"VPN / LAN: TCP + UDP $($portBox.Text). Adresse teilen; warte auf Mitspieler."}elseif($script:lobbyError){$script:lobbyError}elseif(-not $hostAddress.Text.Trim()){'Keine öffentliche IPv6 gefunden. Netzwerk prüfen und Neu laden wählen.'}else{'Internetverbindung wird automatisch geöffnet. Danach Einladung kopieren.'}
     if($clientRadio.Checked){$joinConnection.Text=if($script:lobbyPhase -in 'ready','started','starting'){'Verbunden. Spielstand vorbereitet.'}elseif($script:lobbyJob -and $script:lobbyJob.Progress.Snapshot()[0] -like 'Verbunden.*'){'Verbunden. Warte auf den Spielstand.'}else{'Adresse einfügen. Die Verbindung startet automatisch.'}}
     $internetCheck.Enabled=-not $locked -and -not $script:lobbyJob
     $hostAddress.Enabled=-not $locked
     $refreshAddress.Enabled=$hostAddress.Enabled
-    $copyAddress.Enabled=-not $locked -and (-not $internetMode -or [bool]$script:internetInvite)
-    $copyAddress.Text=if($internetMode){'Einladung kopieren'}else{'Adresse kopieren'}
+    $copyState=Get-LauncherCopyState $internetMode ([bool]$script:internetInvite) $locked ([bool]$script:lobbyError) ([bool]$hostAddress.Text.Trim())
+    $copyAddress.Enabled=$copyState.Enabled;$copyAddress.Text=$copyState.Text;$copyAddress.Busy=$copyState.Busy
+    $copyAddress.AccessibleDescription=$copyState.Reason;$tooltips.SetToolTip($copyAddress,$copyState.Reason)
+    $friendQuick.Enabled=-not $locked -and -not (Test-GameRunning)
+    $friendAdd.Enabled=-not $locked -and [bool]$ipBox.Text.Trim()
+    foreach($control in @($friendSave,$friendNew,$friendEdit,$friendRemove,$friendName,$friendAddress,$friendList)){$control.Enabled=-not $locked -and -not $script:friendsLoadError}
     foreach($pair in @(@($navHost,$hostRadio.Checked),@($navJoin,$clientRadio.Checked),@($navTest,$testMode))){
         $pair[0].Enabled=-not $locked
         $pair[0].BackColor=if($pair[1]){$Accent}else{$Sidebar}
         $pair[0].ForeColor=if($pair[1]){$Sidebar}else{$TextColor}
     }
+    Update-LauncherPageVisibility
 }
 $hostRadio.Add_CheckedChanged({ Update-Fields })
 $clientRadio.Add_CheckedChanged({ Update-Fields })
@@ -796,9 +802,7 @@ $recover.Add_Click({
         Invoke-LiveResync $values @{Kind='manual'; Detail='Gastgeber'}
     } catch {Show-Error $_.Exception.Message}
 })
-$navHost.Add_Click({ Close-LauncherLobby; if($script:internetRole -eq 'client'){Stop-LauncherInternet}; Refresh-HostAddresses; $hostRadio.Checked=$true; Update-Fields })
-$navJoin.Add_Click({ Close-LauncherLobby; if($script:internetRole -eq 'host'){Stop-LauncherInternet}; if ($fakeRadio.Checked -and $ipBox.Text -eq '127.0.0.1') { $ipBox.Text='' }; $clientRadio.Checked=$true; Update-Fields })
-$navTest.Add_Click({ Close-LauncherLobby; Stop-LauncherInternet; $fakeRadio.Checked=$true; Update-Fields })
+Register-LauncherPageEvents
 $updateCheck.Add_Click({Start-LauncherUpdateCheck})
 $updateZip.Add_Click({
     if($script:updatePrepared){

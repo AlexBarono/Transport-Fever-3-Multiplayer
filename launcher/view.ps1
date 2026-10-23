@@ -1,208 +1,255 @@
-﻿# Shared view for launcher.ps1. No installation or network mutations during rendering.
-$steam = Get-SteamRoot
-$Background=[System.Drawing.ColorTranslator]::FromHtml('#111923')
-$Sidebar=[System.Drawing.ColorTranslator]::FromHtml('#182330')
-$Card=[System.Drawing.ColorTranslator]::FromHtml('#202E3D')
-$TextColor=[System.Drawing.ColorTranslator]::FromHtml('#EDF3F8')
-$Muted=[System.Drawing.ColorTranslator]::FromHtml('#A5B6C7')
-$Accent=[System.Drawing.ColorTranslator]::FromHtml('#75E0C0')
-$form=New-Object System.Windows.Forms.Form
+﻿# Fluent 2 inspired Windows view. Rendering never starts network setup.
+$steam=Get-SteamRoot
+if(-not ('TF3MP.UI.ActionButton' -as [type])){Add-Type -Path (Join-Path $Root 'tools\launcher-controls.cs') -ReferencedAssemblies System.dll,System.Drawing.dll,System.Windows.Forms.dll}
+$Background=[Drawing.ColorTranslator]::FromHtml('#10161F');$Sidebar=[Drawing.ColorTranslator]::FromHtml('#151D28')
+$Card=[Drawing.ColorTranslator]::FromHtml('#1D2836');$TextColor=[Drawing.ColorTranslator]::FromHtml('#F2F5FA')
+$Muted=[Drawing.ColorTranslator]::FromHtml('#AFBDCF');$Accent=[Drawing.ColorTranslator]::FromHtml('#60CDFF')
+$script:launcherPage='session';$script:layoutBusy=$false
+$form=New-Object Windows.Forms.Form
 $form.Text='Transport Fever 3 | Multiplayer'
-$form.ClientSize=New-Object System.Drawing.Size(1024,900)
-$form.StartPosition='CenterScreen'; $form.FormBorderStyle='FixedSingle'; $form.MaximizeBox=$false
-$form.BackColor=$Background; $form.ForeColor=$TextColor
-$form.Font=New-Object System.Drawing.Font('Segoe UI',10)
-$form.AutoScaleMode='Dpi'
+$area=[Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+$form.ClientSize=New-Object Drawing.Size([Math]::Min(1160,$area.Width-60),[Math]::Min(1000,$area.Height-80))
+$form.MinimumSize=New-Object Drawing.Size(980,700)
+$form.StartPosition='CenterScreen';$form.FormBorderStyle='Sizable';$form.MaximizeBox=$true
+$form.BackColor=$Background;$form.ForeColor=$TextColor;$form.Font=New-Object Drawing.Font('Segoe UI',10)
+$form.AutoScaleDimensions=New-Object Drawing.SizeF(96,96);$form.AutoScaleMode='Dpi';$form.KeyPreview=$true
+$form.Add_KeyDown({param($sender,$event)if($event.KeyCode -eq 'F11'){
+    $sender.WindowState=if($sender.WindowState -eq 'Maximized'){'Normal'}else{'Maximized'}
+    $event.Handled=$true;$event.SuppressKeyPress=$true
+}})
+function New-Label($parent,$text,$x,$y,$w,$h,$size=10,$color=$TextColor){
+    $c=New-Object Windows.Forms.Label;$c.UseMnemonic=$false;$c.Text=$text;$c.SetBounds($x,$y,$w,$h)
+    $c.Font=New-Object Drawing.Font('Segoe UI',$size);$c.ForeColor=$color;$c.BackColor=$parent.BackColor
+    if($w -ge $parent.Width*0.6){$c.Anchor='Top, Left, Right'}
+    $parent.Controls.Add($c);return $c
+}
+function New-Button($parent,$text,$x,$y,$w,$h,$isPrimary=$false){
+    $c=New-Object TF3MP.UI.ActionButton;$c.Text=$text;$c.SetBounds($x,$y,$w,$h);$c.Cursor=[Windows.Forms.Cursors]::Hand
+    $c.BackColor=if($isPrimary){$Accent}else{$Card};$c.ForeColor=if($isPrimary){$Background}else{$TextColor}
+    $parent.Controls.Add($c);return $c
+}
+function New-Box($parent,$x,$y,$w){
+    $c=New-Object Windows.Forms.TextBox;$c.SetBounds($x,$y,$w,30);$c.BackColor=$Background;$c.ForeColor=$TextColor
+    $c.BorderStyle='FixedSingle';$c.Font=New-Object Drawing.Font('Segoe UI',11);$parent.Controls.Add($c);return $c
+}
+function New-Panel($parent,$x,$y,$w,$h,$color=$Card){$c=New-Object Windows.Forms.Panel;$c.SetBounds($x,$y,$w,$h);$c.BackColor=$color;$parent.Controls.Add($c);return $c}
+function Stretch-Row($control){$control.Anchor='Top, Left, Right'}
 
-function New-Label($parent,$text,$x,$y,$w,$h,$size=10,$color=$TextColor) {
-    $control=New-Object System.Windows.Forms.Label
-    $control.UseMnemonic=$false; $control.Text=$text; $control.Location=New-Object System.Drawing.Point($x,$y)
-    $control.Size=New-Object System.Drawing.Size($w,$h)
-    $control.Font=New-Object System.Drawing.Font('Segoe UI',$size)
-    $control.ForeColor=$color; $parent.Controls.Add($control); return $control
-}
-function New-Button($parent,$text,$x,$y,$w,$h,$isPrimary=$false) {
-    $control=New-Object System.Windows.Forms.Button
-    $control.Text=$text; $control.Location=New-Object System.Drawing.Point($x,$y)
-    $control.Size=New-Object System.Drawing.Size($w,$h); $control.FlatStyle='Flat'
-    $control.FlatAppearance.BorderSize=0; $control.Cursor=[System.Windows.Forms.Cursors]::Hand
-    $control.BackColor=if($isPrimary){$Accent}else{$Card}
-    $control.ForeColor=if($isPrimary){$Background}else{$TextColor}
-    $control.Add_Paint({param($sender,$event)
-        if(-not $sender.Enabled){
-            $brush=New-Object Drawing.SolidBrush($sender.BackColor)
-            $event.Graphics.FillRectangle($brush,$sender.ClientRectangle); $brush.Dispose()
-            [Windows.Forms.TextRenderer]::DrawText($event.Graphics,$sender.Text,$sender.Font,$sender.ClientRectangle,$Muted,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))
-        }
-    })
-    $parent.Controls.Add($control); return $control
-}
-function New-Box($parent,$x,$y,$w) {
-    $control=New-Object System.Windows.Forms.TextBox
-    $control.Location=New-Object System.Drawing.Point($x,$y); $control.Size=New-Object System.Drawing.Size($w,30)
-    $control.BackColor=$Background; $control.ForeColor=$TextColor; $control.BorderStyle='FixedSingle'
-    $control.Font=New-Object System.Drawing.Font('Segoe UI',12)
-    $parent.Controls.Add($control); return $control
-}
-function New-Panel($parent,$x,$y,$w,$h,$color=$Card) {
-    $control=New-Object System.Windows.Forms.Panel
-    $control.Location=New-Object System.Drawing.Point($x,$y); $control.Size=New-Object System.Drawing.Size($w,$h)
-    $control.BackColor=$color; $parent.Controls.Add($control); return $control
-}
+# Docking keeps navigation separate from the resizable, scrollable workspace.
+$workspace=New-Panel $form 232 0 ($form.ClientSize.Width-232) $form.ClientSize.Height $Background
+$workspace.Dock='Fill';$workspace.Padding=New-Object Windows.Forms.Padding(24)
+$side=New-Panel $form 0 0 232 $form.ClientSize.Height $Sidebar;$side.Dock='Left'
+$sideFooter=New-Panel $side 0 0 232 44 $Sidebar;$sideFooter.Dock='Bottom'
+New-Label $sideFooter 'Probe v67  /  Bridge v16' 24 12 184 22 9 $Muted|Out-Null
+$sideBody=New-Panel $side 0 0 232 650 $Sidebar;$sideBody.Dock='Fill';$sideBody.AutoScroll=$true
+$sideBody.AutoScrollMinSize=New-Object Drawing.Size(210,636)
+$sideBody.BringToFront()
+New-Label $sideBody 'TF3' 24 24 184 40 24 $TextColor|Out-Null
+New-Label $sideBody 'MULTIPLAYER' 26 70 182 24 10 $Accent|Out-Null
+$navHost=New-Button $sideBody 'Gastgeber' 16 128 192 44
+$navJoin=New-Button $sideBody 'Beitreten' 16 180 192 44
+$navFriends=New-Button $sideBody 'Freunde' 16 232 192 44
+$navGuide=New-Button $sideBody 'Anleitung' 16 284 192 44
+$navTest=New-Button $sideBody 'Testlabor' 16 336 192 44
+New-Label $sideBody 'VERSIONEN' 24 408 184 20 9 $Muted|Out-Null
+$updateCheck=New-Button $sideBody 'Auf Updates prüfen' 16 436 192 44
+$updateZip=New-Button $sideBody 'Update aus ZIP' 16 488 192 36
+$updateStatus=New-Label $sideBody 'Aktualisieren, ohne Dateien von Hand auszutauschen.' 24 540 176 86 9 $Muted
 
-$side=New-Panel $form 0 0 218 900 $Sidebar
-New-Label $side 'TF3 / MULTIPLAYER' 24 30 190 30 12 $Accent | Out-Null
-New-Label $side "Gemeinsam bauen.`r`nGemeinsam verbinden." 24 77 177 60 12 | Out-Null
-$navHost=New-Button $side 'Gastgeber' 16 176 186 46
-$navJoin=New-Button $side 'Beitreten' 16 232 186 46
-$navTest=New-Button $side 'Testlabor' 16 288 186 46
-$updateCheck=New-Button $side 'Auf Updates prüfen' 16 370 186 44
-$updateZip=New-Button $side 'Update aus ZIP' 16 424 186 36
-$updateStatus=New-Label $side 'Neue Versionen direkt im Launcher installieren.' 24 476 176 134 9 $Muted
-New-Label $side "VPN ODER INTERNET" 24 650 180 24 9 $Accent | Out-Null
-New-Label $side "Ohne VPN: Internetzugang`r`neinrichten und Einladung`r`nbeim Mitspieler einfügen." 24 684 176 75 10 $Muted | Out-Null
-New-Label $side 'Probe v66  /  Bridge v16' 24 856 185 22 9 $Muted | Out-Null
-New-Label $form 'Gemeinsam auf derselben Karte.' 250 28 734 44 23 | Out-Null
-New-Label $form 'Ein gemeinsamer Spielstand. Ein Start für beide. Platz für eure Ideen.' 252 77 734 28 11 $Muted | Out-Null
-$statusLabel=New-Label $form 'Bereit zum Einrichten' 252 110 734 40 9 $Accent
-
-$hostPage=New-Panel $form 250 155 734 220
-New-Label $hostPage '01  Verbindung herstellen' 22 12 680 32 17 | Out-Null
-$connectionMode=New-Object Windows.Forms.ComboBox
-$connectionMode.Location=New-Object Drawing.Point(22,53); $connectionMode.Size=New-Object Drawing.Size(200,28)
-$connectionMode.DropDownStyle='DropDownList'; [void]$connectionMode.Items.Add('Internet ohne VPN'); [void]$connectionMode.Items.Add('VPN / LAN')
-$connectionMode.SelectedIndex=0; $hostPage.Controls.Add($connectionMode)
-$connectionPortLabel=New-Label $hostPage 'Internetport (TCP)' 240 56 145 22 9 $Muted
-$internetPortBox=New-Box $hostPage 388 51 90; $internetPortBox.Text='47801'
-$hostAddress=New-Object Windows.Forms.ComboBox
-$hostAddress.Location=New-Object Drawing.Point(22,91); $hostAddress.Size=New-Object Drawing.Size(576,30)
-$hostAddress.DropDownStyle='DropDown'; $hostAddress.DisplayMember='Display'
-$hostAddress.BackColor=$Background; $hostAddress.ForeColor=$TextColor; $hostAddress.Font=New-Object Drawing.Font('Segoe UI',10)
-$hostPage.Controls.Add($hostAddress)
+$sessionPage=New-Panel $workspace 0 0 880 980 $Background;$sessionPage.Dock='Fill';$sessionPage.AutoScroll=$true
+$sessionBody=New-Panel $sessionPage 0 0 880 1004 $Background
+$bodyWidth=$sessionBody.Width
+New-Label $sessionBody 'Gemeinsam spielen.' 0 0 680 44 25|Out-Null
+New-Label $sessionBody 'Verbinden, Spielstand teilen und zusammen loslegen.' 2 50 680 28 11 $Muted|Out-Null
+$statusLabel=New-Label $sessionBody 'Bereit zum Einrichten' 2 86 ($bodyWidth-4) 30 10 $Accent;Stretch-Row $statusLabel
+$hostPage=New-Panel $sessionBody 0 128 $bodyWidth 264;Stretch-Row $hostPage
+New-Label $hostPage 'Verbindung herstellen' 24 18 480 32 17|Out-Null
+New-Label $hostPage 'VERBINDUNGSART' 24 61 210 20 9 $Muted|Out-Null
+$connectionPortLabel=New-Label $hostPage 'INTERNETPORT (TCP)' 258 61 180 20 9 $Muted
+$connectionMode=New-Object Windows.Forms.ComboBox;$connectionMode.SetBounds(24,84,210,30);$connectionMode.DropDownStyle='DropDownList'
+[void]$connectionMode.Items.Add('Internet ohne VPN');[void]$connectionMode.Items.Add('VPN / LAN');$connectionMode.SelectedIndex=0
+$connectionMode.BackColor=$Background;$connectionMode.ForeColor=$TextColor;$hostPage.Controls.Add($connectionMode)
+$connectionMode.FlatStyle='Flat'
+$internetPortBox=New-Box $hostPage 258 84 110;$internetPortBox.Text='47801'
+$hostAddress=New-Object Windows.Forms.ComboBox;$hostAddress.SetBounds(24,132,($bodyWidth-172),30);Stretch-Row $hostAddress
+$hostAddress.DropDownStyle='DropDown';$hostAddress.DisplayMember='Display';$hostAddress.BackColor=$Background;$hostAddress.ForeColor=$TextColor;$hostPage.Controls.Add($hostAddress)
+$hostAddress.FlatStyle='Flat'
 function Refresh-HostAddresses {
     $script:refreshingAddresses=$true
-    try {
-    $selected=if($hostAddress.SelectedItem){$hostAddress.SelectedItem.Address}else{$hostAddress.Text}
-    $hostAddress.Items.Clear()
-    if($connectionMode.SelectedIndex -eq 0){$addresses=@(Get-InternetIPv6Addresses)}else{
-        $addresses=@()
-        try {$addresses=@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | Where-Object {
-            $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.AddressState -eq 'Preferred'
-        } | Sort-Object @{Expression={if($_.InterfaceAlias -match 'Tailscale|ZeroTier|Hamachi|Radmin|WireGuard|TAP|TUN|VPN'){0}else{1}}},InterfaceAlias | ForEach-Object {
-            [pscustomobject]@{Address=$_.IPAddress;Display="$($_.IPAddress) / $($_.InterfaceAlias)"}
-        })}catch{}
-    }
-    foreach($address in $addresses){[void]$hostAddress.Items.Add($address)}
-    if($hostAddress.Items.Count){$hostAddress.SelectedIndex=0}
-    for($i=0;$i -lt $hostAddress.Items.Count;$i++){if($hostAddress.Items[$i].Address -eq $selected){$hostAddress.SelectedIndex=$i}}
+    try{
+        $selected=if($hostAddress.SelectedItem){$hostAddress.SelectedItem.Address}else{$hostAddress.Text};$hostAddress.Items.Clear()
+        if($connectionMode.SelectedIndex -eq 0){$addresses=@(Get-InternetIPv6Addresses)}else{
+            $addresses=@()
+            try{$addresses=@(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop|Where-Object{
+                $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.AddressState -eq 'Preferred'
+            }|Sort-Object @{Expression={if($_.InterfaceAlias -match 'Tailscale|ZeroTier|Hamachi|Radmin|WireGuard|TAP|TUN|VPN'){0}else{1}}},InterfaceAlias|ForEach-Object{
+                [pscustomobject]@{Address=$_.IPAddress;Display="$($_.IPAddress) / $($_.InterfaceAlias)"}
+            })}catch{}
+        }
+        foreach($address in $addresses){[void]$hostAddress.Items.Add($address)}
+        if($hostAddress.Items.Count){$hostAddress.SelectedIndex=0}
+        for($i=0;$i -lt $hostAddress.Items.Count;$i++){if($hostAddress.Items[$i].Address -eq $selected){$hostAddress.SelectedIndex=$i}}
     }finally{$script:refreshingAddresses=$false}
 }
 Refresh-HostAddresses
-$refreshAddress=New-Button $hostPage 'Neu laden' 610 90 102 30
-$internetSetup=New-Button $hostPage 'Erneut verbinden' 22 132 220 36
-$copyAddress=New-Button $hostPage 'Einladung kopieren' 252 132 460 36 $true
-$connectionStatus=New-Label $hostPage 'Internetverbindung wird automatisch geöffnet.' 22 178 690 32 10 $Muted
+$refreshAddress=New-Button $hostPage 'Neu laden' ($bodyWidth-132) 130 108 34;$refreshAddress.Anchor='Top, Right'
+$internetSetup=New-Button $hostPage 'Erneut verbinden' 24 180 192 40
+$copyAddress=New-Button $hostPage 'Einladung kopieren' 228 180 ($bodyWidth-252) 40 $true;Stretch-Row $copyAddress
+$connectionStatus=New-Label $hostPage 'Internetverbindung wird vorbereitet …' 24 230 ($bodyWidth-48) 30 9 $Muted;Stretch-Row $connectionStatus
 
-$joinPage=New-Panel $form 250 155 734 220
-New-Label $joinPage '01  Beim Gastgeber verbinden' 22 12 690 32 17 | Out-Null
-New-Label $joinPage 'Einladung, IPv6- oder IPv4-Adresse des Gastgebers' 22 57 680 24 10 $Muted | Out-Null
-$ipBox=New-Box $joinPage 22 91 576
-$clearAddress=New-Button $joinPage 'Löschen' 610 90 102 30
-$internetCheck=New-Button $joinPage 'Verbindung prüfen' 22 132 220 36
-$joinConnection=New-Label $joinPage 'Adresse einfügen. Die Verbindung startet automatisch.' 252 133 460 55 10 $Muted
+$joinPage=New-Panel $sessionBody 0 128 $bodyWidth 264;Stretch-Row $joinPage
+New-Label $joinPage 'Beim Gastgeber beitreten' 24 18 600 32 17|Out-Null
+New-Label $joinPage 'Gespeicherter Freund' 24 60 220 22 9 $Muted|Out-Null
+$friendQuick=New-Object Windows.Forms.ComboBox;$friendQuick.SetBounds(24,84,($bodyWidth-240),30);$friendQuick.DropDownStyle='DropDownList'
+$friendQuick.DisplayMember='Name';$friendQuick.BackColor=$Background;$friendQuick.ForeColor=$TextColor;Stretch-Row $friendQuick;$joinPage.Controls.Add($friendQuick)
+$friendQuick.FlatStyle='Flat'
+$friendAdd=New-Button $joinPage 'Freund speichern' ($bodyWidth-204) 82 180 34;$friendAdd.Anchor='Top, Right'
+$ipBox=New-Box $joinPage 24 132 ($bodyWidth-172);Stretch-Row $ipBox;$ipBox.AccessibleName='Einladung oder Adresse des Gastgebers'
+$clearAddress=New-Button $joinPage 'Löschen' ($bodyWidth-132) 130 108 34;$clearAddress.Anchor='Top, Right'
+$internetCheck=New-Button $joinPage 'Verbindung prüfen' 24 180 192 40
+$joinConnection=New-Label $joinPage 'Einladung einfügen oder oben einen Freund auswählen.' 232 184 ($bodyWidth-256) 54 10 $Muted;Stretch-Row $joinConnection
 
-$testPage=New-Panel $form 250 155 734 220
-New-Label $testPage 'Testlabor / ein PC' 22 15 690 34 18 | Out-Null
-$roleBox=New-Object System.Windows.Forms.GroupBox
-$roleBox.Location=New-Object System.Drawing.Point(18,52); $roleBox.Size=New-Object System.Drawing.Size(696,123)
-$roleBox.ForeColor=$TextColor; $testPage.Controls.Add($roleBox)
-$hostRadio=New-Object System.Windows.Forms.RadioButton; $hostRadio.Visible=$false
-$clientRadio=New-Object System.Windows.Forms.RadioButton; $clientRadio.Visible=$false
-$loopRadio=New-Object System.Windows.Forms.RadioButton
-$loopRadio.Text='Allein testen / Bauten 100 m daneben nachbauen'
-$spotRadio=New-Object System.Windows.Forms.RadioButton
-$spotRadio.Text='Gleiche Stelle / nach Neuladen am selben Ort nachbauen'
-$fakeRadio=New-Object System.Windows.Forms.RadioButton
-$fakeRadio.Text='Simulierter Gastgeber / Pause, Tempo, Geld und Nachbau'
-$y=18
-foreach($radio in @($loopRadio,$spotRadio,$fakeRadio)) {
-    $radio.Location=New-Object System.Drawing.Point(12,$y); $radio.Size=New-Object System.Drawing.Size(675,28); $y+=32
-}
+$testPage=New-Panel $sessionBody 0 128 $bodyWidth 264;Stretch-Row $testPage
+New-Label $testPage 'Testlabor / ein PC' 24 18 600 32 17|Out-Null
+$roleBox=New-Object Windows.Forms.GroupBox;$roleBox.SetBounds(24,64,($bodyWidth-48),138);Stretch-Row $roleBox;$roleBox.ForeColor=$TextColor;$testPage.Controls.Add($roleBox)
+$hostRadio=New-Object Windows.Forms.RadioButton;$hostRadio.Visible=$false
+$clientRadio=New-Object Windows.Forms.RadioButton;$clientRadio.Visible=$false
+$loopRadio=New-Object Windows.Forms.RadioButton;$loopRadio.Text='Allein testen / Bauten 100 m daneben nachbauen'
+$spotRadio=New-Object Windows.Forms.RadioButton;$spotRadio.Text='Gleiche Stelle / nach Neuladen am selben Ort nachbauen'
+$fakeRadio=New-Object Windows.Forms.RadioButton;$fakeRadio.Text='Simulierter Gastgeber / Pause, Tempo, Geld und Nachbau'
+$y=20;foreach($radio in @($loopRadio,$spotRadio,$fakeRadio)){$radio.SetBounds(14,$y,($bodyWidth-80),30);Stretch-Row $radio;$y+=36}
 $roleBox.Controls.AddRange(@($hostRadio,$clientRadio,$loopRadio,$spotRadio,$fakeRadio))
-New-Label $testPage 'Der simulierte Gastgeber startet automatisch im Hintergrund.' 22 185 690 24 10 $Muted | Out-Null
+New-Label $testPage 'Der simulierte Gastgeber startet automatisch im Hintergrund.' 24 220 ($bodyWidth-48) 24 10 $Muted|Out-Null
 
-$workflow=New-Panel $form 250 390 734 155
-$flowTitle=New-Label $workflow '02  SPIELSTAND  /  GEMEINSAMER START' 20 8 565 20 9 $Accent
-$saveChoice=New-Object Windows.Forms.ComboBox
-$saveChoice.Location=New-Object Drawing.Point(20,34); $saveChoice.Size=New-Object Drawing.Size(694,30)
-$saveChoice.DropDownStyle='DropDownList'; $saveChoice.DisplayMember='Display'
-$saveChoice.BackColor=$Background; $saveChoice.ForeColor=$TextColor; $workflow.Controls.Add($saveChoice)
+$workflow=New-Panel $sessionBody 0 408 $bodyWidth 174;Stretch-Row $workflow
+$flowTitle=New-Label $workflow 'SPIELSTAND UND GEMEINSAMER START' 24 16 560 22 9 $Accent
+$saveChoice=New-Object Windows.Forms.ComboBox;$saveChoice.SetBounds(24,48,($bodyWidth-48),30);Stretch-Row $saveChoice
+$saveChoice.DropDownStyle='DropDownList';$saveChoice.DisplayMember='Display';$saveChoice.BackColor=$Background;$saveChoice.ForeColor=$TextColor;$workflow.Controls.Add($saveChoice)
+$saveChoice.FlatStyle='Flat'
 function Refresh-SaveChoices {
-    $selected=if($saveChoice.SelectedItem){$saveChoice.SelectedItem.Path}else{''}
-    $saveChoice.Items.Clear()
-    $folder=Get-SaveFolder $steam
-    if($folder){foreach($file in @(Get-ChildItem -LiteralPath $folder -Filter '*.sav' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)){
+    $selected=if($saveChoice.SelectedItem){$saveChoice.SelectedItem.Path}else{''};$saveChoice.Items.Clear();$folder=Get-SaveFolder $steam
+    if($folder){foreach($file in @(Get-ChildItem -LiteralPath $folder -Filter '*.sav' -File -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending)){
         [void]$saveChoice.Items.Add([pscustomobject]@{Path=$file.FullName;Display=("{0}   /   {1}" -f $file.BaseName,$file.LastWriteTime.ToString('dd.MM. HH:mm'))})
     }}
     if($saveChoice.Items.Count){$saveChoice.SelectedIndex=0}
     for($i=0;$i -lt $saveChoice.Items.Count;$i++){if($saveChoice.Items[$i].Path -eq $selected){$saveChoice.SelectedIndex=$i}}
 }
-$primary=New-Button $workflow 'Spielstand bereitstellen' 20 75 336 44 $true
-$primary.Font=New-Object System.Drawing.Font('Segoe UI',11,[System.Drawing.FontStyle]::Bold)
-$startBoth=New-Button $workflow 'Spiel starten' 370 75 344 44
-$startBoth.Font=$primary.Font
-$startBoth.Add_Paint({param($sender,$event)
-    $brush=New-Object Drawing.SolidBrush($sender.BackColor)
-    $event.Graphics.FillRectangle($brush,$sender.ClientRectangle); $brush.Dispose()
-    $color=if($sender.Enabled){$Background}else{$Muted}
-    [Windows.Forms.TextRenderer]::DrawText($event.Graphics,$sender.Text,$sender.Font,$sender.ClientRectangle,$color,([Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [Windows.Forms.TextFormatFlags]::VerticalCenter))
-})
-$joinStatus=New-Label $workflow 'Warte auf Spielstand vom Gastgeber' 20 34 694 45 16 $TextColor
-$workflowHint=New-Label $workflow 'Nach der Übertragung startet der Gastgeber beide Spiele.' 20 125 694 25 9 $Muted
-$joinStatus.BackColor=$Card; $workflowHint.BackColor=$Card
-$progressBar=New-Object Windows.Forms.ProgressBar
-$progressBar.Location=New-Object Drawing.Point(0,151); $progressBar.Size=New-Object Drawing.Size(734,2)
-$progressBar.Style='Continuous'; $workflow.Controls.Add($progressBar)
-$transfer=New-Button $workflow 'Abbrechen' 604 3 110 25
-$transfer.Font=New-Object System.Drawing.Font('Segoe UI',9); $transfer.Visible=$false
-$check=New-Button $form 'Details prüfen' 686 664 152 32
-$issueLabel=New-Label $form '' 252 702 732 22 9 ([System.Drawing.ColorTranslator]::FromHtml('#FFCA80'))
+$primary=New-Button $workflow 'Spielstand bereitstellen' 24 92 360 44 $true
+$startBoth=New-Button $workflow 'Spiel starten' 396 92 ($bodyWidth-420) 44;Stretch-Row $startBoth
+$joinStatus=New-Label $workflow 'Warte auf Verbindung' 24 48 ($bodyWidth-48) 38 15 $TextColor;Stretch-Row $joinStatus
+$workflowHint=New-Label $workflow 'Nach der Übertragung startet der Gastgeber beide Spiele.' 24 144 ($bodyWidth-48) 24 9 $Muted;Stretch-Row $workflowHint
+$progressBar=New-Object TF3MP.UI.ProgressMeter;$progressBar.SetBounds(0,170,$bodyWidth,4);$progressBar.Style='Continuous';Stretch-Row $progressBar;$workflow.Controls.Add($progressBar)
+$transfer=New-Button $workflow 'Abbrechen' ($bodyWidth-134) 10 110 30;$transfer.Anchor='Top, Right';$transfer.Visible=$false
 
-$settings=New-Panel $form 250 552 734 98
-New-Label $settings 'SPIELORDNER' 18 12 500 21 9 $Muted | Out-Null
-$gameBox=New-Box $settings 18 43 510
-$gameBox.Font=New-Object System.Drawing.Font('Segoe UI',9)
-$gameBox.Text=Find-GameDir $steam
-$browse=New-Button $settings 'Suchen ...' 540 40 92 32
-$browse.Add_Click({
-    $dialog=New-Object System.Windows.Forms.FolderBrowserDialog
-    $dialog.Description='Transport Fever 3 auswählen (enthält alut.dll)'
-    if($dialog.ShowDialog() -eq 'OK'){$gameBox.Text=$dialog.SelectedPath}
-    $dialog.Dispose()
-})
-$testPortLabel=New-Label $settings 'TESTPORT' 649 12 70 21 9 $Muted
-$portBox=New-Box $settings 649 43 68
-$portBox.Font=New-Object System.Drawing.Font('Segoe UI',10)
-$install=New-Button $form 'Nur Einstellungen speichern' 250 664 205 32
-$install.Font=New-Object System.Drawing.Font('Segoe UI',9)
-$replay=New-Button $form 'Am selben Ort nachbauen' 468 664 205 32
-$replay.Font=New-Object System.Drawing.Font('Segoe UI',9)
-$recover=New-Button $form 'Neu abgleichen' 250 664 205 32
-$recover.Font=New-Object System.Drawing.Font('Segoe UI',9)
-$remove=New-Button $form 'Mod entfernen' 852 664 132 32
-$remove.ForeColor=$Muted
-New-Label $form 'Sitzung & Protokoll' 252 729 734 26 12 $TextColor | Out-Null
-$out=New-Object System.Windows.Forms.TextBox
-$out.Location=New-Object System.Drawing.Point(250,765); $out.Size=New-Object System.Drawing.Size(734,111)
-$out.Multiline=$true; $out.ReadOnly=$true; $out.ScrollBars='Vertical'; $out.BorderStyle='None'
-$out.BackColor=$Background; $out.ForeColor=$Muted; $out.Font=New-Object System.Drawing.Font('Consolas',9)
-$form.Controls.Add($out)
+$settings=New-Panel $sessionBody 0 598 $bodyWidth 94;Stretch-Row $settings
+New-Label $settings 'SPIELORDNER' 24 14 450 20 9 $Muted|Out-Null
+$gameBox=New-Box $settings 24 44 ($bodyWidth-314);Stretch-Row $gameBox;$gameBox.Font=New-Object Drawing.Font('Segoe UI',9);$gameBox.Text=Find-GameDir $steam
+$browse=New-Button $settings 'Suchen …' ($bodyWidth-278) 42 110 34;$browse.Anchor='Top, Right'
+$browse.Add_Click({$dialog=New-Object Windows.Forms.FolderBrowserDialog;$dialog.Description='Transport Fever 3 auswählen (enthält alut.dll)';try{if($dialog.ShowDialog() -eq 'OK'){$gameBox.Text=$dialog.SelectedPath}}finally{$dialog.Dispose()}})
+$testPortLabel=New-Label $settings 'TESTPORT' ($bodyWidth-138) 14 114 20 9 $Muted;$testPortLabel.Anchor='Top, Right'
+$portBox=New-Box $settings ($bodyWidth-138) 44 114;$portBox.Anchor='Top, Right'
+$install=New-Button $sessionBody 'Einstellungen speichern' 0 708 206 36
+$replay=New-Button $sessionBody 'Aufnahme nachbauen' 218 708 200 36
+$recover=New-Button $sessionBody 'Neu abgleichen' 0 708 206 36
+$check=New-Button $sessionBody 'Details prüfen' ($bodyWidth-300) 708 144 36;$check.Anchor='Top, Right'
+$remove=New-Button $sessionBody 'Mod entfernen' ($bodyWidth-144) 708 144 36;$remove.Anchor='Top, Right'
+$issueLabel=New-Label $sessionBody '' 0 758 $bodyWidth 24 9 ([Drawing.ColorTranslator]::FromHtml('#FFCA80'));Stretch-Row $issueLabel
+New-Label $sessionBody 'Sitzung & Protokoll' 0 792 620 28 13|Out-Null
+$out=New-Object Windows.Forms.TextBox;$out.SetBounds(0,832,$bodyWidth,148);$out.Anchor='Top, Bottom, Left, Right'
+$out.Multiline=$true;$out.ReadOnly=$true;$out.ScrollBars='Vertical';$out.BorderStyle='FixedSingle'
+$out.BackColor=$Card;$out.ForeColor=$Muted;$out.Font=New-Object Drawing.Font('Consolas',9);$sessionBody.Controls.Add($out)
+
+$friendsPage=New-Panel $workspace 0 0 880 850 $Background;$friendsPage.Dock='Fill';$friendsPage.AutoScroll=$true;$friendsPage.Visible=$false
+$friendsBody=New-Panel $friendsPage 0 0 880 860 $Background
+New-Label $friendsBody 'Deine Freunde' 0 0 680 44 25|Out-Null
+New-Label $friendsBody 'Einmal speichern. Beim nächsten Mal den Namen anklicken.' 2 54 680 28 11 $Muted|Out-Null
+$friendEditor=New-Panel $friendsBody 0 112 880 236;Stretch-Row $friendEditor
+New-Label $friendEditor 'Freund hinzufügen oder Einladung aktualisieren' 24 18 700 28 16|Out-Null
+New-Label $friendEditor 'NAME' 24 60 260 20 9 $Muted|Out-Null
+$friendName=New-Box $friendEditor 24 84 260;$friendName.MaxLength=64
+New-Label $friendEditor 'EINLADUNG ODER VPN-ADRESSE' 304 60 500 20 9 $Muted|Out-Null
+$friendAddress=New-Box $friendEditor 304 84 552;Stretch-Row $friendAddress;$friendAddress.MaxLength=256
+$friendSave=New-Button $friendEditor 'Freund speichern' 24 142 200 42 $true
+$friendNew=New-Button $friendEditor 'Neuer Eintrag' 236 142 164 42
+$friendStatus=New-Label $friendEditor 'Die Liste wird auf diesem Windows-Konto geschützt gespeichert.' 24 196 832 26 9 $Muted;Stretch-Row $friendStatus
+$friendListTitle=New-Label $friendsBody 'GESPEICHERTE FREUNDE' 0 376 600 24 9 $Accent
+$friendList=New-Object TF3MP.UI.FriendList;$friendList.SetBounds(0,416,880,320);$friendList.Anchor='Top, Bottom, Left, Right'
+$friendList.Font=New-Object Drawing.Font('Segoe UI',13);$friendList.IntegralHeight=$false
+$friendList.DisplayMember='Name';$friendList.BackColor=$Card;$friendList.ForeColor=$TextColor;$friendList.BorderStyle='FixedSingle';$friendsBody.Controls.Add($friendList)
+$friendEmpty=New-Label $friendsBody 'Noch keine Freunde gespeichert. Namen und Einladung oben eintragen.' 24 440 800 80 12 $Muted;Stretch-Row $friendEmpty
+$friendEdit=New-Button $friendsBody 'Auswahl bearbeiten' 0 756 206 40;$friendEdit.Anchor='Bottom, Left'
+$friendRemove=New-Button $friendsBody 'Aus Liste entfernen' 218 756 206 40;$friendRemove.Anchor='Bottom, Left'
+$friendHint=New-Label $friendsBody 'Name anklicken: beitreten. Über … rechts am Namen den Eintrag bearbeiten.' 0 816 840 34 10 $Muted;$friendHint.Anchor='Bottom, Left, Right'
+
+$guidePage=New-Panel $workspace 0 0 880 850 $Background;$guidePage.Dock='Fill';$guidePage.Visible=$false
+New-Label $guidePage 'So spielt ihr zusammen' 0 0 760 44 25|Out-Null
+New-Label $guidePage 'Die wichtigsten Schritte – direkt im Launcher.' 2 54 760 28 11 $Muted|Out-Null
+$guideText=New-Object Windows.Forms.TextBox;$guideText.Multiline=$true;$guideText.ScrollBars='Vertical';$guideText.SetBounds(0,112,880,700);$guideText.Anchor='Top, Bottom, Left, Right'
+$guideText.ReadOnly=$true;$guideText.BorderStyle='None';$guideText.BackColor=$Background;$guideText.ForeColor=$TextColor
+$guideText.Font=New-Object Drawing.Font('Segoe UI',12);$guidePage.Controls.Add($guideText)
+$guideText.Text=@'
+GASTGEBER
+
+1. Links Gastgeber wählen. Internet ohne VPN öffnet die Verbindung automatisch.
+2. Sobald die Einladung bereit ist, Einladung kopieren anklicken und dem Mitspieler geben.
+3. Auf den Mitspieler warten. Danach einen Spielstand auswählen und bereitstellen.
+4. Wenn beide bereit sind, Spiel für beide starten anklicken. Beide Launcher bleiben geöffnet.
+
+BEITRETEN
+
+1. Links Beitreten wählen und die vollständige Einladung des Gastgebers einfügen.
+2. Die Verbindung und der Empfang des Spielstands laufen automatisch.
+3. Auf den gemeinsamen Start durch den Gastgeber warten.
+
+FREUNDE SPEICHERN
+
+1. Unter Beitreten die Einladung einfügen und Freund speichern wählen.
+2. Einen Namen eingeben und speichern. Alternativ unter Freunde Namen und Einladung eintragen.
+3. Später den Namen in Freunde anklicken oder unter Beitreten auswählen. Die gespeicherte Einladung wird automatisch übernommen.
+4. Über … rechts am Namen lässt sich der Eintrag bearbeiten, zum Beispiel bei einer neuen Internetadresse des Gastgebers.
+
+FENSTER UND ANZEIGE
+
+Das Fenster lässt sich frei vergrößern und maximieren. F11 wechselt zwischen maximiert und normal. In kleineren Fenstern kann der Inhalt gescrollt werden.
+
+Verbindung wird vorbereitet … bedeutet, dass der Launcher noch arbeitet. Erst nach erfolgreicher Einrichtung erscheint Einladung kopieren. Konkrete Fehler stehen unter Sitzung & Protokoll.
+
+AKTUALISIEREN
+
+Spiel und gemeinsame Sitzung beenden. Links Auf Updates prüfen und anschließend Update installieren wählen. Der Launcher startet danach neu. Update aus ZIP ist zusätzlich verfügbar. Beide PCs benötigen dieselbe Paketversion.
+
+WENN ETWAS NICHT KLAPPT
+
+• Beide PCs verwenden dieselbe Version und denselben geteilten Spielstand.
+• Für Internet ohne VPN brauchen beide Anschlüsse IPv6. Routerfehler stehen im Protokoll.
+• Alternativ VPN / LAN verwenden und die VPN-Adresse des Gastgebers teilen.
+• Der Gastgeber kann mit Neu abgleichen seinen aktuellen Stand auf beiden PCs neu laden.
+• Eine gespeicherte Einladung bleibt bei gleicher Adresse und gleichem Port gültig. Bei einer geänderten Internetadresse muss der Freundeseintrag aktualisiert werden.
+'@
+$guideText.Lines=$guideText.Text -split '\r?\n'
+function Update-LauncherActionRows {
+    if(-not $primary){return}
+    $scale=[Math]::Max([double]1,[double]($hostPage.Top/128.0));$gap=[int](12*$scale)
+    $primary.Width=if($hostRadio.Checked){[int][Math]::Floor(($joinStatus.Width-$gap)/2)}else{$joinStatus.Width}
+    $startBoth.Left=$primary.Right+$gap;$startBoth.Width=[Math]::Max(100,$joinStatus.Right-$startBoth.Left)
+    $test=$loopRadio.Checked -or $spotRadio.Checked -or $fakeRadio.Checked
+    $browse.Left=if($test){$portBox.Left-$gap-$browse.Width}else{$settings.Width-[int](24*$scale)-$browse.Width}
+    $gameBox.Width=[Math]::Max(100,$browse.Left-$gameBox.Left-$gap)
+}
+function Resize-LauncherPages {
+    if($script:layoutBusy -or $form.IsDisposed){return};$script:layoutBusy=$true
+    $scale=[Math]::Max([double]1,[double]($hostPage.Top/128.0))
+    try{foreach($pair in @(@($sessionPage,$sessionBody,1004),@($friendsPage,$friendsBody,860))){
+        $pair[1].Width=[Math]::Max([int](680*$scale),$pair[0].ClientSize.Width)
+        $pair[1].Height=[Math]::Max([int]($pair[2]*$scale),$pair[0].ClientSize.Height)
+    };Update-LauncherActionRows}finally{$script:layoutBusy=$false}
+}
+$form.Add_Resize({Resize-LauncherPages});$workspace.Add_Resize({Resize-LauncherPages})
+$sessionPage.Add_Resize({Resize-LauncherPages});$friendsPage.Add_Resize({Resize-LauncherPages})
 $form.AcceptButton=$primary
-$tooltips=New-Object Windows.Forms.ToolTip
-$tooltips.SetToolTip($install,'Kopiert Mod und Bridge und speichert Rolle, Port und Sitzung. Öffnet das Spiel nicht. Im normalen Ablauf geschieht das automatisch.')
-$tooltips.SetToolTip($replay,'Testlabor: spielt eine Bauaufnahme nach dem Neuladen am ursprünglichen Ort erneut ab. Nur im Test Gleiche Stelle verwenden.')
+$tooltips=New-Object Windows.Forms.ToolTip;$tooltips.ShowAlways=$true
+$tooltips.SetToolTip($copyAddress,'Die Einladung ist verfügbar, sobald die Verbindung vorbereitet wurde.')
+$tooltips.SetToolTip($updateCheck,'Sucht nach einer neueren Version auf GitHub.')
+$tooltips.SetToolTip($friendList,'Namen anklicken oder Enter drücken: beitreten. … rechts am Namen: bearbeiten.')
 $tooltips.SetToolTip($recover,'Übernimmt den Gastgeberstand auf beiden PCs. Der Mitspieler muss nichts anklicken.')
-New-Label $side '01  VERBINDEN' 24 402 185 24 9 $Accent | Out-Null
-New-Label $side '02  SPIELSTAND TEILEN' 24 442 190 24 9 $Muted | Out-Null
-New-Label $side '03  GEMEINSAM STARTEN' 24 482 185 24 9 $Muted | Out-Null
-
+Resize-LauncherPages
