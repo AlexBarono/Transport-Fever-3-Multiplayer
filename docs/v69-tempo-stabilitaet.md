@@ -49,7 +49,7 @@ Neue Abdeckung:
 - **16.000 GUI-Schritte** mit zwei simulierten PCs, wechselnden Leistungsgrenzen und 1.000 abwechselnden Tempoauswahlen einschließlich Pause.
 - **10.000 Aktionsabschlüsse / 20.000 Befehlsrückmeldungen**, einschließlich doppelter und verspäteter Rückmeldungen sowie 103 absichtlich abgelehnter Aktionen. Jede Ablehnung wird einmal gemeldet; nachfolgende unabhängige Aktionen bleiben ausführbar.
 
-Die Suiten umfassen insgesamt 646 bestandene Prüfungen je Lua-Laufzeit. Die wiederholten Schritte innerhalb der längeren Testfälle sind darin nicht als einzelne Prüfungen gezählt. Netzwerk und native Spielausführung werden dabei simuliert. Ein realer fehlerfreier Dauerlauf oder die Reparatur jedes abweichenden Stadtstraßen-Graphen ist damit nicht nachgewiesen.
+Die Suiten umfassen insgesamt 647 bestandene Prüfungen je Lua-Laufzeit. Die wiederholten Schritte innerhalb der längeren Testfälle sind darin nicht als einzelne Prüfungen gezählt. Netzwerk und native Spielausführung werden dabei simuliert. Ein realer fehlerfreier Dauerlauf oder die Reparatur jedes abweichenden Stadtstraßen-Graphen ist damit nicht nachgewiesen.
 
 ## Nächster Gegentest
 

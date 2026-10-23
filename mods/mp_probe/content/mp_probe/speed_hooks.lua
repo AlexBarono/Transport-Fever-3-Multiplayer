@@ -11,8 +11,8 @@ function hooks.display_speed(actual, text)
 	local fields = {}
 	for key, value in text:gmatch("(%w+)=(%S+)") do fields[key] = tonumber(value) or value end
 	local requested, target = fields.speed, fields.tg
-	if fields.src ~= "gui" or type(requested) ~= "number" or requested < 1 or requested > 4
-		or requested ~= math.floor(requested) or actual ~= target then return actual end
+	if fields.src ~= "gui" or type(requested) ~= "number" or requested < 0 or requested > 4
+		or requested ~= math.floor(requested) or (actual ~= target and actual ~= 3) then return actual end
 	return requested == 3 and 4 or requested
 end
 

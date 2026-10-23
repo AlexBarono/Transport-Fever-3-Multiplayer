@@ -90,6 +90,12 @@ test("main GUI projection preserves calendar and leaves actual simulation data u
 	assert(api.engine.getComponent(1,8)==real)
 	enabled=false; assert(api.engine.getComponent(1,7)==real)
 end)
+test("internal 3x readback never clears the selected button while a newer target is queued",function()
+	for _,requested in ipairs({0,1,2,4})do
+		assert(hooks.display_speed(3,"src=gui speed="..requested.." tg="..requested)==requested)
+	end
+	assert(hooks.display_speed(2,"src=gui speed=4 tg=3")==2,"a distinct valid user click must remain observable")
+end)
 test("failed native component hook rolls back the capacity hook", function()
 	local estimate=function()return 3 end
 	local read=function()return {speedup=3} end
