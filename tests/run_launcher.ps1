@@ -134,7 +134,8 @@ try {
     $current=Get-LaunchSession $game $fixtureSteam -Installed
     if($current.SessionId -ne $session.SessionId){throw 'Matching prepared and installed session did not validate'}
     $passed++
-    if((Assert-LauncherSavePath $savePath $save) -ne $savePath){throw 'The actual Steam save was rejected'}
+    # Runner TEMP may contain an 8.3 user-directory alias. Compare canonical paths.
+    if((Assert-LauncherSavePath $savePath $save) -ne (Get-Item -LiteralPath $savePath).FullName){throw 'The actual Steam save was rejected'}
     $passed++
     $backupPath=Join-Path $integrationRoot 'Original.sav'; [IO.File]::WriteAllText($backupPath,'a different same-name save')
     $rejected=$false
